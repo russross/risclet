@@ -166,16 +166,39 @@ impl Tui {
 
             // cursor motion
             KeyCode::Up => {
-                self.cursor_index = self.cursor_index.saturating_sub(1);
+                if self.verbose {
+                    self.cursor_index = self.cursor_index.saturating_sub(1);
+                } else {
+                    let pseudo = self.instructions[self.cursor_index].pseudo_index.saturating_sub(1);
+                    self.cursor_index = self.pseudo_addresses[&pseudo];
+                }
             }
             KeyCode::Down => {
-                self.cursor_index = min(self.cursor_index + 1, self.instructions.len() - 1);
+                if self.verbose {
+                    self.cursor_index = (self.cursor_index + 1).min(self.instructions.len() - 1);
+                } else {
+                    let pseudo = (self.instructions[self.cursor_index].pseudo_index + 1)
+                        .min(self.instructions.last().unwrap().pseudo_index);
+                    self.cursor_index = self.pseudo_addresses[&pseudo];
+                }
             }
             KeyCode::PageUp => {
-                self.cursor_index = self.cursor_index.saturating_sub(source_height as usize);
+                if self.verbose {
+                    self.cursor_index = self.cursor_index.saturating_sub(source_height as usize);
+                } else {
+                    let pseudo =
+                        self.instructions[self.cursor_index].pseudo_index.saturating_sub(source_height as usize);
+                    self.cursor_index = self.pseudo_addresses[&pseudo];
+                }
             }
             KeyCode::PageDown => {
-                self.cursor_index = min(self.cursor_index + source_height as usize, self.instructions.len() - 1);
+                if self.verbose {
+                    self.cursor_index = min(self.cursor_index + source_height as usize, self.instructions.len() - 1);
+                } else {
+                    let pseudo = (self.instructions[self.cursor_index].pseudo_index + source_height as usize)
+                        .min(self.instructions.last().unwrap().pseudo_index);
+                    self.cursor_index = self.pseudo_addresses[&pseudo];
+                }
             }
 
             // stepping and jumping
@@ -520,9 +543,21 @@ impl Tui {
 
             let index = if self.verbose { i as usize } else { self.pseudo_addresses[&(i as usize)] };
 
-            // get the line as chars and pad it to required length
+            // render the line
             let inst = &self.instructions[index];
             let addr = inst.address;
+
+            // arrow?
+            let arrow = if addr == arrow_top_addr {
+                Some("┌──")
+            } else if addr == arrow_bottom_addr {
+                Some("└──")
+            } else if addr > arrow_top_addr && addr < arrow_bottom_addr {
+                Some("│  ")
+            } else {
+                None
+            };
+
             let mut line: Vec<char> = fields_to_string(
                 if self.verbose { &inst.verbose_fields } else { &inst.pseudo_fields },
                 addr,
@@ -530,26 +565,15 @@ impl Tui {
                 self.hex_mode,
                 self.verbose,
                 self.show_addresses,
+                arrow,
                 &self.machine.address_symbols,
             )
             .chars()
             .collect();
+
+            // render as chars to we can reliably pad to full width
             while line.len() < pane.width as usize || line.len() < 15 {
                 line.push(' ');
-            }
-
-            // arrows?
-            // TODO: place arrows correctly when addresses are displayed
-            if addr == arrow_top_addr {
-                line[12] = '┌';
-                line[13] = '─';
-                line[14] = '─';
-            } else if addr == arrow_bottom_addr {
-                line[12] = '└';
-                line[13] = '─';
-                line[14] = '─';
-            } else if addr > arrow_top_addr && addr < arrow_bottom_addr {
-                line[12] = '│';
             }
 
             // draw the line in the correct color

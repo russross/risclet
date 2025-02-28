@@ -923,6 +923,7 @@ impl Op {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn to_string(
         &self,
         pc: i64,
@@ -930,10 +931,11 @@ impl Op {
         hex: bool,
         verbose: bool,
         show_addresses: bool,
+        arrow: Option<&str>,
         symbols: &HashMap<i64, String>,
     ) -> String {
         let fields = if verbose { self.to_fields() } else { self.to_pseudo_fields() };
-        fields_to_string(&fields, pc, gp, hex, verbose, show_addresses, symbols)
+        fields_to_string(&fields, pc, gp, hex, verbose, show_addresses, arrow, symbols)
     }
 
     pub fn branch_target(&self, pc: i64) -> Option<i64> {
@@ -977,6 +979,7 @@ pub fn get_pseudo_sequence(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn fields_to_string(
     fields: &[Field],
     pc: i64,
@@ -984,6 +987,7 @@ pub fn fields_to_string(
     hex: bool,
     verbose: bool,
     show_addresses: bool,
+    arrow: Option<&str>,
     symbols: &HashMap<i64, String>,
 ) -> String {
     let addr_part = if !show_addresses {
@@ -994,7 +998,24 @@ pub fn fields_to_string(
         format!("{:>7} ", pc)
     };
 
-    let label = if let Some(label) = symbols.get(&pc) { format!("{}:", label) } else { String::new() };
+    let mut label = if let Some(label) = symbols.get(&pc) { label.chars().collect() } else { Vec::new() };
+    if label.len() > 14 {
+        label.truncate(14);
+        label.push('…');
+    }
+    if !label.is_empty() {
+        label.push(':');
+    }
+    while label.len() < 16 {
+        label.push(' ');
+    }
+    if let Some(overlay) = arrow {
+        let mut chars: Vec<_> = overlay.chars().collect();
+        label.truncate(label.len() - chars.len() - 1);
+        label.append(&mut chars);
+        label.push(' ');
+    }
+    let label: String = label.into_iter().collect();
 
     let operands =
         fields[1..].iter().map(|elt| elt.to_string(pc, gp, hex, verbose, symbols)).collect::<Vec<_>>().join(", ");
