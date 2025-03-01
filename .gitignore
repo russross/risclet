@@ -1,10 +1,2 @@
-__pycache__
-.mypy_cache
-a.out
 *.o
-
-
-# Added by cargo
-
-/target
-Cargo.lock
+target
