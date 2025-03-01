@@ -58,6 +58,11 @@ jobs:
           args: --release --target ${{ matrix.target }}
           use-cross: ${{ contains(matrix.target, 'aarch64-unknown-linux-gnu') }}
 
+      - name: List build directory
+        shell: bash
+        run: |
+          ls -la target/release/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
