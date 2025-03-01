@@ -56,19 +56,6 @@ impl Tui {
             return Err("debug mode only works in an interactive terminal/tty".to_string());
         }
 
-        // make sure stdin is connected to the tty
-        // if not, close it and re-open as /dev/tty
-        if !io::stdin().is_tty() {
-            let stdin_fd = io::stdin().as_raw_fd();
-            drop(io::stdin());
-            unsafe { libc::close(stdin_fd) };
-            serr!(File::open("/dev/tty"))?;
-        }
-
-        // take over terminal
-        serr!(crossterm::terminal::enable_raw_mode())?;
-        serr!(queue!(io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide))?;
-
         // colors:
         let black = Color::AnsiValue(16);
         let white = Color::AnsiValue(231);
@@ -95,13 +82,6 @@ impl Tui {
             Colors::new(Color::AnsiValue(109), black),
             Colors::new(Color::AnsiValue(103), black),
             Colors::new(Color::AnsiValue(139), black),
-            //Colors::new(Color::Rgb{ r:144, g:173, b:133 }, black), // h:103
-            //Colors::new(Color::Rgb{ r:133, g:156, b:173 }, black), // h:206
-            //Colors::new(Color::Rgb{ r:173, g:133, b:167 }, black), // h:309
-            //Colors::new(Color::Rgb{ r:173, g:167, b:133 }, black), // h:51
-            //Colors::new(Color::Rgb{ r:133, g:173, b:156 }, black), // h:154
-            //Colors::new(Color::Rgb{ r:144, g:133, b:173 }, black), // h:257
-            //Colors::new(Color::Rgb{ r:173, g:133, b:133 }, black), // h:0
         ];
 
         // create cycling color pairs for address symbols
@@ -113,10 +93,14 @@ impl Tui {
             data_colors.push((address, color));
         }
 
-        // if there is no data segments
+        // if there is no data segment
         if data_colors.is_empty() {
             data_colors.push((0, normal_color));
         }
+
+        // setup over terminal
+        serr!(crossterm::terminal::enable_raw_mode())?;
+        serr!(queue!(io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide))?;
 
         Ok(Tui {
             machine,

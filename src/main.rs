@@ -7,9 +7,7 @@ use crossterm::tty::IsTty;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Write as FmtWrite};
-use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 
 const STACK_SIZE: i64 = 8192;
