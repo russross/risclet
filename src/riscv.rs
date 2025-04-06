@@ -928,6 +928,7 @@ impl Op {
         &self,
         pc: i64,
         gp: i64,
+        is_compressed: bool,
         hex: bool,
         verbose: bool,
         show_addresses: bool,
@@ -935,7 +936,7 @@ impl Op {
         symbols: &HashMap<i64, String>,
     ) -> String {
         let fields = if verbose { self.to_fields() } else { self.to_pseudo_fields() };
-        fields_to_string(&fields, pc, gp, hex, verbose, show_addresses, arrow, symbols)
+        fields_to_string(&fields, pc, gp, is_compressed, hex, verbose, show_addresses, arrow, symbols)
     }
 
     pub fn branch_target(&self, pc: i64) -> Option<i64> {
@@ -984,6 +985,7 @@ pub fn fields_to_string(
     fields: &[Field],
     pc: i64,
     gp: i64,
+    is_compressed: bool,
     hex: bool,
     verbose: bool,
     show_addresses: bool,
@@ -1017,9 +1019,13 @@ pub fn fields_to_string(
     }
     let label: String = label.into_iter().collect();
 
+    let mut inst = fields[0].to_string(pc, gp, hex, verbose, symbols);
+    if verbose && is_compressed {
+        inst.insert_str(0, "c.");
+    }
     let operands =
         fields[1..].iter().map(|elt| elt.to_string(pc, gp, hex, verbose, symbols)).collect::<Vec<_>>().join(", ");
-    let disasm = format!("{:<8}{}", fields[0].to_string(pc, gp, hex, verbose, symbols), operands);
+    let disasm = format!("{:<8}{}", inst, operands);
 
     format!("{addr_part}{label:<16}{disasm:<48}")
 }
@@ -1079,4 +1085,8 @@ impl Field {
             }
         }
     }
+}
+
+pub fn expand_compressed(_inst: i32) -> Result<i32, String> {
+    unimplemented!("compressed instruction expansion");
 }

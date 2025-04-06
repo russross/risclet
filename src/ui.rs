@@ -546,6 +546,7 @@ impl Tui {
                 if self.verbose { &inst.verbose_fields } else { &inst.pseudo_fields },
                 addr,
                 self.machine.global_pointer,
+                inst.length == 2,
                 self.hex_mode,
                 self.verbose,
                 self.show_addresses,
