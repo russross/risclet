@@ -249,15 +249,28 @@ impl Machine {
         Ok(i64::from_le_bytes(bytes.try_into().unwrap()))
     }
 
-    fn load_instruction(&self, addr: i64) -> Result<i32, String> {
-        let size = 4;
+    fn load_instruction(&self, addr: i64) -> Result<(i32, i64), String> {
         for segment in &self.segments {
-            if segment.in_range(addr, size) && segment.executable {
-                let raw = segment.load(addr, size, &mut None);
-                return Ok(i32::from_le_bytes(raw.try_into().unwrap()));
+            if !segment.in_range(addr, 2) || !segment.executable {
+                continue;
+            }
+
+            // start by reading 16 bits
+            let raw = segment.load(addr, 2, &mut None);
+            let half = i16::from_le_bytes(raw.try_into().unwrap());
+
+            if (half & 0b11) != 0b11 {
+                // If compressed, expand to 32-bit and return with length 2
+                return Ok((expand_compressed(half as i32)?, 2));
+            } else if segment.in_range(addr, 4) {
+                // If not compressed, read full 32-bit instruction
+                let raw = segment.load(addr, 4, &mut None);
+                return Ok((i32::from_le_bytes(raw.try_into().unwrap()), 4));
+            } else {
+                return Err(format!("partial instruction at end of segment addr=0x{:x}", addr));
             }
         }
-        Err(format!("segfault: instruction fetch addr=0x{:x} size={}", addr, size))
+        Err(format!("segfault: instruction fetch addr=0x{:x}", addr))
     }
 
     fn store(&mut self, addr: i64, raw: &[u8]) -> Result<(), String> {
@@ -1259,17 +1272,19 @@ fn main() -> Result<(), String> {
 
     // disassemble the entire text segment
     let mut instructions = Vec::new();
-    for pc in (m.text_start..m.text_end).step_by(4) {
-        let inst = m.load_instruction(pc)?;
+    let mut pc = m.text_start;
+    while pc < m.text_end {
+        let (inst, length) = m.load_instruction(pc)?;
         let instruction = Instruction {
             address: pc,
             op: Op::new(inst)?,
-            length: 4,
+            length,
             pseudo_index: 0,
             verbose_fields: Vec::new(),
             pseudo_fields: Vec::new(),
         };
         instructions.push(instruction);
+        pc += length;
     }
     let mut addresses = HashMap::new();
     for (index, instruction) in instructions.iter().enumerate() {
@@ -1315,6 +1330,7 @@ fn main() -> Result<(), String> {
                     &instruction.pseudo_fields,
                     instruction.address,
                     m.global_pointer,
+                    instruction.length == 2,
                     false,
                     false,
                     false,

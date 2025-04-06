@@ -1,5 +1,5 @@
 [package]
-name = "riscfree"
+name = "lowrisc"
 version = "0.2.4"
 edition = "2024"
 
