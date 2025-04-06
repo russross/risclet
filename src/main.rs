@@ -1255,11 +1255,11 @@ fn main() -> Result<(), String> {
         i += 1;
     }
     if usage {
-        eprintln!("Usage: rv64sim [options]");
+        eprintln!("Usage: lowrisc [options]");
         eprintln!();
         eprintln!("Options:");
         eprintln!("  -e, --executable <path>            Path of executable to run (default a.out)");
-        eprintln!("  -l, --list <true|false>            Apply strict ABI and other checks (default true)");
+        eprintln!("  -l, --lint <true|false>            Apply strict ABI and other checks (default true)");
         eprintln!("  -m, --mode <run|dasm|debug>        Simulator Mode (default debug)");
         eprintln!("  -s, --steps <count>                Maximum steps to run (default {})", MAX_STEPS_DEFAULT);
         eprintln!("  -h, --help                         Show this help");

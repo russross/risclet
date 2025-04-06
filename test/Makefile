@@ -1,6 +1,7 @@
 .SUFFIXES:
+.PRECIOUS: %.S
 
-ASFLAGS=-g --warn --fatal-warnings -march=rv64im
+ASFLAGS=-g --warn --fatal-warnings -march=rv64im -mabi=lp64
 LDFLAGS=--fatal-warnings --no-relax
 ifneq ("$(shell which riscv64-linux-gnu-as)", "")
 	PREFIX=riscv64-linux-gnu-
