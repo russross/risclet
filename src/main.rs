@@ -261,7 +261,7 @@ impl Machine {
 
             if (half & 0b11) != 0b11 {
                 // If compressed, expand to 32-bit and return with length 2
-                return Ok((expand_compressed(half as i32)?, 2));
+                return Ok((half as i32, 2));
             } else if segment.in_range(addr, 4) {
                 // If not compressed, read full 32-bit instruction
                 let raw = segment.load(addr, 4, &mut None);
@@ -1277,7 +1277,7 @@ fn main() -> Result<(), String> {
         let (inst, length) = m.load_instruction(pc)?;
         let instruction = Instruction {
             address: pc,
-            op: Op::new(inst)?,
+            op: Op::new(inst),
             length,
             pseudo_index: 0,
             verbose_fields: Vec::new(),
