@@ -51,6 +51,205 @@ fn get_funct7(inst: i32) -> i32 {
     inst >> 25
 }
 
+// Extract the opcode (lowest 2 bits) from a compressed instruction
+fn get_c_op(inst: i32) -> i32 {
+    inst & 0x3
+}
+
+// Extract the funct3 field (bits 15-13) from a compressed instruction
+fn get_c_funct3(inst: i32) -> i32 {
+    (inst >> 13) & 0x7
+}
+
+// Extract the rd'/rs1' field (bits 9-7) from a compressed instruction (x8-x15)
+fn get_c_rs1_prime(inst: i32) -> usize {
+    (((inst >> 7) & 0x7) + 8) as usize
+}
+
+// Extract the rs2' field (bits 4-2) from a compressed instruction (x8-x15)
+fn get_c_rs2_prime(inst: i32) -> usize {
+    (((inst >> 2) & 0x7) + 8) as usize
+}
+
+// Extract the 5-bit rd/rs1 field (bits 11-7) from a compressed instruction
+fn get_c_rd_rs1(inst: i32) -> usize {
+    ((inst >> 7) & 0x1f) as usize
+}
+
+// Extract the 5-bit rs2 field (bits 6-2) from a compressed instruction
+fn get_c_rs2(inst: i32) -> usize {
+    ((inst >> 2) & 0x1f) as usize
+}
+
+// Helper for sign extension from a specific bit position (width) within an i32
+fn sign_extend(value: i32, width: u32) -> i64 {
+    let shift = 32 - width;
+    ((value << shift) >> shift) as i64
+}
+
+// C.LWSP immediate decoder
+fn get_c_lwsp_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 6) & 0x1) << 4;
+    imm |= ((inst >> 5) & 0x1) << 3;
+    imm |= ((inst >> 4) & 0x1) << 2;
+    imm |= ((inst >> 3) & 0x1) << 7;
+    imm |= ((inst >> 2) & 0x1) << 6;
+
+    imm as i64 // unsigned
+}
+
+// C.LDSP immediate decoder
+fn get_c_ldsp_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 6) & 0x1) << 4;
+    imm |= ((inst >> 5) & 0x1) << 3;
+    imm |= ((inst >> 4) & 0x1) << 8;
+    imm |= ((inst >> 3) & 0x1) << 7;
+    imm |= ((inst >> 2) & 0x1) << 6;
+
+    imm as i64 // unsigned
+}
+
+// C.SWSP immediate decoder
+fn get_c_swsp_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 3;
+    imm |= ((inst >> 9) & 0x1) << 2;
+    imm |= ((inst >> 8) & 0x1) << 7;
+    imm |= ((inst >> 7) & 0x1) << 6;
+
+    imm as i64 // unsigned
+}
+
+// C.SDSP immediate decoder
+fn get_c_sdsp_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 3;
+    imm |= ((inst >> 9) & 0x1) << 8;
+    imm |= ((inst >> 8) & 0x1) << 7;
+    imm |= ((inst >> 7) & 0x1) << 6;
+
+    imm as i64 // unsigned
+}
+
+// C.LW, C.SW immediate decoder
+fn get_c_lw_sw_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 3;
+    imm |= ((inst >> 6) & 0x1) << 2;
+    imm |= ((inst >> 5) & 0x1) << 6;
+
+    imm as i64 // unsigned
+}
+
+// C.LD, C.SD immediate decoder
+fn get_c_ld_sd_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 3;
+    imm |= ((inst >> 6) & 0x1) << 7;
+    imm |= ((inst >> 5) & 0x1) << 6;
+
+    imm as i64 // unsigned
+}
+
+// C.J, C.JAL immediate decoder
+fn get_c_j_jal_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 11;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 9;
+    imm |= ((inst >> 9) & 0x1) << 8;
+    imm |= ((inst >> 8) & 0x1) << 10;
+    imm |= ((inst >> 7) & 0x1) << 6;
+    imm |= ((inst >> 6) & 0x1) << 7;
+    imm |= ((inst >> 5) & 0x1) << 3;
+    imm |= ((inst >> 4) & 0x1) << 2;
+    imm |= ((inst >> 3) & 0x1) << 1;
+    imm |= ((inst >> 2) & 0x1) << 5;
+
+    sign_extend(imm, 12)
+}
+
+// C.BEQZ, C.BNEZ immediate decoder
+fn get_c_beqz_bnez_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 8;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 3;
+    imm |= ((inst >> 6) & 0x1) << 7;
+    imm |= ((inst >> 5) & 0x1) << 6;
+    imm |= ((inst >> 4) & 0x1) << 2;
+    imm |= ((inst >> 3) & 0x1) << 1;
+    imm |= ((inst >> 2) & 0x1) << 5;
+
+    sign_extend(imm, 9)
+}
+
+// C.LI, C.ADDI, C.ADDIW, C.ANDI immediate decoder
+fn get_c_li_addi_addiw_andi_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 6) & 0x1) << 4;
+    imm |= ((inst >> 5) & 0x1) << 3;
+    imm |= ((inst >> 4) & 0x1) << 2;
+    imm |= ((inst >> 3) & 0x1) << 1;
+    imm |= (inst >> 2) & 0x1;
+
+    sign_extend(imm, 6)
+}
+
+// C.LUI immediate decoder
+fn get_c_lui_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 17;
+    imm |= ((inst >> 6) & 0x1) << 16;
+    imm |= ((inst >> 5) & 0x1) << 15;
+    imm |= ((inst >> 4) & 0x1) << 14;
+    imm |= ((inst >> 3) & 0x1) << 13;
+    imm |= ((inst >> 2) & 0x1) << 12;
+
+    sign_extend(imm, 18)
+}
+
+// C.ADDI16SP immediate decoder
+fn get_c_addi16sp_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 9;
+    imm |= ((inst >> 6) & 0x1) << 4;
+    imm |= ((inst >> 5) & 0x1) << 6;
+    imm |= ((inst >> 4) & 0x1) << 8;
+    imm |= ((inst >> 3) & 0x1) << 7;
+    imm |= ((inst >> 2) & 0x1) << 5;
+
+    sign_extend(imm, 10)
+}
+
+// C.ADDI4SPN immediate decoder
+fn get_c_addi4spn_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 11) & 0x1) << 4;
+    imm |= ((inst >> 10) & 0x1) << 9;
+    imm |= ((inst >> 9) & 0x1) << 8;
+    imm |= ((inst >> 8) & 0x1) << 7;
+    imm |= ((inst >> 7) & 0x1) << 6;
+    imm |= ((inst >> 6) & 0x1) << 2;
+    imm |= ((inst >> 5) & 0x1) << 3;
+
+    imm as i64 // unsigned
+}
+
+// C.SLLI immediate decoder
+fn get_c_slli_srli_srai_imm(inst: i32) -> i64 {
+    let mut imm = ((inst >> 12) & 0x1) << 5;
+    imm |= ((inst >> 6) & 0x1) << 4;
+    imm |= ((inst >> 5) & 0x1) << 3;
+    imm |= ((inst >> 4) & 0x1) << 2;
+    imm |= ((inst >> 3) & 0x1) << 1;
+    imm |= (inst >> 2) & 0x1;
+
+    imm as i64 // unsigned
+}
+
 pub const R: [&str; 32] = [
     "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2",
     "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
@@ -157,10 +356,20 @@ pub enum Op {
     Divuw { rd: usize, rs1: usize, rs2: usize },
     Remw { rd: usize, rs1: usize, rs2: usize },
     Remuw { rd: usize, rs1: usize, rs2: usize },
+
+    Unimplemented { inst: i32, note: String },
 }
 
 impl Op {
-    pub fn new(inst: i32) -> Result<Self, String> {
+    pub fn new(inst: i32) -> Self {
+        // 16-bit compressed instruction?
+        // (bottom two bits not equal to 0b11)
+        if (inst & 0x3) != 0x3 {
+            return Self::decode_compressed(inst);
+        }
+
+        // 32-bit instruction
+
         // get the opcode
         let opcode = inst & 0x7f;
 
@@ -181,13 +390,13 @@ impl Op {
             0x63 => Self::decode_branches(inst),
 
             // jump
-            0x6f => Ok(Op::Jal { rd: get_rd(inst), offset: get_imm_j(inst) }),
+            0x6f => Op::Jal { rd: get_rd(inst), offset: get_imm_j(inst) },
             0x67 => {
                 let funct3 = get_funct3(inst);
                 if funct3 == 0 {
-                    Ok(Op::Jalr { rd: get_rd(inst), rs1: get_rs1(inst), offset: get_imm_i(inst) })
+                    Op::Jalr { rd: get_rd(inst), rs1: get_rs1(inst), offset: get_imm_i(inst) }
                 } else {
-                    Err(format!("jalr with unknown funct3 value of {}", funct3))
+                    Op::Unimplemented { inst, note: format!("jalr with unknown funct3 value of {}", funct3) }
                 }
             }
 
@@ -198,69 +407,72 @@ impl Op {
             0x23 => Self::decode_store(inst),
 
             // u type
-            0x37 => Ok(Op::Lui { rd: get_rd(inst), imm: get_imm_u(inst) }),
-            0x17 => Ok(Op::Auipc { rd: get_rd(inst), imm: get_imm_u(inst) }),
+            0x37 => Op::Lui { rd: get_rd(inst), imm: get_imm_u(inst) },
+            0x17 => Op::Auipc { rd: get_rd(inst), imm: get_imm_u(inst) },
 
             // misc
-            0x0f => Ok(Self::Fence),
-            0x73 if inst == 0x00000073 => Ok(Self::Ecall),
-            0x73 if inst == 0x00100073 => Ok(Self::Ebreak),
+            0x0f => Self::Fence,
+            0x73 if inst == 0x00000073 => Self::Ecall,
+            0x73 if inst == 0x00100073 => Self::Ebreak,
 
-            _ => Err(format!("disassembler found unknown instruction {:#x}", inst)),
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("disassembler found unknown instruction opcode 0x{:x}", opcode),
+            },
         }
     }
 
-    fn decode_branches(inst: i32) -> Result<Self, String> {
+    fn decode_branches(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let rs1 = get_rs1(inst);
         let rs2 = get_rs2(inst);
         let offset = get_imm_b(inst);
 
         match funct3 {
-            0 => Ok(Op::Beq { rs1, rs2, offset }),
-            1 => Ok(Op::Bne { rs1, rs2, offset }),
-            4 => Ok(Op::Blt { rs1, rs2, offset }),
-            5 => Ok(Op::Bge { rs1, rs2, offset }),
-            6 => Ok(Op::Bltu { rs1, rs2, offset }),
-            7 => Ok(Op::Bgeu { rs1, rs2, offset }),
-            _ => Err(format!("branch instruction of unknown type {}", funct3)),
+            0 => Op::Beq { rs1, rs2, offset },
+            1 => Op::Bne { rs1, rs2, offset },
+            4 => Op::Blt { rs1, rs2, offset },
+            5 => Op::Bge { rs1, rs2, offset },
+            6 => Op::Bltu { rs1, rs2, offset },
+            7 => Op::Bgeu { rs1, rs2, offset },
+            _ => Op::Unimplemented { inst, note: format!("branch instruction of unknown type {}", funct3) },
         }
     }
 
-    fn decode_load(inst: i32) -> Result<Self, String> {
+    fn decode_load(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let rd = get_rd(inst);
         let rs1 = get_rs1(inst);
         let offset = get_imm_i(inst);
 
         match funct3 {
-            0 => Ok(Op::Lb { rd, rs1, offset }),
-            1 => Ok(Op::Lh { rd, rs1, offset }),
-            2 => Ok(Op::Lw { rd, rs1, offset }),
-            3 => Ok(Op::Ld { rd, rs1, offset }),
-            4 => Ok(Op::Lbu { rd, rs1, offset }),
-            5 => Ok(Op::Lhu { rd, rs1, offset }),
-            6 => Ok(Op::Lwu { rd, rs1, offset }),
-            _ => Err(format!("load instruction of unknown type {}", funct3)),
+            0 => Op::Lb { rd, rs1, offset },
+            1 => Op::Lh { rd, rs1, offset },
+            2 => Op::Lw { rd, rs1, offset },
+            3 => Op::Ld { rd, rs1, offset },
+            4 => Op::Lbu { rd, rs1, offset },
+            5 => Op::Lhu { rd, rs1, offset },
+            6 => Op::Lwu { rd, rs1, offset },
+            _ => Op::Unimplemented { inst, note: format!("load instruction of unknown type {}", funct3) },
         }
     }
 
-    fn decode_store(inst: i32) -> Result<Self, String> {
+    fn decode_store(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let rs1 = get_rs1(inst);
         let rs2 = get_rs2(inst);
         let offset = get_imm_s(inst);
 
         match funct3 {
-            0 => Ok(Op::Sb { rs1, rs2, offset }),
-            1 => Ok(Op::Sh { rs1, rs2, offset }),
-            2 => Ok(Op::Sw { rs1, rs2, offset }),
-            3 => Ok(Op::Sd { rs1, rs2, offset }),
-            _ => Err(format!("store of unknown type {}", funct3)),
+            0 => Op::Sb { rs1, rs2, offset },
+            1 => Op::Sh { rs1, rs2, offset },
+            2 => Op::Sw { rs1, rs2, offset },
+            3 => Op::Sd { rs1, rs2, offset },
+            _ => Op::Unimplemented { inst, note: format!("store instruction of unknown type {}", funct3) },
         }
     }
 
-    fn decode_i_type(inst: i32) -> Result<Self, String> {
+    fn decode_i_type(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let rd = get_rd(inst);
         let rs1 = get_rs1(inst);
@@ -269,31 +481,41 @@ impl Op {
         let imm_high = imm >> 6;
 
         match funct3 {
-            0 => Ok(Op::Addi { rd, rs1, imm }),
+            0 => Op::Addi { rd, rs1, imm },
             1 => {
                 if imm_high == 0 {
-                    Ok(Op::Slli { rd, rs1, shamt })
+                    Op::Slli { rd, rs1, shamt }
                 } else {
-                    Err(format!("immediate mode alu instruction of type {} with unknown subtype {}", funct3, imm_high))
+                    Op::Unimplemented {
+                        inst,
+                        note: format!(
+                            "immediate mode alu instruction of type {} with unknown subtype {}",
+                            funct3, imm_high
+                        ),
+                    }
                 }
             }
-            2 => Ok(Op::Slti { rd, rs1, imm }),
-            3 => Ok(Op::Sltiu { rd, rs1, imm }),
-            4 => Ok(Op::Xori { rd, rs1, imm }),
+            2 => Op::Slti { rd, rs1, imm },
+            3 => Op::Sltiu { rd, rs1, imm },
+            4 => Op::Xori { rd, rs1, imm },
             5 => match imm_high {
-                0x00 => Ok(Op::Srli { rd, rs1, shamt }),
-                0x10 => Ok(Op::Srai { rd, rs1, shamt }),
-                _ => {
-                    Err(format!("immediate mode alu instruction of type {} with unknown subtype {}", funct3, imm_high))
-                }
+                0x00 => Op::Srli { rd, rs1, shamt },
+                0x10 => Op::Srai { rd, rs1, shamt },
+                _ => Op::Unimplemented {
+                    inst,
+                    note: format!(
+                        "immediate mode alu instruction of type {} with unknown subtype {}",
+                        funct3, imm_high
+                    ),
+                },
             },
-            6 => Ok(Op::Ori { rd, rs1, imm }),
-            7 => Ok(Op::Andi { rd, rs1, imm }),
-            _ => Err(format!("alu immediate of unknown type {}", funct3)),
+            6 => Op::Ori { rd, rs1, imm },
+            7 => Op::Andi { rd, rs1, imm },
+            _ => Op::Unimplemented { inst, note: format!("alu immediate of unknown type {}", funct3) },
         }
     }
 
-    fn decode_rv64_i_type(inst: i32) -> Result<Self, String> {
+    fn decode_rv64_i_type(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let rd = get_rd(inst);
         let rs1 = get_rs1(inst);
@@ -302,21 +524,26 @@ impl Op {
         let imm_high = imm >> 5;
 
         match funct3 {
-            0 => Ok(Op::Addiw { rd, rs1, imm }),
-            1 => Ok(Op::Slliw { rd, rs1, shamt }),
+            0 => Op::Addiw { rd, rs1, imm },
+            1 => Op::Slliw { rd, rs1, shamt },
             5 => match imm_high {
-                0x00 => Ok(Op::Srliw { rd, rs1, shamt }),
-                0x20 => Ok(Op::Sraiw { rd, rs1, shamt }),
-                _ => Err(format!(
-                    "immediate mode alu w instruction of type {} with unknown subtype {}",
-                    funct3, imm_high
-                )),
+                0x00 => Op::Srliw { rd, rs1, shamt },
+                0x20 => Op::Sraiw { rd, rs1, shamt },
+                _ => Op::Unimplemented {
+                    inst,
+                    note: format!(
+                        "immediate mode alu w instruction of type {} with unknown subtype {}",
+                        funct3, imm_high
+                    ),
+                },
             },
-            _ => Err(format!("immediate mode alu w instruction of unknown type {}", funct3)),
+            _ => {
+                Op::Unimplemented { inst, note: format!("immediate mode alu w instruction of unknown type {}", funct3) }
+            }
         }
     }
 
-    fn decode_r_type(inst: i32) -> Result<Self, String> {
+    fn decode_r_type(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let funct7 = get_funct7(inst);
         let rd = get_rd(inst);
@@ -324,31 +551,34 @@ impl Op {
         let rs2 = get_rs2(inst);
 
         match (funct7, funct3) {
-            (0x00, 0x00) => Ok(Op::Add { rd, rs1, rs2 }),
-            (0x20, 0x00) => Ok(Op::Sub { rd, rs1, rs2 }),
-            (0x00, 0x01) => Ok(Op::Sll { rd, rs1, rs2 }),
-            (0x00, 0x02) => Ok(Op::Slt { rd, rs1, rs2 }),
-            (0x00, 0x03) => Ok(Op::Sltu { rd, rs1, rs2 }),
-            (0x00, 0x04) => Ok(Op::Xor { rd, rs1, rs2 }),
-            (0x00, 0x05) => Ok(Op::Srl { rd, rs1, rs2 }),
-            (0x20, 0x05) => Ok(Op::Sra { rd, rs1, rs2 }),
-            (0x00, 0x06) => Ok(Op::Or { rd, rs1, rs2 }),
-            (0x00, 0x07) => Ok(Op::And { rd, rs1, rs2 }),
+            (0x00, 0x00) => Op::Add { rd, rs1, rs2 },
+            (0x20, 0x00) => Op::Sub { rd, rs1, rs2 },
+            (0x00, 0x01) => Op::Sll { rd, rs1, rs2 },
+            (0x00, 0x02) => Op::Slt { rd, rs1, rs2 },
+            (0x00, 0x03) => Op::Sltu { rd, rs1, rs2 },
+            (0x00, 0x04) => Op::Xor { rd, rs1, rs2 },
+            (0x00, 0x05) => Op::Srl { rd, rs1, rs2 },
+            (0x20, 0x05) => Op::Sra { rd, rs1, rs2 },
+            (0x00, 0x06) => Op::Or { rd, rs1, rs2 },
+            (0x00, 0x07) => Op::And { rd, rs1, rs2 },
 
-            (0x01, 0x00) => Ok(Op::Mul { rd, rs1, rs2 }),
-            (0x01, 0x01) => Ok(Op::Mulh { rd, rs1, rs2 }),
-            (0x01, 0x02) => Ok(Op::Mulhsu { rd, rs1, rs2 }),
-            (0x01, 0x03) => Ok(Op::Mulhu { rd, rs1, rs2 }),
-            (0x01, 0x04) => Ok(Op::Div { rd, rs1, rs2 }),
-            (0x01, 0x05) => Ok(Op::Divu { rd, rs1, rs2 }),
-            (0x01, 0x06) => Ok(Op::Rem { rd, rs1, rs2 }),
-            (0x01, 0x07) => Ok(Op::Remu { rd, rs1, rs2 }),
+            (0x01, 0x00) => Op::Mul { rd, rs1, rs2 },
+            (0x01, 0x01) => Op::Mulh { rd, rs1, rs2 },
+            (0x01, 0x02) => Op::Mulhsu { rd, rs1, rs2 },
+            (0x01, 0x03) => Op::Mulhu { rd, rs1, rs2 },
+            (0x01, 0x04) => Op::Div { rd, rs1, rs2 },
+            (0x01, 0x05) => Op::Divu { rd, rs1, rs2 },
+            (0x01, 0x06) => Op::Rem { rd, rs1, rs2 },
+            (0x01, 0x07) => Op::Remu { rd, rs1, rs2 },
 
-            _ => Err(format!("alu instruction of unknown type {} subtype {}", funct3, funct7)),
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("alu instruction of unknown type {} subtype {}", funct3, funct7),
+            },
         }
     }
 
-    fn decode_rv64_r_type(inst: i32) -> Result<Self, String> {
+    fn decode_rv64_r_type(inst: i32) -> Self {
         let funct3 = get_funct3(inst);
         let funct7 = get_funct7(inst);
         let rd = get_rd(inst);
@@ -356,19 +586,262 @@ impl Op {
         let rs2 = get_rs2(inst);
 
         match (funct7, funct3) {
-            (0x00, 0x00) => Ok(Op::Addw { rd, rs1, rs2 }),
-            (0x20, 0x00) => Ok(Op::Subw { rd, rs1, rs2 }),
-            (0x00, 0x01) => Ok(Op::Sllw { rd, rs1, rs2 }),
-            (0x00, 0x05) => Ok(Op::Srlw { rd, rs1, rs2 }),
-            (0x20, 0x05) => Ok(Op::Sraw { rd, rs1, rs2 }),
+            (0x00, 0x00) => Op::Addw { rd, rs1, rs2 },
+            (0x20, 0x00) => Op::Subw { rd, rs1, rs2 },
+            (0x00, 0x01) => Op::Sllw { rd, rs1, rs2 },
+            (0x00, 0x05) => Op::Srlw { rd, rs1, rs2 },
+            (0x20, 0x05) => Op::Sraw { rd, rs1, rs2 },
 
-            (0x01, 0x00) => Ok(Op::Mulw { rd, rs1, rs2 }),
-            (0x01, 0x04) => Ok(Op::Divw { rd, rs1, rs2 }),
-            (0x01, 0x05) => Ok(Op::Divuw { rd, rs1, rs2 }),
-            (0x01, 0x06) => Ok(Op::Remw { rd, rs1, rs2 }),
-            (0x01, 0x07) => Ok(Op::Remuw { rd, rs1, rs2 }),
+            (0x01, 0x00) => Op::Mulw { rd, rs1, rs2 },
+            (0x01, 0x04) => Op::Divw { rd, rs1, rs2 },
+            (0x01, 0x05) => Op::Divuw { rd, rs1, rs2 },
+            (0x01, 0x06) => Op::Remw { rd, rs1, rs2 },
+            (0x01, 0x07) => Op::Remuw { rd, rs1, rs2 },
 
-            _ => Err(format!("alu w instruction of unknown type {} subtype {}", funct3, funct7)),
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("alu w instruction of unknown type {} subtype {}", funct3, funct7),
+            },
+        }
+    }
+
+    fn decode_compressed(inst: i32) -> Self {
+        let op = get_c_op(inst);
+        let funct3 = get_c_funct3(inst);
+
+        match (op, funct3) {
+            // C0 quadrant
+            (0, 0) => {
+                // C.ADDI4SPN
+                let rd = get_c_rs2_prime(inst);
+                let imm = get_c_addi4spn_imm(inst);
+                if imm == 0 {
+                    Op::Unimplemented { inst, note: String::from("C.ADDI4SPN with imm=0 is reserved") }
+                } else {
+                    Op::Addi { rd, rs1: SP, imm }
+                }
+            }
+            (0, 1) => {
+                // C.FLD (not supported)
+                Op::Unimplemented { inst, note: String::from("C.FLD is not supported") }
+            }
+            (0, 2) => {
+                // C.LW
+                let rd = get_c_rs2_prime(inst);
+                let rs1 = get_c_rs1_prime(inst);
+                let imm = get_c_lw_sw_imm(inst);
+                Op::Lw { rd, rs1, offset: imm }
+            }
+            (0, 3) => {
+                // C.LD
+                let rd = get_c_rs2_prime(inst);
+                let rs1 = get_c_rs1_prime(inst);
+                let imm = get_c_ld_sd_imm(inst);
+                Op::Ld { rd, rs1, offset: imm }
+            }
+            (0, 4) => {
+                // Reserved
+                Op::Unimplemented { inst, note: String::from("Reserved compressed instruction") }
+            }
+            (0, 5) => {
+                // C.FSD (not supported)
+                Op::Unimplemented { inst, note: String::from("C.FSD is not supported") }
+            }
+            (0, 6) => {
+                // C.SW
+                let rs2 = get_c_rs2_prime(inst);
+                let rs1 = get_c_rs1_prime(inst);
+                let imm = get_c_lw_sw_imm(inst);
+                Op::Sw { rs1, rs2, offset: imm }
+            }
+            (0, 7) => {
+                // C.SD
+                let rs2 = get_c_rs2_prime(inst);
+                let rs1 = get_c_rs1_prime(inst);
+                let imm = get_c_ld_sd_imm(inst);
+                Op::Sd { rs1, rs2, offset: imm }
+            }
+
+            // C1 quadrant
+            (1, 0) => {
+                // C.ADDI
+                let rd = get_c_rd_rs1(inst);
+                let imm = get_c_li_addi_addiw_andi_imm(inst);
+                Op::Addi { rd, rs1: rd, imm }
+            }
+            (1, 1) => {
+                // C.ADDIW - rv64 specific
+                let rd = get_c_rd_rs1(inst);
+                let imm = get_c_li_addi_addiw_andi_imm(inst);
+                if rd == 0 {
+                    Op::Unimplemented { inst, note: String::from("C.ADDIW with rd=0 is reserved") }
+                } else {
+                    Op::Addiw { rd, rs1: rd, imm }
+                }
+            }
+            (1, 2) => {
+                // C.LI
+                let rd = get_c_rd_rs1(inst);
+                let imm = get_c_li_addi_addiw_andi_imm(inst);
+                Op::Addi { rd, rs1: ZERO, imm }
+            }
+            (1, 3) => {
+                if get_c_rd_rs1(inst) == 2 {
+                    // C.ADDI16SP
+                    let imm = get_c_addi16sp_imm(inst);
+                    if imm == 0 {
+                        Op::Unimplemented { inst, note: String::from("C.ADDI16SP with imm=0 is reserved") }
+                    } else {
+                        Op::Addi { rd: SP, rs1: SP, imm }
+                    }
+                } else {
+                    // C.LUI
+                    let rd = get_c_rd_rs1(inst);
+                    let imm = get_c_lui_imm(inst);
+                    if rd == 0 || imm == 0 {
+                        Op::Unimplemented { inst, note: String::from("C.LUI with rd=0 or imm=0 is reserved") }
+                    } else {
+                        Op::Lui { rd, imm }
+                    }
+                }
+            }
+            (1, 4) => {
+                // Various operations based on bits 11:10
+                let funct2 = (inst >> 10) & 0x3;
+                let rd = get_c_rs1_prime(inst);
+                let rs2 = get_c_rs2_prime(inst);
+                match funct2 {
+                    0 => {
+                        // C.SRLI
+                        let shamt = get_c_slli_srli_srai_imm(inst);
+                        Op::Srli { rd, rs1: rd, shamt }
+                    }
+                    1 => {
+                        // C.SRAI
+                        let shamt = get_c_slli_srli_srai_imm(inst);
+                        Op::Srai { rd, rs1: rd, shamt }
+                    }
+                    2 => {
+                        // C.ANDI
+                        let imm = get_c_li_addi_addiw_andi_imm(inst);
+                        Op::Andi { rd, rs1: rd, imm }
+                    }
+                    3 => {
+                        // Complex instructions based on bits 6:5
+                        let funct = (inst >> 5) & 0x3;
+                        match funct {
+                            0 => Op::Sub { rd, rs1: rd, rs2 },
+                            1 => Op::Xor { rd, rs1: rd, rs2 },
+                            2 => Op::Or { rd, rs1: rd, rs2 },
+                            3 => Op::And { rd, rs1: rd, rs2 },
+                            _ => unreachable!(),
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            (1, 5) => {
+                // C.J
+                let offset = get_c_j_jal_imm(inst);
+                Op::Jal { rd: ZERO, offset }
+            }
+            (1, 6) => {
+                // C.BEQZ
+                let rs1 = get_c_rs1_prime(inst);
+                let offset = get_c_beqz_bnez_imm(inst);
+                Op::Beq { rs1, rs2: ZERO, offset }
+            }
+            (1, 7) => {
+                // C.BNEZ
+                let rs1 = get_c_rs1_prime(inst);
+                let offset = get_c_beqz_bnez_imm(inst);
+                Op::Bne { rs1, rs2: ZERO, offset }
+            }
+
+            // C2 quadrant
+            (2, 0) => {
+                // C.SLLI
+                let rd = get_c_rd_rs1(inst);
+                let shamt = get_c_slli_srli_srai_imm(inst);
+                Op::Slli { rd, rs1: rd, shamt }
+            }
+            (2, 1) => {
+                // C.FLDSP (not supported)
+                Op::Unimplemented { inst, note: String::from("C.FLDSP is not supported") }
+            }
+            (2, 2) => {
+                // C.LWSP
+                let rd = get_c_rd_rs1(inst);
+                let imm = get_c_lwsp_imm(inst);
+                if rd == 0 {
+                    Op::Unimplemented { inst, note: String::from("C.LWSP with rd=0 is reserved") }
+                } else {
+                    Op::Lw { rd, rs1: SP, offset: imm }
+                }
+            }
+            (2, 3) => {
+                // C.LDSP
+                let rd = get_c_rd_rs1(inst);
+                let imm = get_c_ldsp_imm(inst);
+                if rd == 0 {
+                    Op::Unimplemented { inst, note: String::from("C.LDSP with rd=0 is reserved") }
+                } else {
+                    Op::Ld { rd, rs1: SP, offset: imm }
+                }
+            }
+            (2, 4) => {
+                let rd = get_c_rd_rs1(inst);
+                let rs2 = get_c_rs2(inst);
+
+                if (inst >> 12) & 0x1 == 0 {
+                    if rs2 == 0 {
+                        // C.JR
+                        if rd == 0 {
+                            Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") }
+                        } else {
+                            Op::Jalr { rd: ZERO, rs1: rd, offset: 0 }
+                        }
+                    } else {
+                        // C.MV
+                        if rd == 0 {
+                            Op::Unimplemented { inst, note: String::from("C.MV with rd=0 is reserved") }
+                        } else {
+                            Op::Add { rd, rs1: ZERO, rs2 }
+                        }
+                    }
+                } else if rs2 == 0 {
+                    if rd == 0 {
+                        // C.EBREAK
+                        Op::Ebreak
+                    } else {
+                        // C.JALR
+                        Op::Jalr { rd: RA, rs1: rd, offset: 0 }
+                    }
+                } else {
+                    // C.ADD
+                    Op::Add { rd, rs1: rd, rs2 }
+                }
+            }
+            (2, 5) => {
+                // C.FSDSP (not supported)
+                Op::Unimplemented { inst, note: String::from("C.FSDSP is not supported") }
+            }
+            (2, 6) => {
+                // C.SWSP
+                let rs2 = get_c_rs2(inst);
+                let imm = get_c_swsp_imm(inst);
+                Op::Sw { rs1: SP, rs2, offset: imm }
+            }
+            (2, 7) => {
+                // C.SDSP
+                let rs2 = get_c_rs2(inst);
+                let imm = get_c_sdsp_imm(inst);
+                Op::Sd { rs1: SP, rs2, offset: imm }
+            }
+
+            _ => {
+                Op::Unimplemented { inst, note: format!("unknown compressed instruction op:{} funct3:{}", op, funct3) }
+            }
         }
     }
 
@@ -667,15 +1140,13 @@ impl Op {
                     93 => {
                         // exit system call
                         let status = m.get(A0) & 0xff;
-                        let effects = m.effects.as_mut().unwrap();
-                        effects.error(format!("exit({})", status));
+                        return Err(format!("exit({})", status));
                     }
                     syscall => return Err(format!("unsupported syscall {syscall}")),
                 }
             }
             Op::Ebreak => {
-                let effects = m.effects.as_mut().unwrap();
-                effects.error(String::from("ebreak"));
+                return Err(String::from("ebreak"));
             }
 
             // m extension
@@ -741,6 +1212,10 @@ impl Op {
                 let val =
                     if rs2_val == 0 { m.get32(*rs1) } else { (m.get32(*rs1) as u32).wrapping_rem(rs2_val) as i32 };
                 m.set32(*rd, val);
+            }
+
+            Op::Unimplemented { inst, note } => {
+                return Err(format!("inst: 0x{:x} note: {}", inst, note));
             }
         }
         Ok(())
@@ -872,6 +1347,9 @@ impl Op {
             Op::Remuw { rd, rs1, rs2 } => {
                 vec![Field::Opcode("remuw"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)]
             }
+
+            // unknown instructions
+            Op::Unimplemented { .. } => vec![Field::Opcode("???")],
         }
     }
 
@@ -1085,8 +1563,4 @@ impl Field {
             }
         }
     }
-}
-
-pub fn expand_compressed(_inst: i32) -> Result<i32, String> {
-    unimplemented!("compressed instruction expansion");
 }
