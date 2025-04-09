@@ -316,6 +316,11 @@ _start:
                 call    print_string
                 call    test_xor
 
+                # test compressed
+                la      a0, test_c_msg
+                call    print_string
+                call    test_rvc
+
                 # test ma_data
                 la      a0, test_ma_data_msg
                 call    print_string
@@ -416,6 +421,7 @@ test_subw_msg:  .asciz  "testing subw...\n"
 test_sw_msg:    .asciz  "testing sw...\n"
 test_xori_msg:  .asciz  "testing xori...\n"
 test_xor_msg:   .asciz  "testing xor...\n"
+test_c_msg:     .asciz  "testing compressed...\n"
 test_ma_data_msg: .asciz  "testing ma_data...\n"
 finished_msg:   .asciz  "completed all tests\n"
                 .bss

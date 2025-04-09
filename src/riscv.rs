@@ -729,12 +729,14 @@ impl Op {
                     3 => {
                         // Complex instructions based on bits 6:5
                         let funct = (inst >> 5) & 0x3;
-                        match funct {
-                            0 => Op::Sub { rd, rs1: rd, rs2 },
-                            1 => Op::Xor { rd, rs1: rd, rs2 },
-                            2 => Op::Or { rd, rs1: rd, rs2 },
-                            3 => Op::And { rd, rs1: rd, rs2 },
-                            _ => unreachable!(),
+                        match ((inst >> 12) & 0x1, funct) {
+                            (0, 0) => Op::Sub { rd, rs1: rd, rs2 },
+                            (0, 1) => Op::Xor { rd, rs1: rd, rs2 },
+                            (0, 2) => Op::Or { rd, rs1: rd, rs2 },
+                            (0, 3) => Op::And { rd, rs1: rd, rs2 },
+                            (1, 0) => Op::Subw { rd, rs1: rd, rs2 },
+                            (1, 1) => Op::Addw { rd, rs1: rd, rs2 },
+                            _ => Op::Unimplemented { inst, note: format!("compressed encoding is reserved") },
                         }
                     }
                     _ => unreachable!(),
@@ -845,7 +847,7 @@ impl Op {
         }
     }
 
-    pub fn execute(&self, m: &mut Machine) -> Result<(), String> {
+    pub fn execute(&self, m: &mut Machine, length: i64) -> Result<(), String> {
         match self {
             // r-type
             Op::Add { rd, rs1, rs2 } => {
@@ -1007,12 +1009,12 @@ impl Op {
 
             // jump
             Op::Jal { rd, offset } => {
-                m.set(*rd, m.pc + 4);
+                m.set(*rd, m.pc + length);
                 m.set_pc(m.pc + *offset)?;
             }
             Op::Jalr { rd, rs1, offset } => {
                 let rs1_val = m.get(*rs1);
-                m.set(*rd, m.pc + 4);
+                m.set(*rd, m.pc + length);
                 m.set_pc((rs1_val + *offset) & !1)?;
             }
 
