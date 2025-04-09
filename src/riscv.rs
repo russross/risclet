@@ -742,7 +742,10 @@ impl Op {
                             (0, 3) => Op::And { rd, rs1: rd, rs2 },
                             (1, 0) => Op::Subw { rd, rs1: rd, rs2 },
                             (1, 1) => Op::Addw { rd, rs1: rd, rs2 },
-                            _ => Op::Unimplemented { inst, note: format!("Reserved compressed instruction at (1, 4)") },
+                            _ => Op::Unimplemented {
+                                inst,
+                                note: "Reserved compressed instruction at (1, 4)".to_string(),
+                            },
                         }
                     }
                     _ => unreachable!(),
@@ -804,25 +807,24 @@ impl Op {
                 let bit12 = (inst >> 12) & 0x1;
 
                 match (bit12, rd, rs2) {
-                    (0, 0, 0) => 
-                        Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") },
-                    (0, _, 0) =>
-                        // C.JR
-                        Op::Jalr { rd: ZERO, rs1: rd, offset: 0 },
-                    (0, _, _) =>
-                        // C.MV
-                        // note: rd == 0 => hint
-                        Op::Add { rd, rs1: ZERO, rs2 },
-                    (1, 0, 0) =>
-                        // C.EBREAK
-                        Op::Ebreak,
-                    (1, _, 0) =>
-                        // C.JALR
-                        Op::Jalr { rd: RA, rs1: rd, offset: 0 },
-                    (_, _, _) =>
-                        // C.ADD
-                        // note: rd == 0 => hint
-                        Op::Add { rd, rs1: rd, rs2 },
+                    (0, 0, 0) => Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") },
+
+                    // C.JR
+                    (0, _, 0) => Op::Jalr { rd: ZERO, rs1: rd, offset: 0 },
+
+                    // C.MV
+                    // note: rd == 0 => hint
+                    (0, _, _) => Op::Add { rd, rs1: ZERO, rs2 },
+
+                    // C.EBREAK
+                    (1, 0, 0) => Op::Ebreak,
+
+                    // C.JALR
+                    (1, _, 0) => Op::Jalr { rd: RA, rs1: rd, offset: 0 },
+
+                    // C.ADD
+                    // note: rd == 0 => hint
+                    (_, _, _) => Op::Add { rd, rs1: rd, rs2 },
                 }
             }
             (2, 5) => {
