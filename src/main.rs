@@ -24,7 +24,7 @@ struct Segment {
 
 impl Segment {
     fn new(start: i64, end: i64, writeable: bool, executable: bool, init: Vec<u8>) -> Self {
-        assert!(start > 0 && end > start && writeable != executable);
+        assert!(start > 0 && end > start);
         assert!(init.len() <= (end - start) as usize);
         Self { start, end, mem: Vec::new(), init, writeable, executable }
     }
@@ -331,7 +331,7 @@ impl Machine {
         self.effects = Some(Effects::new(instruction));
 
         // execute the instruction
-        if let Err(msg) = instruction.op.execute(self) {
+        if let Err(msg) = instruction.op.execute(self, instruction.length) {
             let mut effects = self.effects.take().unwrap();
             effects.error(msg);
             return effects;

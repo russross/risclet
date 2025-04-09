@@ -2,7 +2,7 @@
 .PRECIOUS: %.S
 
 ASFLAGS=-g --warn --fatal-warnings -march=rv64im -mabi=lp64
-LDFLAGS=--fatal-warnings --no-relax
+LDFLAGS=--fatal-warnings --no-relax -N --no-warn-rwx-segments
 ifneq ("$(shell which riscv64-linux-gnu-as)", "")
 	PREFIX=riscv64-linux-gnu-
 else ifneq ("$(shell which riscv64-unknown-elf-as)", "")
