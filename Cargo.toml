@@ -4,5 +4,4 @@ version = "0.2.4"
 edition = "2024"
 
 [dependencies]
-crossterm = "0.28.1"
-libc = "0.2.169"
+crossterm = "0.29.0"
