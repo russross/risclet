@@ -615,7 +615,9 @@ impl Op {
                 // C.ADDI4SPN
                 let rd = get_c_rs2_prime(inst);
                 let imm = get_c_addi4spn_imm(inst);
-                if imm == 0 {
+                if rd == 0 && imm == 0 {
+                    Op::Unimplemented { inst, note: String::from("Illegal compressed instruction at (0, 0)") }
+                } else if imm == 0 {
                     Op::Unimplemented { inst, note: String::from("C.ADDI4SPN with imm=0 is reserved") }
                 } else {
                     Op::Addi { rd, rs1: SP, imm }
@@ -641,7 +643,7 @@ impl Op {
             }
             (0, 4) => {
                 // Reserved
-                Op::Unimplemented { inst, note: String::from("Reserved compressed instruction") }
+                Op::Unimplemented { inst, note: String::from("Reserved compressed instruction at (0, 4)") }
             }
             (0, 5) => {
                 // C.FSD (not supported)
@@ -665,6 +667,7 @@ impl Op {
             // C1 quadrant
             (1, 0) => {
                 // C.ADDI
+                // note: rd == 0 => NOP, but we encode that as Addi anyway
                 let rd = get_c_rd_rs1(inst);
                 let imm = get_c_li_addi_addiw_andi_imm(inst);
                 Op::Addi { rd, rs1: rd, imm }
@@ -681,12 +684,14 @@ impl Op {
             }
             (1, 2) => {
                 // C.LI
+                // note: rd == 0 => hint
                 let rd = get_c_rd_rs1(inst);
                 let imm = get_c_li_addi_addiw_andi_imm(inst);
                 Op::Addi { rd, rs1: ZERO, imm }
             }
             (1, 3) => {
-                if get_c_rd_rs1(inst) == 2 {
+                let rd = get_c_rd_rs1(inst);
+                if rd == 2 {
                     // C.ADDI16SP
                     let imm = get_c_addi16sp_imm(inst);
                     if imm == 0 {
@@ -696,11 +701,11 @@ impl Op {
                     }
                 } else {
                     // C.LUI
-                    let rd = get_c_rd_rs1(inst);
                     let imm = get_c_lui_imm(inst);
-                    if rd == 0 || imm == 0 {
-                        Op::Unimplemented { inst, note: String::from("C.LUI with rd=0 or imm=0 is reserved") }
+                    if imm == 0 {
+                        Op::Unimplemented { inst, note: String::from("C.LUI with imm=0 is reserved") }
                     } else {
+                        // note: rd == 0 => hint
                         Op::Lui { rd, imm }
                     }
                 }
@@ -709,7 +714,6 @@ impl Op {
                 // Various operations based on bits 11:10
                 let funct2 = (inst >> 10) & 0x3;
                 let rd = get_c_rs1_prime(inst);
-                let rs2 = get_c_rs2_prime(inst);
                 match funct2 {
                     0 => {
                         // C.SRLI
@@ -727,16 +731,18 @@ impl Op {
                         Op::Andi { rd, rs1: rd, imm }
                     }
                     3 => {
-                        // Complex instructions based on bits 6:5
+                        // register-register instructions based on bits 6:5
+                        let rs2 = get_c_rs2_prime(inst);
+                        let bit12 = (inst >> 12) & 0x1;
                         let funct = (inst >> 5) & 0x3;
-                        match ((inst >> 12) & 0x1, funct) {
+                        match (bit12, funct) {
                             (0, 0) => Op::Sub { rd, rs1: rd, rs2 },
                             (0, 1) => Op::Xor { rd, rs1: rd, rs2 },
                             (0, 2) => Op::Or { rd, rs1: rd, rs2 },
                             (0, 3) => Op::And { rd, rs1: rd, rs2 },
                             (1, 0) => Op::Subw { rd, rs1: rd, rs2 },
                             (1, 1) => Op::Addw { rd, rs1: rd, rs2 },
-                            _ => Op::Unimplemented { inst, note: format!("compressed encoding is reserved") },
+                            _ => Op::Unimplemented { inst, note: format!("Reserved compressed instruction at (1, 4)") },
                         }
                     }
                     _ => unreachable!(),
@@ -763,6 +769,7 @@ impl Op {
             // C2 quadrant
             (2, 0) => {
                 // C.SLLI
+                // note: rd == 0 => hint
                 let rd = get_c_rd_rs1(inst);
                 let shamt = get_c_slli_srli_srai_imm(inst);
                 Op::Slli { rd, rs1: rd, shamt }
@@ -794,34 +801,28 @@ impl Op {
             (2, 4) => {
                 let rd = get_c_rd_rs1(inst);
                 let rs2 = get_c_rs2(inst);
+                let bit12 = (inst >> 12) & 0x1;
 
-                if (inst >> 12) & 0x1 == 0 {
-                    if rs2 == 0 {
+                match (bit12, rd, rs2) {
+                    (0, 0, 0) => 
+                        Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") },
+                    (0, _, 0) =>
                         // C.JR
-                        if rd == 0 {
-                            Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") }
-                        } else {
-                            Op::Jalr { rd: ZERO, rs1: rd, offset: 0 }
-                        }
-                    } else {
+                        Op::Jalr { rd: ZERO, rs1: rd, offset: 0 },
+                    (0, _, _) =>
                         // C.MV
-                        if rd == 0 {
-                            Op::Unimplemented { inst, note: String::from("C.MV with rd=0 is reserved") }
-                        } else {
-                            Op::Add { rd, rs1: ZERO, rs2 }
-                        }
-                    }
-                } else if rs2 == 0 {
-                    if rd == 0 {
+                        // note: rd == 0 => hint
+                        Op::Add { rd, rs1: ZERO, rs2 },
+                    (1, 0, 0) =>
                         // C.EBREAK
-                        Op::Ebreak
-                    } else {
+                        Op::Ebreak,
+                    (1, _, 0) =>
                         // C.JALR
-                        Op::Jalr { rd: RA, rs1: rd, offset: 0 }
-                    }
-                } else {
-                    // C.ADD
-                    Op::Add { rd, rs1: rd, rs2 }
+                        Op::Jalr { rd: RA, rs1: rd, offset: 0 },
+                    (_, _, _) =>
+                        // C.ADD
+                        // note: rd == 0 => hint
+                        Op::Add { rd, rs1: rd, rs2 },
                 }
             }
             (2, 5) => {
@@ -841,9 +842,8 @@ impl Op {
                 Op::Sd { rs1: SP, rs2, offset: imm }
             }
 
-            _ => {
-                Op::Unimplemented { inst, note: format!("unknown compressed instruction op:{} funct3:{}", op, funct3) }
-            }
+            // uncompressed instructions take a different decoding path
+            _ => unreachable!(),
         }
     }
 
