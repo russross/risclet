@@ -331,22 +331,23 @@ impl Machine {
         self.effects = Some(Effects::new(instruction));
 
         // execute the instruction
-        if let Err(msg) = instruction.op.execute(self, instruction.length) {
-            let mut effects = self.effects.take().unwrap();
-            effects.error(msg);
-            return effects;
+        let exec_res = instruction.op.execute(self, instruction.length);
+
+        // reclaim the effects
+        let mut effects = self.effects.take().unwrap();
+
+        // default pc update (no error possible)
+        if effects.pc == (0, 0) {
+            let old_pc = self.pc;
+            self.pc = old_pc + instruction.length;
+            effects.pc = (old_pc, self.pc);
         }
 
-        // handle default PC update
-        if self.effects.as_ref().unwrap().pc == (0, 0) {
-            if let Err(msg) = self.set_pc(self.pc + instruction.length) {
-                let mut effects = self.effects.take().unwrap();
-                effects.error(msg);
-                return effects;
-            }
-        };
+        if let Err(msg) = exec_res {
+            effects.error(msg);
+        }
 
-        self.effects.take().unwrap()
+        effects
     }
 
     fn apply(&mut self, effect: &Effects, is_forward: bool) {
