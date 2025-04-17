@@ -10,7 +10,7 @@ on:
 
 # Permissions needed by the workflow
 permissions:
-  contents: write # Needed to create releases and upload release assets
+  contents: write # Needed to create releases, upload release assets
 
 # Default settings for all jobs
 defaults:
@@ -26,7 +26,6 @@ env:
 
 jobs:
   # Optional: Job to check if the tag is a pre-release or full release
-  # based on the tag format (e.g., v1.0.0-rc1 vs v1.0.0)
   check_release_type:
     name: Check Release Type
     runs-on: ubuntu-latest
@@ -50,11 +49,35 @@ jobs:
           # Output the tag name for use in artifact naming
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
+  # Job to create the initial draft GitHub Release
+  create_release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+    needs: check_release_type
+    outputs:
+      # Pass the upload URL to subsequent jobs
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Create Draft Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Use the tag name from the check job
+          tag_name: ${{ needs.check_release_type.outputs.tag_name }}
+          # Create as a draft initially
+          draft: true
+          # Set prerelease status based on check job
+          prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
+          # No files uploaded in this step, just create the release structure
+          files: ""
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Job to build the crate for various targets
   build_package:
     name: Build for ${{ matrix.target }}
-    # Requires the check_release_type job to complete first
-    needs: check_release_type
+    # Requires the draft release to be created first
+    needs: [check_release_type, create_release]
     # Run on the OS specified in the matrix
     runs-on: ${{ matrix.os }}
     # Define the build matrix
@@ -87,9 +110,9 @@ jobs:
             os: windows-latest
           # macOS runners
           - target: x86_64-apple-darwin
-            os: macos-latest # Use macos-13 for Intel if needed, latest should work
+            os: macos-latest
           - target: aarch64-apple-darwin
-            os: macos-latest # Use macos-14 for Apple Silicon if needed
+            os: macos-latest
 
     steps:
       # 1. Checkout the repository code
@@ -114,145 +137,144 @@ jobs:
           # Install cross-compilers based on target architecture
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
-            # Set linker for cargo
             echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           elif [[ "${{ matrix.target }}" == "riscv64gc-unknown-linux-gnu" ]]; then
             sudo apt-get install -y gcc-riscv64-linux-gnu
-            # Set linker for cargo
             echo "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc" >> $GITHUB_ENV
           fi
 
       # 4. Build the binary
       - name: Build binary
-        # Add flags for static CRT linking on Windows MSVC targets
         run: cargo build --verbose --release --target ${{ matrix.target }}
         env:
-           # Apply static CRT flag only for windows-msvc targets
            RUSTFLAGS: ${{ (contains(matrix.target, 'pc-windows-msvc') && format('{0} -C target-feature=+crt-static', env.RUSTFLAGS)) || env.RUSTFLAGS }}
-
 
       # 5. Prepare package artifacts (archive the binary)
       - name: Prepare package artifacts
-        id: prepare_package # Give this step an ID to reference its outputs
-        shell: bash # Use bash for consistency, even on Windows runners
+        id: prepare_package
+        shell: bash
         run: |
-          # Define variables
           TARGET="${{ matrix.target }}"
-          TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}" # Get tag from previous job
+          TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}"
           STAGING_DIR="staging"
+          # Use the BINARY_NAME env var here
           ARCHIVE_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}"
-
-          # Determine source path and executable extension
           SRC_DIR="target/$TARGET/release"
           EXE_SUFFIX=""
+          CONTENT_TYPE="" # Determine content type for upload
+
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             EXE_SUFFIX=".exe"
           fi
+          # Use the BINARY_NAME env var here
           SRC_PATH="$SRC_DIR/${{ env.BINARY_NAME }}$EXE_SUFFIX"
 
-          # Check if binary exists
           echo "Looking for binary at: $SRC_PATH"
           if [[ ! -f "$SRC_PATH" ]]; then
             echo "Error: Binary not found!"
-            echo "Listing contents of $SRC_DIR:"
             ls -R "$SRC_DIR" || echo "Could not list $SRC_DIR"
             exit 1
           fi
           echo "Binary found."
 
-          # Create staging directory
           mkdir -p "$STAGING_DIR"
           echo "Created staging directory: $STAGING_DIR"
-
-          # Copy binary to staging directory
           cp "$SRC_PATH" "$STAGING_DIR/"
           echo "Copied binary to staging directory."
 
-          # Optional: Add other files like README, LICENSE
-          # Check if files exist before copying
           [[ -f "README.md" ]] && cp "README.md" "$STAGING_DIR/" && echo "Copied README.md"
           [[ -f "LICENSE" ]] && cp "LICENSE" "$STAGING_DIR/" && echo "Copied LICENSE"
 
-          # Determine archive name and format, then create the archive
           ARCHIVE_PATH=""
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             ARCHIVE_PATH="$ARCHIVE_NAME.zip"
-            # Use PowerShell's Compress-Archive on Windows runners for built-in zip creation
+            CONTENT_TYPE="application/zip"
             powershell Compress-Archive -Path "$STAGING_DIR/*" -DestinationPath "$ARCHIVE_PATH"
           else
             ARCHIVE_PATH="$ARCHIVE_NAME.tar.gz"
-            # Use tar for Linux/macOS
+            CONTENT_TYPE="application/gzip"
             tar czvf "$ARCHIVE_PATH" -C "$STAGING_DIR" .
           fi
           echo "Created archive: $ARCHIVE_PATH"
 
-          # Make archive path available to subsequent steps via output
+          # Output archive path, filename, and content type
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "Set output archive_path=$ARCHIVE_PATH"
+          echo "archive_filename=$(basename $ARCHIVE_PATH)" >> "$GITHUB_OUTPUT"
+          echo "archive_content_type=$CONTENT_TYPE" >> "$GITHUB_OUTPUT"
+          echo "Set outputs: path=$ARCHIVE_PATH, filename=$(basename $ARCHIVE_PATH), type=$CONTENT_TYPE"
 
-
-      # 6. Upload the created archive as a release asset
+      # 6. Upload the artifact to the existing draft release
       - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2 # Use latest major version
-        with:
-          # Use the output from the previous step as the file to upload
-          files: ${{ steps.prepare_package.outputs.archive_path }}
-          # Mark as draft or pre-release based on the tag check
-          draft: false
-          prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
+        uses: actions/upload-release-asset@v1
         env:
-          # The GITHUB_TOKEN is automatically provided by GitHub Actions
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Get the upload URL from the 'create_release' job
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          # Path to the asset file created in the previous step
+          asset_path: ${{ steps.prepare_package.outputs.archive_path }}
+          # Name for the asset file
+          asset_name: ${{ steps.prepare_package.outputs.archive_filename }}
+          # Content type of the asset
+          asset_content_type: ${{ steps.prepare_package.outputs.archive_content_type }}
 
-  # Job to create and upload checksums after all builds are done
-  create_checksums:
-    name: Create Checksums
+  # Job to finalize the release: create checksums, upload them, and publish the release
+  publish_release:
+    name: Publish Release
     runs-on: ubuntu-latest
-    # This job depends on all matrix jobs in 'build_package' finishing successfully
-    needs: [check_release_type, build_package]
+    # This job depends on the draft release being created and all matrix jobs finishing
+    needs: [check_release_type, create_release, build_package]
     steps:
-      # 1. Install GitHub CLI (usually pre-installed on runners, but good practice)
+      # 1. Install GitHub CLI
       - name: Install GitHub CLI
         run: |
-          # Check if gh is installed, install if not (adjust for runner if needed)
           if ! command -v gh &> /dev/null; then
              echo "GitHub CLI not found, installing..."
              sudo apt-get update && sudo apt-get install -y gh
           fi
 
-      # 2. Download all release assets for the current tag
+      # 2. Download all release assets (uploaded by build_package jobs)
       - name: Download Release Assets
         env:
-          # Use the automatically provided token
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Get the tag name from the initial check job
           TAG_NAME: ${{ needs.check_release_type.outputs.tag_name }}
         run: |
-          # Create a directory to store downloaded assets
           mkdir release-assets
           cd release-assets
           echo "Downloading assets for tag $TAG_NAME from ${{ github.repository }}..."
-          # Download all assets associated with the release tag
+          # Download assets from the specific release tag
+          # Note: Assets are downloaded from the draft release created earlier
           gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern '*'
           echo "Download complete. Files:"
           ls -l
 
-      # 3. Generate SHA256 checksums for the downloaded assets
+      # 3. Generate SHA256 checksums
       - name: Create Checksums File
         run: |
           cd release-assets
-          # Generate checksums and save to a file in the parent directory
-          sha256sum ./* > ../SHA256SUMS
-          echo "Generated SHA256SUMS file:"
-          cat ../SHA256SUMS
+          # Handle case where no assets were downloaded (e.g., build failure)
+          if [ -z "$(ls -A .)" ]; then
+             echo "No assets found to checksum."
+             # Create an empty checksum file or skip checksum generation
+             touch ../SHA256SUMS
+          else
+             sha256sum ./* > ../SHA256SUMS
+             echo "Generated SHA256SUMS file:"
+             cat ../SHA256SUMS
+          fi
 
-      # 4. Upload the checksums file to the same release
-      - name: Upload Checksums File
+
+      # 4. Publish Release (Update draft to final) and Upload Checksums
+      - name: Publish Release and Upload Checksums
         uses: softprops/action-gh-release@v2
         with:
-          files: SHA256SUMS # Upload the generated checksum file
-          # Ensure draft/prerelease status matches the rest of the release
+          # Find the release by tag
+          tag_name: ${{ needs.check_release_type.outputs.tag_name }}
+          # Upload the checksums file (even if empty)
+          files: SHA256SUMS
+          # Mark the release as non-draft (publish it)
           draft: false
+          # Set prerelease status correctly
           prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
