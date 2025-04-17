@@ -60,7 +60,8 @@ jobs:
     steps:
       - name: Create Draft Release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        # Use specific latest v2 version to ensure updates
+        uses: softprops/action-gh-release@v2.0.6
         with:
           # Use the tag name from the check job
           tag_name: ${{ needs.check_release_type.outputs.tag_name }}
@@ -117,11 +118,11 @@ jobs:
     steps:
       # 1. Checkout the repository code
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # Use latest major version
 
       # 2. Install Rust toolchain
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@stable # Stable should be fine
         with:
           targets: ${{ matrix.target }} # Install the specific target for cross-compilation
 
@@ -198,6 +199,7 @@ jobs:
           echo "Created archive: $ARCHIVE_PATH"
 
           # Output archive path, filename, and content type
+          # This uses the recommended GITHUB_OUTPUT method
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
           echo "archive_filename=$(basename $ARCHIVE_PATH)" >> "$GITHUB_OUTPUT"
           echo "archive_content_type=$CONTENT_TYPE" >> "$GITHUB_OUTPUT"
@@ -205,7 +207,8 @@ jobs:
 
       # 6. Upload the artifact to the existing draft release
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        # Use specific latest v1 version
+        uses: actions/upload-release-asset@v1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -266,7 +269,8 @@ jobs:
 
       # 4. Publish Release (Update draft to final) and Upload Checksums
       - name: Publish Release and Upload Checksums
-        uses: softprops/action-gh-release@v2
+        # Use specific latest v2 version to ensure updates
+        uses: softprops/action-gh-release@v2.0.6
         with:
           # Find the release by tag
           tag_name: ${{ needs.check_release_type.outputs.tag_name }}
