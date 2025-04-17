@@ -496,7 +496,7 @@ impl Effects {
 }
 
 fn load_elf(filename: &str) -> Result<Machine, String> {
-    let raw = std::fs::read(filename).map_err(|e| format!("{}", e))?;
+    let raw = std::fs::read(filename).map_err(|e| format!("loading {}: {}", filename, e))?;
 
     // unpack the elf header
     if raw.len() < 0x40 {
