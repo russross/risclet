@@ -231,7 +231,8 @@ jobs:
           # Upload checksums file only if it was created and contains checksums
           if [[ "${{ steps.checksum.outputs.checksum_created }}" == "true" ]]; then
             echo "Uploading checksums..."
-            gh release upload "$TAG_NAME" ../SHA256SUMS --clobber
+            # Use correct path relative to workspace: SHA256SUMS
+            gh release upload "$TAG_NAME" SHA256SUMS --clobber
           else
             echo "Skipping checksum upload as no assets were found."
           fi
