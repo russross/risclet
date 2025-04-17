@@ -1,6 +1,8 @@
 lowrisc
 =======
 
+[![Release Build Status](https://github.com/russross/lowrisc/actions/workflows/release.yml/badge.svg)](https://github.com/russross/lowrisc/actions/workflows/release.yml)
+
 This is a lightweight RISC-V disassembler, simulator, and linter for
 students learning assembly language. By design it has few controls
 and limited functionality, with simplicity and approachability as
