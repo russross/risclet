@@ -182,7 +182,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check_release_type, build_package]
     steps:
-      # 1. Install GitHub CLI
+      # 1. Checkout code - Added this step
+      # This is needed so that gh release edit can access git context
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Install GitHub CLI
       - name: Install GitHub CLI
         run: |
           if ! command -v gh &> /dev/null; then
@@ -190,7 +195,7 @@ jobs:
              sudo apt-get update && sudo apt-get install -y gh
           fi
 
-      # 2. Download all release assets (uploaded by build_package jobs)
+      # 3. Download all release assets (uploaded by build_package jobs)
       - name: Download Release Assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -204,7 +209,7 @@ jobs:
           echo "Download complete. Files:"
           ls -l
 
-      # 3. Generate SHA256 checksums
+      # 4. Generate SHA256 checksums
       - name: Create Checksums File
         id: checksum # Give this step an id
         run: |
@@ -222,7 +227,8 @@ jobs:
              echo "checksum_created=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # 4. Upload Checksums and Publish Release using GitHub CLI
+      # 5. Upload Checksums and Publish Release using GitHub CLI
+      # Renumbered step from 4 to 5
       - name: Upload Checksums and Publish Release (using gh)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
