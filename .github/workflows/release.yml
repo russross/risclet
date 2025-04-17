@@ -49,36 +49,11 @@ jobs:
           # Output the tag name for use in artifact naming
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
-  # Job to create the initial draft GitHub Release
-  create_release:
-    name: Create Draft Release
-    runs-on: ubuntu-latest
-    needs: check_release_type
-    outputs:
-      # Pass the upload URL to subsequent jobs
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - name: Create Draft Release
-        id: create_release
-        # Use specific latest v2 version to ensure updates
-        uses: softprops/action-gh-release@v2.0.6
-        with:
-          # Use the tag name from the check job
-          tag_name: ${{ needs.check_release_type.outputs.tag_name }}
-          # Create as a draft initially
-          draft: true
-          # Set prerelease status based on check job
-          prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
-          # No files uploaded in this step, just create the release structure
-          files: ""
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Job to build the crate for various targets
+  # Job to build the crate for various targets and upload assets
   build_package:
     name: Build for ${{ matrix.target }}
-    # Requires the draft release to be created first
-    needs: [check_release_type, create_release]
+    # Requires the release type check to complete first
+    needs: [check_release_type] # Removed dependency on create_release
     # Run on the OS specified in the matrix
     runs-on: ${{ matrix.os }}
     # Define the build matrix
@@ -162,7 +137,6 @@ jobs:
           ARCHIVE_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}"
           SRC_DIR="target/$TARGET/release"
           EXE_SUFFIX=""
-          CONTENT_TYPE="" # Determine content type for upload
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             EXE_SUFFIX=".exe"
@@ -189,44 +163,41 @@ jobs:
           ARCHIVE_PATH=""
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             ARCHIVE_PATH="$ARCHIVE_NAME.zip"
-            CONTENT_TYPE="application/zip"
             powershell Compress-Archive -Path "$STAGING_DIR/*" -DestinationPath "$ARCHIVE_PATH"
           else
             ARCHIVE_PATH="$ARCHIVE_NAME.tar.gz"
-            CONTENT_TYPE="application/gzip"
             tar czvf "$ARCHIVE_PATH" -C "$STAGING_DIR" .
           fi
           echo "Created archive: $ARCHIVE_PATH"
 
-          # Output archive path, filename, and content type
-          # This uses the recommended GITHUB_OUTPUT method
+          # Output archive path for the upload step
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "archive_filename=$(basename $ARCHIVE_PATH)" >> "$GITHUB_OUTPUT"
-          echo "archive_content_type=$CONTENT_TYPE" >> "$GITHUB_OUTPUT"
-          echo "Set outputs: path=$ARCHIVE_PATH, filename=$(basename $ARCHIVE_PATH), type=$CONTENT_TYPE"
+          echo "Set output archive_path=$ARCHIVE_PATH"
 
-      # 6. Upload the artifact to the existing draft release
-      - name: Upload Release Asset
-        # Use specific latest v1 version
-        uses: actions/upload-release-asset@v1.0.2
+      # 6. Create Release / Upload Asset using softprops/action-gh-release
+      # This action creates the release if it doesn't exist,
+      # or adds assets if the release already exists.
+      - name: Create/Update Release and Upload Asset
+        uses: softprops/action-gh-release@v2 # Use latest major version
+        with:
+          # Use the tag name from the check job
+          tag_name: ${{ needs.check_release_type.outputs.tag_name }}
+          # Upload the file created in the previous step
+          files: ${{ steps.prepare_package.outputs.archive_path }}
+          # Keep as draft until the final publish job
+          draft: true
+          # Set prerelease status based on check job
+          prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          # Get the upload URL from the 'create_release' job
-          upload_url: ${{ needs.create_release.outputs.upload_url }}
-          # Path to the asset file created in the previous step
-          asset_path: ${{ steps.prepare_package.outputs.archive_path }}
-          # Name for the asset file
-          asset_name: ${{ steps.prepare_package.outputs.archive_filename }}
-          # Content type of the asset
-          asset_content_type: ${{ steps.prepare_package.outputs.archive_content_type }}
+
 
   # Job to finalize the release: create checksums, upload them, and publish the release
   publish_release:
     name: Publish Release
     runs-on: ubuntu-latest
-    # This job depends on the draft release being created and all matrix jobs finishing
-    needs: [check_release_type, create_release, build_package]
+    # This job depends on all matrix jobs finishing successfully
+    needs: [check_release_type, build_package]
     steps:
       # 1. Install GitHub CLI
       - name: Install GitHub CLI
@@ -245,8 +216,7 @@ jobs:
           mkdir release-assets
           cd release-assets
           echo "Downloading assets for tag $TAG_NAME from ${{ github.repository }}..."
-          # Download assets from the specific release tag
-          # Note: Assets are downloaded from the draft release created earlier
+          # Download assets from the specific release tag (should be draft at this point)
           gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern '*'
           echo "Download complete. Files:"
           ls -l
@@ -269,8 +239,7 @@ jobs:
 
       # 4. Publish Release (Update draft to final) and Upload Checksums
       - name: Publish Release and Upload Checksums
-        # Use specific latest v2 version to ensure updates
-        uses: softprops/action-gh-release@v2.0.6
+        uses: softprops/action-gh-release@v2 # Use latest major version
         with:
           # Find the release by tag
           tag_name: ${{ needs.check_release_type.outputs.tag_name }}
