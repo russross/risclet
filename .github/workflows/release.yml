@@ -133,18 +133,18 @@ jobs:
         shell: bash # Use bash for consistency, even on Windows runners
         run: |
           # Define variables
-          local TARGET="${{ matrix.target }}"
-          local TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}" # Get tag from previous job
-          local STAGING_DIR="staging"
-          local ARCHIVE_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}"
+          TARGET="${{ matrix.target }}"
+          TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}" # Get tag from previous job
+          STAGING_DIR="staging"
+          ARCHIVE_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}"
 
           # Determine source path and executable extension
-          local SRC_DIR="target/$TARGET/release"
-          local EXE_SUFFIX=""
+          SRC_DIR="target/$TARGET/release"
+          EXE_SUFFIX=""
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             EXE_SUFFIX=".exe"
           fi
-          local SRC_PATH="$SRC_DIR/${{ env.BINARY_NAME }}$EXE_SUFFIX"
+          SRC_PATH="$SRC_DIR/${{ env.BINARY_NAME }}$EXE_SUFFIX"
 
           # Check if binary exists
           echo "Looking for binary at: $SRC_PATH"
@@ -170,7 +170,7 @@ jobs:
           [[ -f "LICENSE" ]] && cp "LICENSE" "$STAGING_DIR/" && echo "Copied LICENSE"
 
           # Determine archive name and format, then create the archive
-          local ARCHIVE_PATH=""
+          ARCHIVE_PATH=""
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             ARCHIVE_PATH="$ARCHIVE_NAME.zip"
             # Use PowerShell's Compress-Archive on Windows runners for built-in zip creation
