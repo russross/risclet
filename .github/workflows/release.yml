@@ -53,7 +53,7 @@ jobs:
   build_package:
     name: Build for ${{ matrix.target }}
     # Requires the release type check to complete first
-    needs: [check_release_type] # Removed dependency on create_release
+    needs: [check_release_type]
     # Run on the OS specified in the matrix
     runs-on: ${{ matrix.os }}
     # Define the build matrix
@@ -93,24 +93,22 @@ jobs:
     steps:
       # 1. Checkout the repository code
       - name: Checkout code
-        uses: actions/checkout@v4 # Use latest major version
+        uses: actions/checkout@v4
 
       # 2. Install Rust toolchain
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable # Stable should be fine
+        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }} # Install the specific target for cross-compilation
+          targets: ${{ matrix.target }}
 
       # 3. Install cross-compilation dependencies (Linux only)
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -y
-          # Install musl-tools if a musl target is being built
           if [[ "${{ matrix.target }}" == *"-musl" ]]; then
             sudo apt-get install -y musl-tools
           fi
-          # Install cross-compilers based on target architecture
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
             sudo apt-get install -y gcc-aarch64-linux-gnu
             echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
@@ -133,7 +131,6 @@ jobs:
           TARGET="${{ matrix.target }}"
           TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}"
           STAGING_DIR="staging"
-          # Use the BINARY_NAME env var here
           ARCHIVE_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}"
           SRC_DIR="target/$TARGET/release"
           EXE_SUFFIX=""
@@ -141,7 +138,6 @@ jobs:
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             EXE_SUFFIX=".exe"
           fi
-          # Use the BINARY_NAME env var here
           SRC_PATH="$SRC_DIR/${{ env.BINARY_NAME }}$EXE_SUFFIX"
 
           echo "Looking for binary at: $SRC_PATH"
@@ -153,12 +149,9 @@ jobs:
           echo "Binary found."
 
           mkdir -p "$STAGING_DIR"
-          echo "Created staging directory: $STAGING_DIR"
           cp "$SRC_PATH" "$STAGING_DIR/"
-          echo "Copied binary to staging directory."
-
-          [[ -f "README.md" ]] && cp "README.md" "$STAGING_DIR/" && echo "Copied README.md"
-          [[ -f "LICENSE" ]] && cp "LICENSE" "$STAGING_DIR/" && echo "Copied LICENSE"
+          [[ -f "README.md" ]] && cp "README.md" "$STAGING_DIR/"
+          [[ -f "LICENSE" ]] && cp "LICENSE" "$STAGING_DIR/"
 
           ARCHIVE_PATH=""
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
@@ -169,24 +162,15 @@ jobs:
             tar czvf "$ARCHIVE_PATH" -C "$STAGING_DIR" .
           fi
           echo "Created archive: $ARCHIVE_PATH"
-
-          # Output archive path for the upload step
           echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-          echo "Set output archive_path=$ARCHIVE_PATH"
 
       # 6. Create Release / Upload Asset using softprops/action-gh-release
-      # This action creates the release if it doesn't exist,
-      # or adds assets if the release already exists.
       - name: Create/Update Release and Upload Asset
-        uses: softprops/action-gh-release@v2 # Use latest major version
+        uses: softprops/action-gh-release@v2
         with:
-          # Use the tag name from the check job
           tag_name: ${{ needs.check_release_type.outputs.tag_name }}
-          # Upload the file created in the previous step
           files: ${{ steps.prepare_package.outputs.archive_path }}
-          # Keep as draft until the final publish job
-          draft: true
-          # Set prerelease status based on check job
+          draft: true # Keep as draft until the final publish job
           prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -196,7 +180,6 @@ jobs:
   publish_release:
     name: Publish Release
     runs-on: ubuntu-latest
-    # This job depends on all matrix jobs finishing successfully
     needs: [check_release_type, build_package]
     steps:
       # 1. Install GitHub CLI
@@ -216,38 +199,43 @@ jobs:
           mkdir release-assets
           cd release-assets
           echo "Downloading assets for tag $TAG_NAME from ${{ github.repository }}..."
-          # Download assets from the specific release tag (should be draft at this point)
+          # Use gh release download which should handle draft releases correctly
           gh release download "$TAG_NAME" --repo "${{ github.repository }}" --pattern '*'
           echo "Download complete. Files:"
           ls -l
 
       # 3. Generate SHA256 checksums
       - name: Create Checksums File
+        id: checksum # Give this step an id
         run: |
           cd release-assets
+          CHECKSUM_FILE="../SHA256SUMS"
           # Handle case where no assets were downloaded (e.g., build failure)
           if [ -z "$(ls -A .)" ]; then
              echo "No assets found to checksum."
-             # Create an empty checksum file or skip checksum generation
-             touch ../SHA256SUMS
+             touch "$CHECKSUM_FILE"
+             echo "checksum_created=false" >> "$GITHUB_OUTPUT"
           else
-             sha256sum ./* > ../SHA256SUMS
+             sha256sum ./* > "$CHECKSUM_FILE"
              echo "Generated SHA256SUMS file:"
-             cat ../SHA256SUMS
+             cat "$CHECKSUM_FILE"
+             echo "checksum_created=true" >> "$GITHUB_OUTPUT"
           fi
 
-
-      # 4. Publish Release (Update draft to final) and Upload Checksums
-      - name: Publish Release and Upload Checksums
-        uses: softprops/action-gh-release@v2 # Use latest major version
-        with:
-          # Find the release by tag
-          tag_name: ${{ needs.check_release_type.outputs.tag_name }}
-          # Upload the checksums file (even if empty)
-          files: SHA256SUMS
-          # Mark the release as non-draft (publish it)
-          draft: false
-          # Set prerelease status correctly
-          prerelease: ${{ needs.check_release_type.outputs.is_prerelease }}
+      # 4. Upload Checksums and Publish Release using GitHub CLI
+      - name: Upload Checksums and Publish Release (using gh)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.check_release_type.outputs.tag_name }}
+        run: |
+          # Upload checksums file only if it was created and contains checksums
+          if [[ "${{ steps.checksum.outputs.checksum_created }}" == "true" ]]; then
+            echo "Uploading checksums..."
+            gh release upload "$TAG_NAME" ../SHA256SUMS --clobber
+          else
+            echo "Skipping checksum upload as no assets were found."
+          fi
+
+          # Publish the release (make it non-draft)
+          echo "Publishing release..."
+          gh release edit "$TAG_NAME" --draft=false
