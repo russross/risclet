@@ -1,6 +1,6 @@
 [package]
-name = "lowrisc"
-version = "0.3.7"
+name = "risclet"
+version = "0.3.8"
 edition = "2024"
 
 [dependencies]

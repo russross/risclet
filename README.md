@@ -1,14 +1,12 @@
-lowrisc
+risclet
 =======
-
-[![Release Build Status](https://github.com/russross/lowrisc/actions/workflows/release.yml/badge.svg?event=push)](https://github.com/russross/lowrisc/actions/workflows/release.yml)
 
 This is a lightweight RISC-V disassembler, simulator, and linter for
 students learning assembly language. By design it has few controls
 and limited functionality, with simplicity and approachability as
 overriding goals.
 
-In its default mode, lowrisc does the following:
+In its default mode, risclet does the following:
 
 *   Loads `a.out` and disassembles it as an rv64imc binary
 *   Simulates the complete execution of the program
@@ -38,7 +36,7 @@ The controls are minimal and can be displayed by hitting `?`:
 *   Jump forward/backward to current cursor position using Enter, Backspace
 *   Various toggles to control what is displayed
 
-lowrisc is intended for students learning the basics of assembly
+risclet is intended for students learning the basics of assembly
 language, and is especially for anyone who has been intimidated by
 standard debugging tools.
 
