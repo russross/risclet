@@ -1256,7 +1256,7 @@ fn main() -> Result<(), String> {
         i += 1;
     }
     if usage {
-        eprintln!("Usage: lowrisc [options]");
+        eprintln!("Usage: risclet [options]");
         eprintln!();
         eprintln!("Options:");
         eprintln!("  -e, --executable <path>            Path of executable to run (default a.out)");
