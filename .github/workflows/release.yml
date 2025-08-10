@@ -50,13 +50,13 @@ jobs:
           esac
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
-  # This job builds all Linux targets inside an Alpine container.
-  build_linux_on_alpine:
-    name: Build for ${{ matrix.target }} (on Alpine)
+  # This job uses a dedicated cross-compilation container for Linux builds.
+  build_linux_with_cross:
+    name: Build for ${{ matrix.target }} (using cross-rs)
     runs-on: ubuntu-latest
     needs: [check_release_type]
     container:
-      image: rust:1.79.0-alpine3.20
+      image: ghcr.io/cross-rs/cross:main
 
     strategy:
       fail-fast: false
@@ -70,34 +70,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install Alpine dependencies
-        run: |
-          apk update
-          apk add gcc musl-dev
-          
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-            apk add aarch64-linux-gnu-gcc
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          elif [ "${{ matrix.target }}" = "riscv64gc-unknown-linux-musl" ]; then
-            apk add riscv64-linux-gnu-gcc
-            echo "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_MUSL_LINKER=riscv64-linux-gnu-gcc" >> $GITHUB_ENV
-          fi
-
-      - name: Build binary
-        run: cargo build --verbose --release --target ${{ matrix.target }}
+      - name: Build binary with cross
+        run: cross build --verbose --release --target ${{ matrix.target }}
       
       - name: Prepare Release Asset
         id: prepare_asset
         run: |
           TARGET="${{ matrix.target }}"
-          TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}"
+          # The output path for 'cross' is the same as 'cargo'
           SRC_PATH="target/$TARGET/release/${{ env.BINARY_NAME }}"
-          ASSET_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}"
+          # MODIFICATION: Removed the tag name from the asset name for a stable URL.
+          ASSET_NAME="${{ env.BINARY_NAME }}-${TARGET}"
           
           echo "Source binary path: $SRC_PATH"
           echo "Final asset name: $ASSET_NAME"
@@ -152,14 +135,14 @@ jobs:
         id: prepare_asset
         run: |
           TARGET="${{ matrix.target }}"
-          TAG_NAME="${{ needs.check_release_type.outputs.tag_name }}"
           EXE_SUFFIX=""
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             EXE_SUFFIX=".exe"
           fi
           
           SRC_PATH="target/$TARGET/release/${{ env.BINARY_NAME }}$EXE_SUFFIX"
-          ASSET_NAME="${{ env.BINARY_NAME }}-${TAG_NAME}-${TARGET}${EXE_SUFFIX}"
+          # MODIFICATION: Removed the tag name from the asset name for a stable URL.
+          ASSET_NAME="${{ env.BINARY_NAME }}-${TARGET}${EXE_SUFFIX}"
           
           echo "Source binary path: $SRC_PATH"
           echo "Final asset name: $ASSET_NAME"
@@ -184,7 +167,7 @@ jobs:
   publish_release:
     name: Publish Release
     runs-on: ubuntu-latest
-    needs: [check_release_type, build_linux_on_alpine, build_windows_and_macos]
+    needs: [check_release_type, build_linux_with_cross, build_windows_and_macos]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
