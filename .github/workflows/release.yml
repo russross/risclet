@@ -70,6 +70,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # FIX: Set the default toolchain inside the container before building.
+      - name: Set default Rust toolchain
+        run: rustup default stable
+
       - name: Build binary with cross
         run: cross build --verbose --release --target ${{ matrix.target }}
       
@@ -79,7 +83,7 @@ jobs:
           TARGET="${{ matrix.target }}"
           # The output path for 'cross' is the same as 'cargo'
           SRC_PATH="target/$TARGET/release/${{ env.BINARY_NAME }}"
-          # MODIFICATION: Removed the tag name from the asset name for a stable URL.
+          # Asset name does not include version for a stable download URL
           ASSET_NAME="${{ env.BINARY_NAME }}-${TARGET}"
           
           echo "Source binary path: $SRC_PATH"
@@ -141,7 +145,7 @@ jobs:
           fi
           
           SRC_PATH="target/$TARGET/release/${{ env.BINARY_NAME }}$EXE_SUFFIX"
-          # MODIFICATION: Removed the tag name from the asset name for a stable URL.
+          # Asset name does not include version for a stable download URL
           ASSET_NAME="${{ env.BINARY_NAME }}-${TARGET}${EXE_SUFFIX}"
           
           echo "Source binary path: $SRC_PATH"
