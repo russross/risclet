@@ -757,7 +757,7 @@ fn trace(
     let mut linter = Linter::new(m.x[2]);
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
-    let echo_in = ["run", "debug"].contains(&mode) && !io::stdin().is_tty();
+    let echo_in = [/* "run", */ "debug"].contains(&mode) && !io::stdin().is_tty();
 
     for steps in 1..=max_steps {
         if i >= instructions.len() || instructions[i].address != m.pc {
