@@ -382,7 +382,7 @@ impl Tui {
                 // so min source height is 12 before allowing other panes
                 let surplus = source.height.saturating_sub(12).saturating_sub(10);
                 let output_min = 4;
-                let natural_size = output_min + (surplus + 2) / 3;
+                let natural_size = output_min + surplus.div_ceil(3);
 
                 // keep at least 4 lines but otherwise don't grow beyond the amount of output
                 let lines = output_lines.max(output_min).min(natural_size);
@@ -396,7 +396,7 @@ impl Tui {
                 // output claims any extra lines that would have gone to registers
                 let output_min = 4 + surplus.min(5);
                 let surplus = surplus.saturating_sub(5);
-                let natural_size = output_min + (surplus + 2) / 3;
+                let natural_size = output_min + surplus.div_ceil(3);
                 let lines = output_lines.max(4).min(natural_size);
                 let mut output = source.split_bottom(lines, true, &mut corners);
                 let out = take(&mut output.out);
