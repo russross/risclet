@@ -1250,6 +1250,10 @@ fn main() -> Result<(), String> {
                     usage = true;
                 }
             }
+            "-v" | "--version" => {
+                println!("0.3.11");
+                std::process::exit(0);
+            }
             "-h" | "--help" => usage = true,
             _ => usage = true,
         }
@@ -1263,6 +1267,7 @@ fn main() -> Result<(), String> {
         eprintln!("  -l, --lint <true|false>            Apply strict ABI and other checks (default true)");
         eprintln!("  -m, --mode <run|dasm|debug>        Simulator Mode (default debug)");
         eprintln!("  -s, --steps <count>                Maximum steps to run (default {})", MAX_STEPS_DEFAULT);
+        eprintln!("  -v, --version                      Print version number");
         eprintln!("  -h, --help                         Show this help");
         std::process::exit(1);
     }
