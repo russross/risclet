@@ -149,7 +149,7 @@ impl Tui {
             }
 
             // cursor motion
-            KeyCode::Up => {
+            KeyCode::Up | KeyCode::Char('k') => {
                 if self.verbose {
                     self.cursor_index = self.cursor_index.saturating_sub(1);
                 } else {
@@ -157,7 +157,7 @@ impl Tui {
                     self.cursor_index = self.pseudo_addresses[&pseudo];
                 }
             }
-            KeyCode::Down => {
+            KeyCode::Down | KeyCode::Char('j') => {
                 if self.verbose {
                     self.cursor_index = (self.cursor_index + 1).min(self.instructions.len() - 1);
                 } else {
@@ -186,7 +186,7 @@ impl Tui {
             }
 
             // stepping and jumping
-            KeyCode::Left => {
+            KeyCode::Left | KeyCode::Char('h') => {
                 if self.sequence_index > 0 {
                     self.sequence_index -= 1;
                     self.machine.apply(&self.sequence[self.sequence_index], false);
@@ -194,7 +194,7 @@ impl Tui {
                     self.set_cursor_to_current();
                 }
             }
-            KeyCode::Right => {
+            KeyCode::Right | KeyCode::Char('l') => {
                 if self.sequence_index + 1 < self.sequence.len() {
                     self.machine.apply(&self.sequence[self.sequence_index], true);
                     self.sequence_index += 1;
