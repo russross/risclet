@@ -415,9 +415,9 @@ impl Tui {
         if !status_line.is_empty() {
             source.write_padded_str(&status_line, 2, size_y - 1, size_x.saturating_sub(4) as usize);
         }
-        let help_msg = "? for help";
-        if size_x >= status_line.len() as u16 + help_msg.len() as u16 + 8 {
-            source.write_padded_str(help_msg, size_x - 3 - help_msg.len() as u16, size_y - 1, help_msg.len() + 2);
+        let help_msg = "? for help, q to quit";
+        if size_x >= status_line.len() as u16 + help_msg.len() as u16 + 9 {
+            source.write_padded_str(help_msg, size_x - 4 - help_msg.len() as u16, size_y - 1, help_msg.len() + 2);
         }
 
         out = take(&mut source.out);
