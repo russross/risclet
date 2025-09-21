@@ -1,0 +1,680 @@
+// ast.rs
+//
+// This file defines the data structures for the tokenizer and the Abstract Syntax Tree (AST)
+// for the RISC-V 64 assembler. Each structure and enum represents a specific component
+// of the assembly language syntax and is designed to be directly filled by the parser.
+
+use std::fmt;
+
+// ==============================================================================
+// Top-Level Parsing and Error Handling
+// ==============================================================================
+//
+// The overall parsing process will work as follows:
+// 1. Read the entire source file.
+// 2. Split the file content into individual lines.
+// 3. For each non-empty line, tokenize it into a `Vec<Token>`.
+// 4. The parser then consumes this `Vec<Token>` to generate one or more `Line` AST nodes.
+//    A single source line containing both a label and an instruction/directive will
+//    produce two `Line` nodes: one for the label and one for the instruction/directive.
+//    Some pseudo-instructions are desugared directly into multiple instructions as well.
+// 5. If any error is detected during tokenization or parsing, the process will abort
+//    immediately and return the error along with its `Location`.
+// 6. The final output is a `Vec<Line>`, representing the complete program AST.
+//
+
+/// A single location in the source file, used for error reporting and AST annotation.
+/// The parser will attach this to every `Line` to provide context for errors.
+///
+/// **Grammar Rule:** N/A (this is a data structure for parser context)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    pub file: String,
+    pub line: u32,
+}
+
+// ==============================================================================
+// Tokenization Data Types
+// ==============================================================================
+// These are the raw components that the tokenizer will produce from the input
+// assembly code.
+
+/// An enum representing the 32 general-purpose registers.
+/// The tokenizer will be responsible for mapping register names (e.g., "sp", "x2")
+/// to a concrete `Register` variant. This approach moves the register-name-to-number
+/// lookup logic out of the parser and into the tokenizer, simplifying the parser's job.
+///
+/// **Grammar Rule:** N/A (Tokenizer maps raw identifiers to this concrete type)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Register {
+    X0, X1, X2, X3, X4, X5, X6, X7,
+    X8, X9, X10, X11, X12, X13, X14, X15,
+    X16, X17, X18, X19, X20, X21, X22, X23,
+    X24, X25, X26, X27, X28, X29, X30, X31,
+}
+
+/// An enum for all supported assembler directives.
+///
+/// **Grammar Rule:** N/A (Tokenizer maps raw directive names to this concrete type)
+#[derive(Debug, Clone, PartialEq)]
+pub enum DirectiveOp {
+    Global, Equ, Text, Data, Bss,
+    Space, String, Asciz, Byte, TwoByte, FourByte, EightByte
+}
+
+/// An enum for all supported operators.
+///
+///**Grammar Rule:** N/A (Tokenizer maps raw symbols to this concrete type)
+#[derive(Debug, Clone, PartialEq)]
+pub enum OperatorOp {
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    LeftShift,
+    RightShift,
+    BitwiseOr,
+    BitwiseAnd,
+    BitwiseXor,
+    Tilde,
+}
+
+/// Represents a single token produced by the tokenizer.
+/// Comments are removed by the tokenizer.
+/// Each input line is tokenized and parsed independently, so no EOL or EOF
+/// markers are necessary. The tokenizer also handles all operator tokens directly.
+///
+///**Grammar Rule:** N/A (Tokenizer output)
+#[derive(Debug, Clone, PartialEq)]
+pub enum Token {
+    /// A general identifier (e.g., a variable, label, or instruction name).
+    Identifier(String),
+    /// A reserved register name (e.g., "a0", "x10").
+    Register(Register),
+    /// An integer literal, including binary, octal, decimal, and hexadecimal.
+    Integer(i64),
+    /// A character literal like 'a' or '\n'. Any single UTF-8-encoded character is accepted.
+    CharacterLiteral(char),
+    /// A string literal. We accept valid UTF-8 strings with \n and other standard escape sequences.
+    StringLiteral(String),
+    /// A directive (e.g., ".text", ".global"). The tokenizer accepts anything
+    /// with a dot (.) followed by alphanumeric ASCII characters
+    Directive(DirectiveOp),
+    /// A simple token for syntax.
+    Colon,
+    Comma,
+    OpenParen,
+    CloseParen,
+    /// An operator.
+    Operator(OperatorOp),
+}
+
+// ==============================================================================
+// Abstract Syntax Tree (AST) Data Types
+// ==============================================================================
+// These structures represent the parsed, hierarchical view of the assembly code,
+// simplifying later stages like semantic analysis and code generation.
+
+/// The top-level structure of a line in the assembly file.
+/// Every non-blank line of source code will be parsed into an instance of `Line`.
+///
+/// **Grammar Rule:**
+/// `line: label_declaration? line_content`
+/// `label_declaration: label_identifier Colon`
+///
+/// **Parsing Notes:**
+/// The parser will check for a label at the start of a line. If present, it will consume the
+/// label and its colon, then parse the remaining line content. If an instruction/directive
+/// is also present, the parser must create and emit a second `Line` object for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Line {
+    /// The location of this line in the source file.
+    pub location: Location,
+    /// The content of the line, which can be an instruction or a directive.
+    pub content: LineContent,
+}
+
+/// The content of a line, which is either a label, an instruction, or a directive.
+/// This enum is the core of the line-based parsing strategy. When a label and
+/// an instruction are on the same line, the parser should emit two `Line`
+/// objects: one for the `Label` and one for the `Instruction`.
+///
+/// **Grammar Rule:**
+/// `line_content: instruction | directive`
+#[derive(Debug, Clone, PartialEq)]
+pub enum LineContent {
+    /// **Grammar Rule:**
+    /// `label_declaration: label_identifier Colon`
+    /// A label can be an identifier or a positive integer.
+    Label(String),
+    Instruction(Instruction),
+    Directive(Directive),
+}
+
+/// A reference to a numeric local label (e.g., `1f` or `2b`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NumericLabelRef {
+    pub num: u32,
+    pub is_forward: bool,
+}
+
+/// Represents a reference to a label, which can be a standard symbol or a numeric local label.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LabelRef {
+    Symbolic(String),
+    Numeric(NumericLabelRef),
+}
+
+/// A node in the Abstract Syntax Tree representing a single assembly instruction.
+/// Each variant corresponds to a specific instruction format, making it easy for
+/// later stages (e.g., code generation) to pattern match on the instruction type.
+///
+/// **Grammar Rule:**
+/// `instruction:`
+/// `| RTypeOp Register Comma Register Comma Register`
+/// `| ITypeOp Register Comma Register Comma expression`
+/// `| BTypeOp Register Comma Register Comma label_reference`
+/// `| UTypeOp Register Comma expression`
+/// `| JTypeOp [ Register Comma ] label_reference`
+/// `| SpecialOp`
+/// `| LoadStoreOp Register Comma [ expression ] OpenParen Register CloseParen`
+/// `| PseudoOp`
+#[derive(Debug, Clone, PartialEq)]
+pub enum Instruction {
+    /// R-type instructions (opcode, rd, rs1, rs2).
+    RType(RTypeOp, Register, Register, Register),
+    /// I-type instructions (opcode, rd, rs1, immediate).
+    IType(ITypeOp, Register, Register, Box<Expression>),
+    /// B-type instructions (opcode, rs1, rs2, label).
+    BType(BTypeOp, Register, Register, LabelRef),
+    /// U-type instructions (opcode, rd, immediate).
+    UType(UTypeOp, Register, Box<Expression>),
+    /// J-type instructions (opcode, rd, label).
+    JType(JTypeOp, Register, LabelRef),
+    /// Special instructions (opcode, no operands).
+    Special(SpecialOp),
+    /// The special case for all load and store instructions. The expression for the offset
+    /// is optional. The parser will handle filling in an `Expression::Literal(0)`
+    /// when the offset is omitted.
+    LoadStore(LoadStoreOp, Register, Option<Box<Expression>>, Register),
+    /// A pseudo-instruction that will be desugared by a later pass.
+    Pseudo(PseudoOp),
+}
+
+/// An enum for the instruction opcodes in the I, M, and base instruction sets.
+/// The `W` suffix denotes 64-bit instructions.
+///
+/// **Grammar Rule and Example:**
+/// `RTypeOp Register Comma Register Comma Register`
+///
+/// - `add`: `add a0, a1, a2`
+///
+/// **Pseudo-ops and Desugaring:**
+/// - `neg rd, rs` desugars to `sub rd, x0, rs`.
+/// - `negw rd, rs` desugars to `subw rd, x0, rs`.
+///
+/// **Variants:**
+/// - `W`-suffix variants like `addw`, `subw`: these are part of the RV64I base instruction set.
+/// - `M` extension variants like `mul`, `div`, `rem`: these are part of the optional M extension.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RTypeOp {
+    Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And, Mul, Mulh, Mulhsu, Mulhu,
+    Div, Divu, Rem, Remu,
+    Addw, Subw, Sllw, Srlw, Sraw, Mulw, Divw, Divuw, Remw, Remuw
+}
+
+/// The ITypeOp enum for instructions that take an immediate value.
+/// The `W` suffix denotes 64-bit instructions.
+///
+/// **Grammar Rule and Example:**
+/// `ITypeOp Register Comma Register Comma expression`
+///
+/// - `addi`: `addi a0, a1, 0`
+///
+/// **Pseudo-ops and Desugaring:**
+/// - `mv rs, rt` desugars to `addi rs, rt, 0`.
+/// - `not rs, rt` desugars to `xori rs, rt, -1`.
+/// - `jr rs` desugars to `jalr x0, rs, 0`.
+/// - `ret` desugars to `jalr x0, ra, 0`.
+/// - `sext.b rd, rs` desugars to `slliw rd, rs, 24` followed by `sraiw rd, rd, 24`.
+/// - `sext.h rd, rs` desugars to `slliw rd, rs, 16` followed by `sraiw rd, rd, 16`.
+/// - `sext.w rd, rs` desugars to `addiw rd, rs, 0`.
+/// - `zext.b rd, rs` desugars to `andi rd, rs, 0xff`.
+/// - `zext.h rd, rs` desugars to `andi rd, rs, 0xffff`.
+/// - `zext.w rd, rs` is a no-op in RV64I as the upper 32 bits are already zeroed by `addiw`.
+/// - `seqz rd, rs` desugars to `sltiu rd, rs, 1`.
+/// - `snez rd, rs` desugars to `sltu rd, x0, rs`.
+/// - `sltz rd, rs` desugars to `slt rd, rs, x0`.
+/// - `sgtz rd, rs` desugars to `slt rd, x0, rs`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ITypeOp {
+    Addi, Addiw, Slli, Slti, Sltiu, Xori, Ori, Andi, Srli, Srai, Jalr,
+    Slliw, Srliw, Sraiw
+}
+
+/// An enum for the B-type branch instructions.
+///
+/// **Grammar Rule and Example:**
+/// `BTypeOp Register Comma Register Comma label_reference`
+///
+/// - `beq`: `beq a1, a2, loop_start`
+///
+/// **Pseudo-ops and Desugaring:**
+/// - `beqz rs, label` desugars to `beq rs, x0, label`.
+/// - `bnez rs, label` desugars to `bne rs, x0, label`.
+/// - `blez rs, label` desugars to `bge x0, rs, label`.
+/// - `bgez rs, label` desugars to `bge rs, x0, label`.
+/// - `bltz rs, label` desugars to `blt rs, x0, label`.
+/// - `bgtz rs, label` desugars to `blt x0, rs, label`.
+/// - `bgt rs1, rs2, label` desugars to `blt rs2, rs1, label`.
+/// - `ble rs1, rs2, label` desugars to `bge rs2, rs1, label`.
+/// - `bgtu rs1, rs2, label` desugars to `bltu rs2, rs1, label`.
+/// - `bleu rs1, rs2, label` desugars to `bgeu rs2, rs1, label`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BTypeOp { Beq, Bne, Blt, Bge, Bltu, Bgeu }
+
+/// An enum for the U-type instructions.
+///
+/// **Grammar Rule and Example:**
+/// `UTypeOp Register Comma expression`
+///
+/// - `lui`: `lui a0, 0x10000`
+///
+/// **Variants:**
+/// - `auipc` is the only other U-type instruction.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UTypeOp { Lui, Auipc }
+
+/// An enum for the J-type jump instructions.
+///
+/// **Grammar Rule and Example:**
+/// `JTypeOp [ Register Comma ] label_reference`
+///
+/// - `jal`: `jal a0, my_function`
+///
+/// **Variants:**
+/// - The return register is optional: `jal my_function` desugars to `jal ra, my_function`.
+/// - `j label` is a pseudo-op that desugars to `jal x0, label`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JTypeOp { Jal }
+
+/// An enum for special zero-operand instructions.
+///
+/// **Grammar Rule and Example:**
+/// `SpecialOp`
+///
+/// - `ecall`
+/// - `ebreak`
+///
+/// **Pseudo-ops and Desugaring:**
+/// - `nop` is a pseudo-op that desugars to `addi x0, x0, 0`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpecialOp { Ecall, Ebreak }
+
+/// The `LoadStoreOp` enum now covers all load and store instructions.
+///
+/// **Grammar Rule and Example:**
+/// `LoadStoreOp Register Comma [ expression ] OpenParen Register CloseParen`
+///
+/// - `lb`: `lb a0, 0(a1)`
+///
+/// **Parsing Notes:**
+/// The syntax `offset(register)` presents a parsing challenge because the `offset`
+/// expression is optional. A form like `ld a0, (t4)` is valid, as is `ld a0, 16(t4)`.
+/// This cannot be parsed with a single token of lookahead, as the parser doesn't know
+/// if a `(` is the start of a parenthesized expression or the start of the final
+/// `(register)` block. A backtracking or multi-path parsing strategy within the
+/// load/store parsing function will be required to handle this ambiguity.
+///
+/// **Variants:**
+/// - The expression for the offset is optional, e.g., `lb a0, (a1)`.
+/// - The other load/store instructions are similar (`lh`, `lw`, `ld`, `lbu`, etc.).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoadStoreOp { Lb, Lh, Lw, Ld, Lbu, Lhu, Lwu, Sb, Sh, Sw, Sd }
+
+/// An enum to represent pseudo-instructions that desugar into multiple base instructions.
+/// The parser will recognize these, and a later pass will expand them.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PseudoOp {
+    /// `li rd, imm`: Desugars to `lui` and `addi`.
+    Li(Register, Box<Expression>),
+    /// `la rd, symbol`: Generic load address. Desugars to `lla` (non-PIC) or `lga` (PIC).
+    /// The parser should emit this if the code model is not yet known.
+    La(Register, String),
+    /// `lla rd, symbol`: Load local address. Desugars to `auipc` and `addi`.
+    Lla(Register, String),
+    /// `lga rd, symbol`: Load global address. Desugars to `auipc` and `l{w|d}` from the GOT.
+    Lga(Register, String),
+    /// `l(b|h|w|d|bu|hu|wu) rd, symbol`: Desugars to `auipc` and the corresponding load instruction.
+    LoadGlobal(LoadStoreOp, Register, String),
+    /// `s(b|h|w|d) rs, symbol`: Desugars to `auipc` and the corresponding store instruction.
+    StoreGlobal(LoadStoreOp, Register, String),
+    /// `call label`: Desugars to `auipc` and `jalr`.
+    Call(LabelRef),
+    /// `tail label`: Desugars to `auipc` and `jalr x0, ...`.
+    Tail(LabelRef),
+}
+
+/// A node in the AST representing an assembler directive.
+/// Each variant represents a different directive and its required operands.
+///
+/// **Grammar Rule:**
+/// `directive:`
+/// `| Global Identifier`
+/// `| Equ Identifier Comma expression`
+/// `| Text | Data | Bss`
+/// `| Space expression`
+/// `| String list_of_strings`
+/// `| Asciz list_of_strings`
+/// `| Byte list_of_expressions`
+/// `| TwoByte list_of_expressions`
+/// `| FourByte list_of_expressions`
+/// `| EightByte list_of_expressions`
+///
+/// **Parsing Notes:**
+/// The parser must check for a label preceding a directive. A label can only precede
+/// `.space`, `.string`, `.asciz`, `.byte`, `.2byte`, `.4byte`, or `.8byte`. It cannot
+/// precede `.global`, `.equ`, `.text`, `.data`, or `.bss`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Directive {
+    /// .global symbol
+    Global(String),
+    /// .equ symbol, expression
+    Equ(String, Expression),
+    /// .text
+    Text,
+    /// .data
+    Data,
+    /// .bss
+    Bss,
+    /// .space expression
+    Space(Expression),
+    /// Data directives that can take a list of values.
+    String(Vec<String>),
+    Asciz(Vec<String>),
+    Byte(Vec<Expression>),
+    TwoByte(Vec<Expression>),
+    FourByte(Vec<Expression>),
+    EightByte(Vec<Expression>),
+}
+
+/// An expression, which can be a single literal or a complex combination of
+/// literals, identifiers, and operators. The parser should build this tree
+/// respecting standard C operator precedence.
+///
+/// **Grammar Rule (with C-style precedence from low to high):**
+/// `expression:          bitwise_or_expr`
+/// `bitwise_or_expr:     bitwise_xor_expr ( '|' bitwise_xor_expr )*`
+/// `bitwise_xor_expr:    bitwise_and_expr ( '^' bitwise_and_expr )*`
+/// `bitwise_and_expr:    shift_expr ( '&' shift_expr )*`
+/// `shift_expr:          additive_expr ( ('<<' | '>>') additive_expr )*`
+/// `additive_expr:       multiplicative_expr ( ('+' | '-') multiplicative_expr )*`
+/// `multiplicative_expr: unary ( ('*' | '/') unary )*`
+/// `unary:               '-' operand | '~' operand | operand`
+/// `operand:             Literal | Identifier | Register | '(' expression ')'`
+///
+/// **Parsing Notes:**
+/// The parser will use the grammar's structure to handle operator precedence automatically.
+/// The `Minus` and `Tilde` operators have the highest precedence, followed by multiplication/division,
+/// addition/subtraction, bitwise shifts, and finally the bitwise logical operators.
+/// Parentheses override the default precedence.
+///
+/// The parser will distinguish between a binary minus and a unary minus based on context.
+/// A `Token::Operator(OperatorOp::Minus)` is considered a unary minus if it is at the beginning of an expression
+/// or immediately follows another operator or an open parenthesis.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expression {
+    Identifier(String),
+    /// An integer literal. The tokenizer will convert any literal that fits in a
+    /// u64 into a bit-equivalent i64.
+    Literal(i64),
+    /// Binary operations with a left and right-hand side.
+    PlusOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    MinusOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    MultiplyOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    DivideOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    LeftShiftOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    RightShiftOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    BitwiseOrOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    BitwiseAndOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    BitwiseXorOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    /// Unary operations with a single operand.
+    NegateOp { expr: Box<Expression> },
+    BitwiseNotOp { expr: Box<Expression> },
+    /// A parenthesized sub-expression. `Box` is used to prevent infinite recursion
+    /// and to store the expression on the heap.
+    Parenthesized(Box<Expression>),
+}
+
+
+// ==============================================================================
+// Display Implementations
+// ==============================================================================
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.file, self.line)
+    }
+}
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        [cite_start]// ABI names [cite: 53]
+        let s = match self {
+            Register::X0 => "zero", Register::X1 => "ra", Register::X2 => "sp", Register::X3 => "gp",
+            Register::X4 => "tp", Register::X5 => "t0", Register::X6 => "t1", Register::X7 => "t2",
+            Register::X8 => "s0", Register::X9 => "s1", Register::X10 => "a0", Register::X11 => "a1",
+            Register::X12 => "a2", Register::X13 => "a3", Register::X14 => "a4", Register::X15 => "a5",
+            Register::X16 => "a6", Register::X17 => "a7", Register::X18 => "s2", Register::X19 => "s3",
+            Register::X20 => "s4", Register::X21 => "s5", Register::X22 => "s6", Register::X23 => "s7",
+            Register::X24 => "s8", Register::X25 => "s9", Register::X26 => "s10", Register::X27 => "s11",
+            Register::X28 => "t3", Register::X29 => "t4", Register::X30 => "t5", Register::X31 => "t6",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl fmt::Display for OperatorOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            OperatorOp::Plus => "+", OperatorOp::Minus => "-", OperatorOp::Multiply => "*",
+            OperatorOp::Divide => "/", OperatorOp::LeftShift => "<<", OperatorOp::RightShift => ">>",
+            OperatorOp::BitwiseOr => "|", OperatorOp::BitwiseAnd => "&", OperatorOp::BitwiseXor => "^",
+            OperatorOp::Tilde => "~",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl fmt::Display for DirectiveOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            DirectiveOp::Global => ".global", DirectiveOp::Equ => ".equ", DirectiveOp::Text => ".text",
+            DirectiveOp::Data => ".data", DirectiveOp::Bss => ".bss", DirectiveOp::Space => ".space",
+            DirectiveOp::String => ".string", DirectiveOp::Asciz => ".asciz", DirectiveOp::Byte => ".byte",
+            DirectiveOp::TwoByte => ".2byte", DirectiveOp::FourByte => ".4byte", DirectiveOp::EightByte => ".8byte",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Token::Identifier(s) => write!(f, "{}", s),
+            Token::Register(r) => write!(f, "{}", r),
+            Token::Integer(i) => write!(f, "{}", i),
+            Token::CharacterLiteral(c) => write!(f, "{:?}", c),
+            Token::StringLiteral(s) => write!(f, "{:?}", s),
+            Token::Directive(d) => write!(f, "{}", d),
+            Token::Colon => write!(f, ":"),
+            Token::Comma => write!(f, ","),
+            Token::OpenParen => write!(f, "("),
+            Token::CloseParen => write!(f, ")"),
+            Token::Operator(o) => write!(f, "{}", o),
+        }
+    }
+}
+
+impl fmt::Display for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.content)
+    }
+}
+
+impl fmt::Display for LineContent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LineContent::Label(l) => write!(f, "{}:", l),
+            LineContent::Instruction(i) => write!(f, "{:16}{}", "", i),
+            LineContent::Directive(d) => write!(f, "{:16}{}", "", d),
+        }
+    }
+}
+
+impl fmt::Display for NumericLabelRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.num, if self.is_forward { "f" } else { "b" })
+    }
+}
+
+impl fmt::Display for LabelRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LabelRef::Symbolic(s) => write!(f, "{}", s),
+            LabelRef::Numeric(n) => write!(f, "{}", n),
+        }
+    }
+}
+
+impl fmt::Display for RTypeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+impl fmt::Display for ITypeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+impl fmt::Display for BTypeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+impl fmt::Display for UTypeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+impl fmt::Display for JTypeOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+impl fmt::Display for SpecialOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+impl fmt::Display for LoadStoreOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl fmt::Display for PseudoOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PseudoOp::Li(rd, imm) => write!(f, "{:<8} {}, {}", "li", rd, imm),
+            PseudoOp::La(rd, s) => write!(f, "{:<8} {}, {}", "la", rd, s),
+            PseudoOp::Lla(rd, s) => write!(f, "{:<8} {}, {}", "lla", rd, s),
+            PseudoOp::Lga(rd, s) => write!(f, "{:<8} {}, {}", "lga", rd, s),
+            PseudoOp::LoadGlobal(op, rd, s) => write!(f, "{:<8} {}, {}", op, rd, s),
+            PseudoOp::StoreGlobal(op, rd, s) => write!(f, "{:<8} {}, {}", op, rd, s),
+            PseudoOp::Call(label) => write!(f, "{:<8} {}", "call", label),
+            PseudoOp::Tail(label) => write!(f, "{:<8} {}", "tail", label),
+        }
+    }
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Instruction::RType(op, rd, rs1, rs2) => write!(f, "{:<8} {}, {}, {}", op, rd, rs1, rs2),
+            Instruction::IType(op, rd, rs1, imm) => write!(f, "{:<8} {}, {}, {}", op, rd, rs1, imm),
+            Instruction::BType(op, rs1, rs2, label) => write!(f, "{:<8} {}, {}, {}", op, rs1, rs2, label),
+            Instruction::UType(op, rd, imm) => write!(f, "{:<8} {}, {}", op, rd, imm),
+            Instruction::JType(op, rd, label) => write!(f, "{:<8} {}, {}", op, rd, label),
+            Instruction::Special(op) => write!(f, "{}", op),
+            Instruction::LoadStore(op, rd, offset, rs) => {
+                if let Some(off) = offset {
+                    write!(f, "{:<8} {}, {}({})", op, rd, off, rs)
+                } else {
+                    write!(f, "{:<8} {}, ({})", op, rd, rs)
+                }
+            }
+            Instruction::Pseudo(p) => write!(f, "{}", p),
+        }
+    }
+}
+
+
+impl fmt::Display for Directive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Directive::Global(s) => write!(f, "{:<8} {}", ".global", s),
+            Directive::Equ(name, expr) => write!(f, "{:<8} {}, {}", ".equ", name, expr),
+            Directive::Text => write!(f, ".text"),
+            Directive::Data => write!(f, ".data"),
+            Directive::Bss => write!(f, ".bss"),
+            Directive::Space(expr) => write!(f, "{:<8} {}", ".space", expr),
+            Directive::String(items) => {
+                let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
+                write!(f, "{:<8} {}", ".string", formatted)
+            }
+            Directive::Asciz(items) => {
+                let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
+                write!(f, "{:<8} {}", ".asciz", formatted)
+            }
+            Directive::Byte(items) => {
+                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                write!(f, "{:<8} {}", ".byte", formatted)
+            }
+            Directive::TwoByte(items) => {
+                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                write!(f, "{:<8} {}", ".2byte", formatted)
+            }
+            Directive::FourByte(items) => {
+                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                write!(f, "{:<8} {}", ".4byte", formatted)
+            }
+            Directive::EightByte(items) => {
+                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                write!(f, "{:<8} {}", ".8byte", formatted)
+            }
+        }
+    }
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expression::Identifier(s) => write!(f, "{}", s),
+            Expression::Literal(i) => write!(f, "{}", i),
+            Expression::PlusOp { lhs, rhs } => write!(f, "{} + {}", lhs, rhs),
+            Expression::MinusOp { lhs, rhs } => write!(f, "{} - {}", lhs, rhs),
+            Expression::MultiplyOp { lhs, rhs } => write!(f, "{} * {}", lhs, rhs),
+            Expression::DivideOp { lhs, rhs } => write!(f, "{} / {}", lhs, rhs),
+            Expression::LeftShiftOp { lhs, rhs } => write!(f, "{} << {}", lhs, rhs),
+            Expression::RightShiftOp { lhs, rhs } => write!(f, "{} >> {}", lhs, rhs),
+            Expression::BitwiseOrOp { lhs, rhs } => write!(f, "{} | {}", lhs, rhs),
+            Expression::BitwiseAndOp { lhs, rhs } => write!(f, "{} & {}", lhs, rhs),
+            Expression::BitwiseXorOp { lhs, rhs } => write!(f, "{} ^ {}", lhs, rhs),
+            Expression::NegateOp { expr } => write!(f, "-{}", expr),
+            Expression::BitwiseNotOp { expr } => write!(f, "~{}", expr),
+            Expression::Parenthesized(expr) => write!(f, "({})", expr),
+        }
+    }
+}
