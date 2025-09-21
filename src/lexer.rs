@@ -11,7 +11,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
             }
             '#' => {
                 // Comment to end of line
-                while let Some(c) = chars.next() {
+                for _c in chars.by_ref() {
                     // discard comment
                 }
             }
@@ -101,6 +101,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     "data" => DirectiveOp::Data,
                     "bss" => DirectiveOp::Bss,
                     "space" => DirectiveOp::Space,
+                    "balign" => DirectiveOp::Balign,
                     "string" => DirectiveOp::String,
                     "asciz" => DirectiveOp::Asciz,
                     "byte" => DirectiveOp::Byte,
@@ -132,7 +133,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
 fn parse_identifier(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<String, String> {
     let mut s = String::new();
     while let Some(&ch) = chars.peek() {
-        if ch.is_alphanumeric() || ch == '_' {
+        if ch.is_alphanumeric() || ch == '_' || ch == '.' {
             s.push(ch);
             chars.next();
         } else {
@@ -183,11 +184,9 @@ fn parse_number(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<i64,
             break;
         }
     }
-    let num_str = if base == 16 && (s.starts_with("0x") || s.starts_with("0X")) {
-        &s[2..]
-    } else if base == 2 && (s.starts_with("0b") || s.starts_with("0B")) {
-        &s[2..]
-    } else if base == 8 && (s.starts_with("0o") || s.starts_with("0O")) {
+    let num_str = if (base == 16 && (s.starts_with("0x") || s.starts_with("0X"))) ||
+                     (base == 2 && (s.starts_with("0b") || s.starts_with("0B"))) ||
+                     (base == 8 && (s.starts_with("0o") || s.starts_with("0O"))) {
         &s[2..]
     } else {
         &s

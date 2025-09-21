@@ -59,7 +59,7 @@ pub enum Register {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DirectiveOp {
     Global, Equ, Text, Data, Bss,
-    Space, String, Asciz, Byte, TwoByte, FourByte, EightByte
+    Space, String, Asciz, Byte, TwoByte, FourByte, EightByte, Balign
 }
 
 /// An enum for all supported operators.
@@ -193,10 +193,9 @@ pub enum Instruction {
     JType(JTypeOp, Register, LabelRef),
     /// Special instructions (opcode, no operands).
     Special(SpecialOp),
-    /// The special case for all load and store instructions. The expression for the offset
-    /// is optional. The parser will handle filling in an `Expression::Literal(0)`
-    /// when the offset is omitted.
-    LoadStore(LoadStoreOp, Register, Option<Box<Expression>>, Register),
+    /// The special case for all load and store instructions. The offset is an integer.
+    /// If omitted in source, it is filled in as zero by the parser.
+    LoadStore(LoadStoreOp, Register, i64, Register),
     /// A pseudo-instruction that will be desugared by a later pass.
     Pseudo(PseudoOp),
 }
@@ -336,19 +335,11 @@ pub enum LoadStoreOp { Lb, Lh, Lw, Ld, Lbu, Lhu, Lwu, Sb, Sh, Sw, Sd }
 /// The parser will recognize these, and a later pass will expand them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PseudoOp {
-    /// `li rd, imm`: Desugars to `lui` and `addi`.
+    /// `li rd, imm`: Desugars to one of several different sequences depending on
+    /// the size of the immediate.
     Li(Register, Box<Expression>),
-    /// `la rd, symbol`: Generic load address. Desugars to `lla` (non-PIC) or `lga` (PIC).
-    /// The parser should emit this if the code model is not yet known.
+    /// `la rd, symbol`: Load address. Desugars to `auipc` and `addi`.
     La(Register, String),
-    /// `lla rd, symbol`: Load local address. Desugars to `auipc` and `addi`.
-    Lla(Register, String),
-    /// `lga rd, symbol`: Load global address. Desugars to `auipc` and `l{w|d}` from the GOT.
-    Lga(Register, String),
-    /// `l(b|h|w|d|bu|hu|wu) rd, symbol`: Desugars to `auipc` and the corresponding load instruction.
-    LoadGlobal(LoadStoreOp, Register, String),
-    /// `s(b|h|w|d) rs, symbol`: Desugars to `auipc` and the corresponding store instruction.
-    StoreGlobal(LoadStoreOp, Register, String),
     /// `call label`: Desugars to `auipc` and `jalr`.
     Call(LabelRef),
     /// `tail label`: Desugars to `auipc` and `jalr x0, ...`.
@@ -389,6 +380,8 @@ pub enum Directive {
     Bss,
     /// .space expression
     Space(Expression),
+    /// .balign expression
+    Balign(Expression),
     /// Data directives that can take a list of values.
     String(Vec<String>),
     Asciz(Vec<String>),
@@ -491,8 +484,9 @@ impl fmt::Display for DirectiveOp {
         let s = match self {
             DirectiveOp::Global => ".global", DirectiveOp::Equ => ".equ", DirectiveOp::Text => ".text",
             DirectiveOp::Data => ".data", DirectiveOp::Bss => ".bss", DirectiveOp::Space => ".space",
-            DirectiveOp::String => ".string", DirectiveOp::Asciz => ".asciz", DirectiveOp::Byte => ".byte",
-            DirectiveOp::TwoByte => ".2byte", DirectiveOp::FourByte => ".4byte", DirectiveOp::EightByte => ".8byte",
+            DirectiveOp::Balign => ".balign", DirectiveOp::String => ".string", DirectiveOp::Asciz => ".asciz",
+            DirectiveOp::Byte => ".byte", DirectiveOp::TwoByte => ".2byte", DirectiveOp::FourByte => ".4byte",
+            DirectiveOp::EightByte => ".8byte",
         };
         write!(f, "{}", s)
     }
@@ -589,10 +583,6 @@ impl fmt::Display for PseudoOp {
         match self {
             PseudoOp::Li(rd, imm) => write!(f, "{:<8} {}, {}", "li", rd, imm),
             PseudoOp::La(rd, s) => write!(f, "{:<8} {}, {}", "la", rd, s),
-            PseudoOp::Lla(rd, s) => write!(f, "{:<8} {}, {}", "lla", rd, s),
-            PseudoOp::Lga(rd, s) => write!(f, "{:<8} {}, {}", "lga", rd, s),
-            PseudoOp::LoadGlobal(op, rd, s) => write!(f, "{:<8} {}, {}", op, rd, s),
-            PseudoOp::StoreGlobal(op, rd, s) => write!(f, "{:<8} {}, {}", op, rd, s),
             PseudoOp::Call(label) => write!(f, "{:<8} {}", "call", label),
             PseudoOp::Tail(label) => write!(f, "{:<8} {}", "tail", label),
         }
@@ -609,11 +599,7 @@ impl fmt::Display for Instruction {
             Instruction::JType(op, rd, label) => write!(f, "{:<8} {}, {}", op, rd, label),
             Instruction::Special(op) => write!(f, "{}", op),
             Instruction::LoadStore(op, rd, offset, rs) => {
-                if let Some(off) = offset {
-                    write!(f, "{:<8} {}, {}({})", op, rd, off, rs)
-                } else {
-                    write!(f, "{:<8} {}, ({})", op, rd, rs)
-                }
+                write!(f, "{:<8} {}, {}({})", op, rd, offset, rs)
             }
             Instruction::Pseudo(p) => write!(f, "{}", p),
         }
@@ -630,6 +616,7 @@ impl fmt::Display for Directive {
             Directive::Data => write!(f, ".data"),
             Directive::Bss => write!(f, ".bss"),
             Directive::Space(expr) => write!(f, "{:<8} {}", ".space", expr),
+            Directive::Balign(expr) => write!(f, "{:<8} {}", ".balign", expr),
             Directive::String(items) => {
                 let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
                 write!(f, "{:<8} {}", ".string", formatted)
