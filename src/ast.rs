@@ -459,7 +459,7 @@ impl fmt::Display for Location {
 
 impl fmt::Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        [cite_start]// ABI names [cite: 53]
+        // ABI names
         let s = match self {
             Register::X0 => "zero", Register::X1 => "ra", Register::X2 => "sp", Register::X3 => "gp",
             Register::X4 => "tp", Register::X5 => "t0", Register::X6 => "t1", Register::X7 => "t2",
