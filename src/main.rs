@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 
 mod ast;
-mod lexer;
+mod tokenizer;
 mod parser;
 
 fn main() -> io::Result<()> {
@@ -23,7 +23,7 @@ fn main() -> io::Result<()> {
         let reader = io::BufReader::new(file);
         for (line_num, line) in reader.lines().enumerate() {
             let line = line?;
-            match lexer::tokenize(&line) {
+            match tokenizer::tokenize(&line) {
                 Ok(tokens) => {
                     if !tokens.is_empty() {
                         match parser::parse(&tokens, file_path.clone(), (line_num + 1) as u32) {
