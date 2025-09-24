@@ -93,30 +93,34 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
             }
             '.' => {
                 chars.next();
-                let ident = parse_identifier(&mut chars)?;
-                let dir = match ident.as_str() {
-                    "global" => DirectiveOp::Global,
-                    "equ" => DirectiveOp::Equ,
-                    "text" => DirectiveOp::Text,
-                    "data" => DirectiveOp::Data,
-                    "bss" => DirectiveOp::Bss,
-                    "space" => DirectiveOp::Space,
-                    "balign" => DirectiveOp::Balign,
-                    "string" => DirectiveOp::String,
-                    "asciz" => DirectiveOp::Asciz,
-                    "byte" => DirectiveOp::Byte,
-                    "2byte" => DirectiveOp::TwoByte,
-                    "4byte" => DirectiveOp::FourByte,
-                    "8byte" => DirectiveOp::EightByte,
-                    _ => return Err(format!("Unknown directive .{}", ident)),
-                };
-                tokens.push(Token::Directive(dir));
+                if chars.peek().is_some() && chars.peek().unwrap().is_alphanumeric() {
+                    let ident = parse_identifier(&mut chars)?;
+                    let dir = match ident.as_str() {
+                        "global" => DirectiveOp::Global,
+                        "equ" => DirectiveOp::Equ,
+                        "text" => DirectiveOp::Text,
+                        "data" => DirectiveOp::Data,
+                        "bss" => DirectiveOp::Bss,
+                        "space" => DirectiveOp::Space,
+                        "balign" => DirectiveOp::Balign,
+                        "string" => DirectiveOp::String,
+                        "asciz" => DirectiveOp::Asciz,
+                        "byte" => DirectiveOp::Byte,
+                        "2byte" => DirectiveOp::TwoByte,
+                        "4byte" => DirectiveOp::FourByte,
+                        "8byte" => DirectiveOp::EightByte,
+                        _ => return Err(format!("Unknown directive .{}", ident)),
+                    };
+                    tokens.push(Token::Directive(dir));
+                } else {
+                    tokens.push(Token::Dot);
+                }
             }
             '0'..='9' => {
                 let num = parse_number(&mut chars)?;
                 tokens.push(Token::Integer(num));
             }
-            'a'..='z' | 'A'..='Z' | '_' => {
+            'a'..='z' | 'A'..='Z' | '_' | '$' => {
                 let ident = parse_identifier(&mut chars)?;
                 if let Some(reg) = parse_register(&ident) {
                     tokens.push(Token::Register(reg));
@@ -133,7 +137,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
 fn parse_identifier(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<String, String> {
     let mut s = String::new();
     while let Some(&ch) = chars.peek() {
-        if ch.is_alphanumeric() || ch == '_' || ch == '.' {
+        if ch.is_alphanumeric() || ch == '_' || ch == '.' || ch == '$' {
             s.push(ch);
             chars.next();
         } else {

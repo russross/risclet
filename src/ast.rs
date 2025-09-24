@@ -107,6 +107,8 @@ pub enum Token {
     CloseParen,
     /// An operator.
     Operator(OperatorOp),
+    /// The current address (.) in expressions.
+    Dot,
 }
 
 // ==============================================================================
@@ -158,12 +160,7 @@ pub struct NumericLabelRef {
     pub is_forward: bool,
 }
 
-/// Represents a reference to a label, which can be a standard symbol or a numeric local label.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LabelRef {
-    Symbolic(String),
-    Numeric(NumericLabelRef),
-}
+
 
 /// A node in the Abstract Syntax Tree representing a single assembly instruction.
 /// Each variant corresponds to a specific instruction format, making it easy for
@@ -173,9 +170,9 @@ pub enum LabelRef {
 /// `instruction:`
 /// `| RTypeOp Register Comma Register Comma Register`
 /// `| ITypeOp Register Comma Register Comma expression`
-/// `| BTypeOp Register Comma Register Comma label_reference`
+/// `| BTypeOp Register Comma Register Comma expression`
 /// `| UTypeOp Register Comma expression`
-/// `| JTypeOp [ Register Comma ] label_reference`
+/// `| JTypeOp [ Register Comma ] expression`
 /// `| SpecialOp`
 /// `| LoadStoreOp Register Comma [ expression ] OpenParen Register CloseParen`
 /// `| PseudoOp`
@@ -185,17 +182,17 @@ pub enum Instruction {
     RType(RTypeOp, Register, Register, Register),
     /// I-type instructions (opcode, rd, rs1, immediate).
     IType(ITypeOp, Register, Register, Box<Expression>),
-    /// B-type instructions (opcode, rs1, rs2, label).
-    BType(BTypeOp, Register, Register, LabelRef),
+/// B-type instructions (opcode, rs1, rs2, target expression).
+BType(BTypeOp, Register, Register, Box<Expression>),
     /// U-type instructions (opcode, rd, immediate).
     UType(UTypeOp, Register, Box<Expression>),
-    /// J-type instructions (opcode, rd, label).
-    JType(JTypeOp, Register, LabelRef),
+/// J-type instructions (opcode, rd, target expression).
+JType(JTypeOp, Register, Box<Expression>),
     /// Special instructions (opcode, no operands).
     Special(SpecialOp),
-    /// The special case for all load and store instructions. The offset is an integer.
+    /// The special case for all load and store instructions. The offset is an expression.
     /// If omitted in source, it is filled in as zero by the parser.
-    LoadStore(LoadStoreOp, Register, i64, Register),
+    LoadStore(LoadStoreOp, Register, Box<Expression>, Register),
     /// A pseudo-instruction that will be desugared by a later pass.
     Pseudo(PseudoOp),
 }
@@ -232,6 +229,7 @@ pub enum RTypeOp {
 ///
 /// **Pseudo-ops and Desugaring:**
 /// - `mv rs, rt` desugars to `addi rs, rt, 0`.
+/// - `nop` desugars to `addi x0, x0, 0`.
 /// - `not rs, rt` desugars to `xori rs, rt, -1`.
 /// - `jr rs` desugars to `jalr x0, rs, 0`.
 /// - `ret` desugars to `jalr x0, ra, 0`.
@@ -254,9 +252,9 @@ pub enum ITypeOp {
 /// An enum for the B-type branch instructions.
 ///
 /// **Grammar Rule and Example:**
-/// `BTypeOp Register Comma Register Comma label_reference`
+/// `BTypeOp Register Comma Register Comma expression`
 ///
-/// - `beq`: `beq a1, a2, loop_start`
+/// - `beq`: `beq a1, a2, loop_start` or `beq a1, a2, . + 8`
 ///
 /// **Pseudo-ops and Desugaring:**
 /// - `beqz rs, label` desugars to `beq rs, x0, label`.
@@ -287,9 +285,9 @@ pub enum UTypeOp { Lui, Auipc }
 /// An enum for the J-type jump instructions.
 ///
 /// **Grammar Rule and Example:**
-/// `JTypeOp [ Register Comma ] label_reference`
+/// `JTypeOp [ Register Comma ] expression`
 ///
-/// - `jal`: `jal a0, my_function`
+/// - `jal`: `jal a0, my_function` or `jal a0, . + 16`
 ///
 /// **Variants:**
 /// - The return register is optional: `jal my_function` desugars to `jal ra, my_function`.
@@ -304,9 +302,6 @@ pub enum JTypeOp { Jal }
 ///
 /// - `ecall`
 /// - `ebreak`
-///
-/// **Pseudo-ops and Desugaring:**
-/// - `nop` is a pseudo-op that desugars to `addi x0, x0, 0`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpecialOp { Ecall, Ebreak }
 
@@ -338,12 +333,16 @@ pub enum PseudoOp {
     /// `li rd, imm`: Desugars to one of several different sequences depending on
     /// the size of the immediate.
     Li(Register, Box<Expression>),
-    /// `la rd, symbol`: Load address. Desugars to `auipc` and `addi`.
-    La(Register, String),
-    /// `call label`: Desugars to `auipc` and `jalr`.
-    Call(LabelRef),
-    /// `tail label`: Desugars to `auipc` and `jalr x0, ...`.
-    Tail(LabelRef),
+    /// `la rd, symbol`: Generic load address. Desugars to `addi` using `gp` or `auipc` and `addi`.
+    La(Register, Box<Expression>),
+    /// `l(b|h|w|d|bu|hu|wu) rd, expression`: Desugars to `auipc` and the corresponding load instruction.
+    LoadGlobal(LoadStoreOp, Register, Box<Expression>),
+    /// `s(b|h|w|d) rs, expression, t0`: Desugars to `auipc` and the corresponding store instruction.  Requires a temporary register.
+    StoreGlobal(LoadStoreOp, Register, Box<Expression>, Register),
+/// `call expression`: Desugars to `auipc` and `jalr`.
+Call(Box<Expression>),
+/// `tail expression`: Desugars to `auipc` and `jalr x0, ...`.
+Tail(Box<Expression>),
 }
 
 /// A node in the AST representing an assembler directive.
@@ -369,7 +368,7 @@ pub enum PseudoOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Directive {
     /// .global symbol
-    Global(String),
+    Global(Vec<String>),
     /// .equ symbol, expression
     Equ(String, Expression),
     /// .text
@@ -437,6 +436,10 @@ pub enum Expression {
     /// A parenthesized sub-expression. `Box` is used to prevent infinite recursion
     /// and to store the expression on the heap.
     Parenthesized(Box<Expression>),
+    /// The current address (.) in expressions, resolved to the address of the current instruction or directive.
+    CurrentAddress,
+    /// A numeric label reference, subsumed into expressions for flexibility.
+    NumericLabelRef(NumericLabelRef),
 }
 
 
@@ -507,6 +510,7 @@ impl fmt::Display for Token {
             Token::OpenParen => write!(f, "("),
             Token::CloseParen => write!(f, ")"),
             Token::Operator(o) => write!(f, "{}", o),
+            Token::Dot => write!(f, "."),
         }
     }
 }
@@ -533,14 +537,7 @@ impl fmt::Display for NumericLabelRef {
     }
 }
 
-impl fmt::Display for LabelRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LabelRef::Symbolic(s) => write!(f, "{}", s),
-            LabelRef::Numeric(n) => write!(f, "{}", n),
-        }
-    }
-}
+
 
 impl fmt::Display for RTypeOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -583,8 +580,10 @@ impl fmt::Display for PseudoOp {
         match self {
             PseudoOp::Li(rd, imm) => write!(f, "{:<8} {}, {}", "li", rd, imm),
             PseudoOp::La(rd, s) => write!(f, "{:<8} {}, {}", "la", rd, s),
-            PseudoOp::Call(label) => write!(f, "{:<8} {}", "call", label),
-            PseudoOp::Tail(label) => write!(f, "{:<8} {}", "tail", label),
+            PseudoOp::LoadGlobal(op, rd, expr) => write!(f, "{:<8} {}, {}", op, rd, expr),
+            PseudoOp::StoreGlobal(op, rs, expr, temp) => write!(f, "{:<8} {}, {}, {}", op, rs, expr, temp),
+            PseudoOp::Call(expr) => write!(f, "{:<8} {}", "call", expr),
+            PseudoOp::Tail(expr) => write!(f, "{:<8} {}", "tail", expr),
         }
     }
 }
@@ -594,9 +593,9 @@ impl fmt::Display for Instruction {
         match self {
             Instruction::RType(op, rd, rs1, rs2) => write!(f, "{:<8} {}, {}, {}", op, rd, rs1, rs2),
             Instruction::IType(op, rd, rs1, imm) => write!(f, "{:<8} {}, {}, {}", op, rd, rs1, imm),
-            Instruction::BType(op, rs1, rs2, label) => write!(f, "{:<8} {}, {}, {}", op, rs1, rs2, label),
+            Instruction::BType(op, rs1, rs2, expr) => write!(f, "{:<8} {}, {}, {}", op, rs1, rs2, expr),
             Instruction::UType(op, rd, imm) => write!(f, "{:<8} {}, {}", op, rd, imm),
-            Instruction::JType(op, rd, label) => write!(f, "{:<8} {}, {}", op, rd, label),
+            Instruction::JType(op, rd, expr) => write!(f, "{:<8} {}, {}", op, rd, expr),
             Instruction::Special(op) => write!(f, "{}", op),
             Instruction::LoadStore(op, rd, offset, rs) => {
                 write!(f, "{:<8} {}, {}({})", op, rd, offset, rs)
@@ -610,7 +609,7 @@ impl fmt::Display for Instruction {
 impl fmt::Display for Directive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Directive::Global(s) => write!(f, "{:<8} {}", ".global", s),
+            Directive::Global(s) => write!(f, "{:<8} {}", ".global", s.join(" ")),
             Directive::Equ(name, expr) => write!(f, "{:<8} {}, {}", ".equ", name, expr),
             Directive::Text => write!(f, ".text"),
             Directive::Data => write!(f, ".data"),
@@ -662,6 +661,8 @@ impl fmt::Display for Expression {
             Expression::NegateOp { expr } => write!(f, "-{}", expr),
             Expression::BitwiseNotOp { expr } => write!(f, "~{}", expr),
             Expression::Parenthesized(expr) => write!(f, "({})", expr),
+            Expression::CurrentAddress => write!(f, "."),
+            Expression::NumericLabelRef(nlr) => write!(f, "{}", nlr),
         }
     }
 }
