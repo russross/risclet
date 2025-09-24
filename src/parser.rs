@@ -59,10 +59,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-
-
-
-
     // Grammar: exp (calls parse_bitwise_or) (part of expression grammar)
     // Example: a + b * c
     fn parse_expression(&mut self) -> Result<Expression, String> {
@@ -78,7 +74,10 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::BitwiseOr) => {
                     self.next();
                     let right = self.parse_bitwise_xor()?;
-                    left = Expression::BitwiseOrOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::BitwiseOrOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -95,7 +94,10 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::BitwiseXor) => {
                     self.next();
                     let right = self.parse_bitwise_and()?;
-                    left = Expression::BitwiseXorOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::BitwiseXorOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -112,7 +114,10 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::BitwiseAnd) => {
                     self.next();
                     let right = self.parse_shift()?;
-                    left = Expression::BitwiseAndOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::BitwiseAndOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -129,12 +134,18 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::LeftShift) => {
                     self.next();
                     let right = self.parse_additive()?;
-                    left = Expression::LeftShiftOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::LeftShiftOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::RightShift) => {
                     self.next();
                     let right = self.parse_additive()?;
-                    left = Expression::RightShiftOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::RightShiftOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -151,12 +162,18 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::Plus) => {
                     self.next();
                     let right = self.parse_multiplicative()?;
-                    left = Expression::PlusOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::PlusOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::Minus) => {
                     self.next();
                     let right = self.parse_multiplicative()?;
-                    left = Expression::MinusOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::MinusOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -173,12 +190,18 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::Multiply) => {
                     self.next();
                     let right = self.parse_unary()?;
-                    left = Expression::MultiplyOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::MultiplyOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::Divide) => {
                     self.next();
                     let right = self.parse_unary()?;
-                    left = Expression::DivideOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::DivideOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -214,10 +237,16 @@ impl<'a> Parser<'a> {
                     if let Some(Token::Identifier(s)) = self.peek() {
                         if s == "f" {
                             self.next();
-                            Ok(Expression::NumericLabelRef(NumericLabelRef { num, is_forward: true }))
+                            Ok(Expression::NumericLabelRef(NumericLabelRef {
+                                num,
+                                is_forward: true,
+                            }))
                         } else if s == "b" {
                             self.next();
-                            Ok(Expression::NumericLabelRef(NumericLabelRef { num, is_forward: false }))
+                            Ok(Expression::NumericLabelRef(NumericLabelRef {
+                                num,
+                                is_forward: false,
+                            }))
                         } else {
                             Ok(Expression::Literal(i)) // plain int
                         }
@@ -290,7 +319,10 @@ impl<'a> Parser<'a> {
         };
         // Emit lines
         if let Some(l) = label {
-            lines.push(Line { location: location.clone(), content: LineContent::Label(l) });
+            lines.push(Line {
+                location: location.clone(),
+                content: LineContent::Label(l),
+            });
         }
         if let Some(c) = content {
             lines.push(Line { location, content: c });
@@ -306,10 +338,10 @@ impl<'a> Parser<'a> {
     fn parse_directive(&mut self) -> Result<Directive, String> {
         if let Some(Token::Directive(d)) = self.next() {
             match d {
-                 DirectiveOp::Global => {
-                     let name = self.parse_identifier()?;
-                     Ok(Directive::Global(vec![name]))
-                 }
+                DirectiveOp::Global => {
+                    let name = self.parse_identifier()?;
+                    Ok(Directive::Global(vec![name]))
+                }
                 DirectiveOp::Equ => {
                     let name = self.parse_identifier()?;
                     self.expect(&Token::Comma)?;
@@ -450,18 +482,28 @@ impl<'a> Parser<'a> {
             "bge" => self.parse_btype(BTypeOp::Bge),
             "bltu" => self.parse_btype(BTypeOp::Bltu),
             "bgeu" => self.parse_btype(BTypeOp::Bgeu),
-              "bgez" => {
-                  let rs1 = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Bge, rs1, Register::X0, Box::new(expr))) // Special: rs2 is x0
-              }
-              "bnez" => {
-                  let rs1 = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Bne, rs1, Register::X0, Box::new(expr))) // Special: rs2 is x0
-              }
+            "bgez" => {
+                let rs1 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(
+                    BTypeOp::Bge,
+                    rs1,
+                    Register::X0,
+                    Box::new(expr),
+                )) // Special: rs2 is x0
+            }
+            "bnez" => {
+                let rs1 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(
+                    BTypeOp::Bne,
+                    rs1,
+                    Register::X0,
+                    Box::new(expr),
+                )) // Special: rs2 is x0
+            }
             // U-type
             "lui" => {
                 let rd = self.parse_register()?;
@@ -476,19 +518,19 @@ impl<'a> Parser<'a> {
                 Ok(Instruction::UType(UTypeOp::Auipc, rd, Box::new(imm)))
             }
             // J-type
-             "jal" => {
-                  // Optional rd: [reg ,] expression
-                  let rd = if let Some(Token::Register(_)) = self.peek() {
-                      self.parse_register()?
-                  } else {
-                      Register::X1 // ra
-                  };
-                  if let Some(Token::Comma) = self.peek() {
-                      self.next();
-                  }
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::JType(JTypeOp::Jal, rd, Box::new(expr)))
-              }
+            "jal" => {
+                // Optional rd: [reg ,] expression
+                let rd = if let Some(Token::Register(_)) = self.peek() {
+                    self.parse_register()?
+                } else {
+                    Register::X1 // ra
+                };
+                if let Some(Token::Comma) = self.peek() {
+                    self.next();
+                }
+                let expr = self.parse_expression()?;
+                Ok(Instruction::JType(JTypeOp::Jal, rd, Box::new(expr)))
+            }
             // Special
             "ecall" => Ok(Instruction::Special(SpecialOp::Ecall)),
             "ebreak" => Ok(Instruction::Special(SpecialOp::Ebreak)),
@@ -511,28 +553,43 @@ impl<'a> Parser<'a> {
                 let imm = self.parse_expression()?;
                 Ok(Instruction::Pseudo(PseudoOp::Li(rd, Box::new(imm))))
             }
-             "la" => {
-                 let rd = self.parse_register()?;
-                 self.expect(&Token::Comma)?;
-                 let expr = self.parse_expression()?;
-                 Ok(Instruction::Pseudo(PseudoOp::La(rd, Box::new(expr))))
-             }
+            "la" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::Pseudo(PseudoOp::La(rd, Box::new(expr))))
+            }
             "call" => {
-                 let expr = self.parse_expression()?;
-                 Ok(Instruction::Pseudo(PseudoOp::Call(Box::new(expr))))
-             }
+                let expr = self.parse_expression()?;
+                Ok(Instruction::Pseudo(PseudoOp::Call(Box::new(expr))))
+            }
             "tail" => {
-                 let expr = self.parse_expression()?;
-                 Ok(Instruction::Pseudo(PseudoOp::Tail(Box::new(expr))))
-             }
+                let expr = self.parse_expression()?;
+                Ok(Instruction::Pseudo(PseudoOp::Tail(Box::new(expr))))
+            }
             "mv" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Addi, rd, rs, Box::new(Expression::Literal(0))))
+                Ok(Instruction::IType(
+                    ITypeOp::Addi,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(0)),
+                ))
             }
-            "ret" => Ok(Instruction::IType(ITypeOp::Jalr, Register::X0, Register::X1, Box::new(Expression::Literal(0)))),
-            "nop" => Ok(Instruction::IType(ITypeOp::Addi, Register::X0, Register::X0, Box::new(Expression::Literal(0)))),
+            "ret" => Ok(Instruction::IType(
+                ITypeOp::Jalr,
+                Register::X0,
+                Register::X1,
+                Box::new(Expression::Literal(0)),
+            )),
+            "nop" => Ok(Instruction::IType(
+                ITypeOp::Addi,
+                Register::X0,
+                Register::X0,
+                Box::new(Expression::Literal(0)),
+            )),
             "neg" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
@@ -549,13 +606,23 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Addiw, rd, rs, Box::new(Expression::Literal(0))))
+                Ok(Instruction::IType(
+                    ITypeOp::Addiw,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(0)),
+                ))
             }
             "seqz" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Sltiu, rd, rs, Box::new(Expression::Literal(1))))
+                Ok(Instruction::IType(
+                    ITypeOp::Sltiu,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(1)),
+                ))
             }
             "snez" => {
                 let rd = self.parse_register()?;
@@ -575,59 +642,93 @@ impl<'a> Parser<'a> {
                 let rs = self.parse_register()?;
                 Ok(Instruction::RType(RTypeOp::Slt, rd, Register::X0, rs))
             }
-              "beqz" => {
-                  let rs = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Beq, rs, Register::X0, Box::new(expr)))
-              }
-              "blez" => {
-                  let rs = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Bge, Register::X0, rs, Box::new(expr)))
-              }
-              "bltz" => {
-                  let rs = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Blt, rs, Register::X0, Box::new(expr)))
-              }
-              "bgtz" => {
-                  let rs = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Blt, Register::X0, rs, Box::new(expr)))
-              }
-              "bgt" => {
-                  let rs1 = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let rs2 = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Blt, rs2, rs1, Box::new(expr)))
-              }
-              "ble" => {
-                  let rs1 = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let rs2 = self.parse_register()?;
-                  self.expect(&Token::Comma)?;
-                  let expr = self.parse_expression()?;
-                  Ok(Instruction::BType(BTypeOp::Bge, rs2, rs1, Box::new(expr)))
-              }
-             "j" => {
-                 let expr = self.parse_expression()?;
-                 Ok(Instruction::JType(JTypeOp::Jal, Register::X0, Box::new(expr)))
-             }
+            "beqz" => {
+                let rs = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(
+                    BTypeOp::Beq,
+                    rs,
+                    Register::X0,
+                    Box::new(expr),
+                ))
+            }
+            "blez" => {
+                let rs = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(
+                    BTypeOp::Bge,
+                    Register::X0,
+                    rs,
+                    Box::new(expr),
+                ))
+            }
+            "bltz" => {
+                let rs = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(
+                    BTypeOp::Blt,
+                    rs,
+                    Register::X0,
+                    Box::new(expr),
+                ))
+            }
+            "bgtz" => {
+                let rs = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(
+                    BTypeOp::Blt,
+                    Register::X0,
+                    rs,
+                    Box::new(expr),
+                ))
+            }
+            "bgt" => {
+                let rs1 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(BTypeOp::Blt, rs2, rs1, Box::new(expr)))
+            }
+            "ble" => {
+                let rs1 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(BTypeOp::Bge, rs2, rs1, Box::new(expr)))
+            }
+            "j" => {
+                let expr = self.parse_expression()?;
+                Ok(Instruction::JType(
+                    JTypeOp::Jal,
+                    Register::X0,
+                    Box::new(expr),
+                ))
+            }
             "jr" => {
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Jalr, Register::X0, rs, Box::new(Expression::Literal(0))))
+                Ok(Instruction::IType(
+                    ITypeOp::Jalr,
+                    Register::X0,
+                    rs,
+                    Box::new(Expression::Literal(0)),
+                ))
             }
             "not" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Xori, rd, rs, Box::new(Expression::Literal(-1))))
+                Ok(Instruction::IType(
+                    ITypeOp::Xori,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(-1)),
+                ))
             }
             _ => Err(format!("Unknown instruction {}", opcode)),
         }
@@ -676,9 +777,15 @@ impl<'a> Parser<'a> {
             let pos_backup = self.pos;
             self.next();
             if let Ok(rs) = self.parse_register()
-                && self.expect(&Token::CloseParen).is_ok() {
-                    return Ok(Instruction::LoadStore(op, reg, Box::new(Expression::Literal(0)), rs));
-                }
+                && self.expect(&Token::CloseParen).is_ok()
+            {
+                return Ok(Instruction::LoadStore(
+                    op,
+                    reg,
+                    Box::new(Expression::Literal(0)),
+                    rs,
+                ));
+            }
             self.pos = pos_backup;
         }
         let expr = self.parse_expression()?;
@@ -689,7 +796,11 @@ impl<'a> Parser<'a> {
             self.expect(&Token::CloseParen)?;
             Ok(Instruction::LoadStore(op, reg, Box::new(expr), rs))
         } else {
-            Ok(Instruction::Pseudo(PseudoOp::LoadGlobal(op, reg, Box::new(expr))))
+            Ok(Instruction::Pseudo(PseudoOp::LoadGlobal(
+                op,
+                reg,
+                Box::new(expr),
+            )))
         }
     }
 
@@ -703,9 +814,15 @@ impl<'a> Parser<'a> {
             let pos_backup = self.pos;
             self.next();
             if let Ok(rs) = self.parse_register()
-                && self.expect(&Token::CloseParen).is_ok() {
-                    return Ok(Instruction::LoadStore(op, reg, Box::new(Expression::Literal(0)), rs));
-                }
+                && self.expect(&Token::CloseParen).is_ok()
+            {
+                return Ok(Instruction::LoadStore(
+                    op,
+                    reg,
+                    Box::new(Expression::Literal(0)),
+                    rs,
+                ));
+            }
             self.pos = pos_backup;
         }
         let expr = self.parse_expression()?;
@@ -718,12 +835,21 @@ impl<'a> Parser<'a> {
         } else {
             self.expect(&Token::Comma)?;
             let temp = self.parse_register()?;
-            Ok(Instruction::Pseudo(PseudoOp::StoreGlobal(op, reg, Box::new(expr), temp)))
+            Ok(Instruction::Pseudo(PseudoOp::StoreGlobal(
+                op,
+                reg,
+                Box::new(expr),
+                temp,
+            )))
         }
     }
 }
 
-pub fn parse(tokens: &[Token], file: String, line: u32) -> Result<Vec<Line>, String> {
+pub fn parse(
+    tokens: &[Token],
+    file: String,
+    line: u32,
+) -> Result<Vec<Line>, String> {
     let mut parser = Parser::new(tokens, file, line);
     parser.parse_line()
 }

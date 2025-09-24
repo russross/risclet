@@ -47,10 +47,8 @@ pub struct Location {
 /// **Grammar Rule:** N/A (Tokenizer maps raw identifiers to this concrete type)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
-    X0, X1, X2, X3, X4, X5, X6, X7,
-    X8, X9, X10, X11, X12, X13, X14, X15,
-    X16, X17, X18, X19, X20, X21, X22, X23,
-    X24, X25, X26, X27, X28, X29, X30, X31,
+    X0, X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12, X13, X14, X15,
+    X16, X17, X18, X19, X20, X21, X22, X23, X24, X25, X26, X27, X28, X29, X30, X31,
 }
 
 /// An enum for all supported assembler directives.
@@ -58,8 +56,19 @@ pub enum Register {
 /// **Grammar Rule:** N/A (Tokenizer maps raw directive names to this concrete type)
 #[derive(Debug, Clone, PartialEq)]
 pub enum DirectiveOp {
-    Global, Equ, Text, Data, Bss,
-    Space, String, Asciz, Byte, TwoByte, FourByte, EightByte, Balign
+    Global,
+    Equ,
+    Text,
+    Data,
+    Bss,
+    Space,
+    String,
+    Asciz,
+    Byte,
+    TwoByte,
+    FourByte,
+    EightByte,
+    Balign,
 }
 
 /// An enum for all supported operators.
@@ -160,8 +169,6 @@ pub struct NumericLabelRef {
     pub is_forward: bool,
 }
 
-
-
 /// A node in the Abstract Syntax Tree representing a single assembly instruction.
 /// Each variant corresponds to a specific instruction format, making it easy for
 /// later stages (e.g., code generation) to pattern match on the instruction type.
@@ -182,12 +189,12 @@ pub enum Instruction {
     RType(RTypeOp, Register, Register, Register),
     /// I-type instructions (opcode, rd, rs1, immediate).
     IType(ITypeOp, Register, Register, Box<Expression>),
-/// B-type instructions (opcode, rs1, rs2, target expression).
-BType(BTypeOp, Register, Register, Box<Expression>),
+    /// B-type instructions (opcode, rs1, rs2, target expression).
+    BType(BTypeOp, Register, Register, Box<Expression>),
     /// U-type instructions (opcode, rd, immediate).
     UType(UTypeOp, Register, Box<Expression>),
-/// J-type instructions (opcode, rd, target expression).
-JType(JTypeOp, Register, Box<Expression>),
+    /// J-type instructions (opcode, rd, target expression).
+    JType(JTypeOp, Register, Box<Expression>),
     /// Special instructions (opcode, no operands).
     Special(SpecialOp),
     /// The special case for all load and store instructions. The offset is an expression.
@@ -214,9 +221,34 @@ JType(JTypeOp, Register, Box<Expression>),
 /// - `M` extension variants like `mul`, `div`, `rem`: these are part of the optional M extension.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RTypeOp {
-    Add, Sub, Sll, Slt, Sltu, Xor, Srl, Sra, Or, And, Mul, Mulh, Mulhsu, Mulhu,
-    Div, Divu, Rem, Remu,
-    Addw, Subw, Sllw, Srlw, Sraw, Mulw, Divw, Divuw, Remw, Remuw
+    Add,
+    Sub,
+    Sll,
+    Slt,
+    Sltu,
+    Xor,
+    Srl,
+    Sra,
+    Or,
+    And,
+    Mul,
+    Mulh,
+    Mulhsu,
+    Mulhu,
+    Div,
+    Divu,
+    Rem,
+    Remu,
+    Addw,
+    Subw,
+    Sllw,
+    Srlw,
+    Sraw,
+    Mulw,
+    Divw,
+    Divuw,
+    Remw,
+    Remuw,
 }
 
 /// The ITypeOp enum for instructions that take an immediate value.
@@ -245,8 +277,20 @@ pub enum RTypeOp {
 /// - `sgtz rd, rs` desugars to `slt rd, x0, rs`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ITypeOp {
-    Addi, Addiw, Slli, Slti, Sltiu, Xori, Ori, Andi, Srli, Srai, Jalr,
-    Slliw, Srliw, Sraiw
+    Addi,
+    Addiw,
+    Slli,
+    Slti,
+    Sltiu,
+    Xori,
+    Ori,
+    Andi,
+    Srli,
+    Srai,
+    Jalr,
+    Slliw,
+    Srliw,
+    Sraiw,
 }
 
 /// An enum for the B-type branch instructions.
@@ -268,7 +312,14 @@ pub enum ITypeOp {
 /// - `bgtu rs1, rs2, label` desugars to `bltu rs2, rs1, label`.
 /// - `bleu rs1, rs2, label` desugars to `bgeu rs2, rs1, label`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum BTypeOp { Beq, Bne, Blt, Bge, Bltu, Bgeu }
+pub enum BTypeOp {
+    Beq,
+    Bne,
+    Blt,
+    Bge,
+    Bltu,
+    Bgeu,
+}
 
 /// An enum for the U-type instructions.
 ///
@@ -280,7 +331,10 @@ pub enum BTypeOp { Beq, Bne, Blt, Bge, Bltu, Bgeu }
 /// **Variants:**
 /// - `auipc` is the only other U-type instruction.
 #[derive(Debug, Clone, PartialEq)]
-pub enum UTypeOp { Lui, Auipc }
+pub enum UTypeOp {
+    Lui,
+    Auipc,
+}
 
 /// An enum for the J-type jump instructions.
 ///
@@ -293,7 +347,9 @@ pub enum UTypeOp { Lui, Auipc }
 /// - The return register is optional: `jal my_function` desugars to `jal ra, my_function`.
 /// - `j label` is a pseudo-op that desugars to `jal x0, label`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum JTypeOp { Jal }
+pub enum JTypeOp {
+    Jal,
+}
 
 /// An enum for special zero-operand instructions.
 ///
@@ -303,7 +359,10 @@ pub enum JTypeOp { Jal }
 /// - `ecall`
 /// - `ebreak`
 #[derive(Debug, Clone, PartialEq)]
-pub enum SpecialOp { Ecall, Ebreak }
+pub enum SpecialOp {
+    Ecall,
+    Ebreak,
+}
 
 /// The `LoadStoreOp` enum now covers all load and store instructions.
 ///
@@ -324,7 +383,19 @@ pub enum SpecialOp { Ecall, Ebreak }
 /// - The expression for the offset is optional, e.g., `lb a0, (a1)`.
 /// - The other load/store instructions are similar (`lh`, `lw`, `ld`, `lbu`, etc.).
 #[derive(Debug, Clone, PartialEq)]
-pub enum LoadStoreOp { Lb, Lh, Lw, Ld, Lbu, Lhu, Lwu, Sb, Sh, Sw, Sd }
+pub enum LoadStoreOp {
+    Lb,
+    Lh,
+    Lw,
+    Ld,
+    Lbu,
+    Lhu,
+    Lwu,
+    Sb,
+    Sh,
+    Sw,
+    Sd,
+}
 
 /// An enum to represent pseudo-instructions that desugar into multiple base instructions.
 /// The parser will recognize these, and a later pass will expand them.
@@ -339,10 +410,10 @@ pub enum PseudoOp {
     LoadGlobal(LoadStoreOp, Register, Box<Expression>),
     /// `s(b|h|w|d) rs, expression, t0`: Desugars to `auipc` and the corresponding store instruction.  Requires a temporary register.
     StoreGlobal(LoadStoreOp, Register, Box<Expression>, Register),
-/// `call expression`: Desugars to `auipc` and `jalr`.
-Call(Box<Expression>),
-/// `tail expression`: Desugars to `auipc` and `jalr x0, ...`.
-Tail(Box<Expression>),
+    /// `call expression`: Desugars to `auipc` and `jalr`.
+    Call(Box<Expression>),
+    /// `tail expression`: Desugars to `auipc` and `jalr x0, ...`.
+    Tail(Box<Expression>),
 }
 
 /// A node in the AST representing an assembler directive.
@@ -421,18 +492,49 @@ pub enum Expression {
     /// u64 into a bit-equivalent i64.
     Literal(i64),
     /// Binary operations with a left and right-hand side.
-    PlusOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    MinusOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    MultiplyOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    DivideOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    LeftShiftOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    RightShiftOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    BitwiseOrOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    BitwiseAndOp { lhs: Box<Expression>, rhs: Box<Expression> },
-    BitwiseXorOp { lhs: Box<Expression>, rhs: Box<Expression> },
+    PlusOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    MinusOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    MultiplyOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    DivideOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    LeftShiftOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    RightShiftOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    BitwiseOrOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    BitwiseAndOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
+    BitwiseXorOp {
+        lhs: Box<Expression>,
+        rhs: Box<Expression>,
+    },
     /// Unary operations with a single operand.
-    NegateOp { expr: Box<Expression> },
-    BitwiseNotOp { expr: Box<Expression> },
+    NegateOp {
+        expr: Box<Expression>,
+    },
+    BitwiseNotOp {
+        expr: Box<Expression>,
+    },
     /// A parenthesized sub-expression. `Box` is used to prevent infinite recursion
     /// and to store the expression on the heap.
     Parenthesized(Box<Expression>),
@@ -441,7 +543,6 @@ pub enum Expression {
     /// A numeric label reference, subsumed into expressions for flexibility.
     NumericLabelRef(NumericLabelRef),
 }
-
 
 // ==============================================================================
 // Display Implementations
@@ -457,14 +558,38 @@ impl fmt::Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // ABI names
         let s = match self {
-            Register::X0 => "zero", Register::X1 => "ra", Register::X2 => "sp", Register::X3 => "gp",
-            Register::X4 => "tp", Register::X5 => "t0", Register::X6 => "t1", Register::X7 => "t2",
-            Register::X8 => "s0", Register::X9 => "s1", Register::X10 => "a0", Register::X11 => "a1",
-            Register::X12 => "a2", Register::X13 => "a3", Register::X14 => "a4", Register::X15 => "a5",
-            Register::X16 => "a6", Register::X17 => "a7", Register::X18 => "s2", Register::X19 => "s3",
-            Register::X20 => "s4", Register::X21 => "s5", Register::X22 => "s6", Register::X23 => "s7",
-            Register::X24 => "s8", Register::X25 => "s9", Register::X26 => "s10", Register::X27 => "s11",
-            Register::X28 => "t3", Register::X29 => "t4", Register::X30 => "t5", Register::X31 => "t6",
+            Register::X0 => "zero",
+            Register::X1 => "ra",
+            Register::X2 => "sp",
+            Register::X3 => "gp",
+            Register::X4 => "tp",
+            Register::X5 => "t0",
+            Register::X6 => "t1",
+            Register::X7 => "t2",
+            Register::X8 => "s0",
+            Register::X9 => "s1",
+            Register::X10 => "a0",
+            Register::X11 => "a1",
+            Register::X12 => "a2",
+            Register::X13 => "a3",
+            Register::X14 => "a4",
+            Register::X15 => "a5",
+            Register::X16 => "a6",
+            Register::X17 => "a7",
+            Register::X18 => "s2",
+            Register::X19 => "s3",
+            Register::X20 => "s4",
+            Register::X21 => "s5",
+            Register::X22 => "s6",
+            Register::X23 => "s7",
+            Register::X24 => "s8",
+            Register::X25 => "s9",
+            Register::X26 => "s10",
+            Register::X27 => "s11",
+            Register::X28 => "t3",
+            Register::X29 => "t4",
+            Register::X30 => "t5",
+            Register::X31 => "t6",
         };
         write!(f, "{}", s)
     }
@@ -473,9 +598,15 @@ impl fmt::Display for Register {
 impl fmt::Display for OperatorOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            OperatorOp::Plus => "+", OperatorOp::Minus => "-", OperatorOp::Multiply => "*",
-            OperatorOp::Divide => "/", OperatorOp::LeftShift => "<<", OperatorOp::RightShift => ">>",
-            OperatorOp::BitwiseOr => "|", OperatorOp::BitwiseAnd => "&", OperatorOp::BitwiseXor => "^",
+            OperatorOp::Plus => "+",
+            OperatorOp::Minus => "-",
+            OperatorOp::Multiply => "*",
+            OperatorOp::Divide => "/",
+            OperatorOp::LeftShift => "<<",
+            OperatorOp::RightShift => ">>",
+            OperatorOp::BitwiseOr => "|",
+            OperatorOp::BitwiseAnd => "&",
+            OperatorOp::BitwiseXor => "^",
             OperatorOp::Tilde => "~",
         };
         write!(f, "{}", s)
@@ -485,16 +616,23 @@ impl fmt::Display for OperatorOp {
 impl fmt::Display for DirectiveOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            DirectiveOp::Global => ".global", DirectiveOp::Equ => ".equ", DirectiveOp::Text => ".text",
-            DirectiveOp::Data => ".data", DirectiveOp::Bss => ".bss", DirectiveOp::Space => ".space",
-            DirectiveOp::Balign => ".balign", DirectiveOp::String => ".string", DirectiveOp::Asciz => ".asciz",
-            DirectiveOp::Byte => ".byte", DirectiveOp::TwoByte => ".2byte", DirectiveOp::FourByte => ".4byte",
+            DirectiveOp::Global => ".global",
+            DirectiveOp::Equ => ".equ",
+            DirectiveOp::Text => ".text",
+            DirectiveOp::Data => ".data",
+            DirectiveOp::Bss => ".bss",
+            DirectiveOp::Space => ".space",
+            DirectiveOp::Balign => ".balign",
+            DirectiveOp::String => ".string",
+            DirectiveOp::Asciz => ".asciz",
+            DirectiveOp::Byte => ".byte",
+            DirectiveOp::TwoByte => ".2byte",
+            DirectiveOp::FourByte => ".4byte",
             DirectiveOp::EightByte => ".8byte",
         };
         write!(f, "{}", s)
     }
 }
-
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -537,8 +675,6 @@ impl fmt::Display for NumericLabelRef {
     }
 }
 
-
-
 impl fmt::Display for RTypeOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", format!("{:?}", self).to_lowercase())
@@ -580,8 +716,12 @@ impl fmt::Display for PseudoOp {
         match self {
             PseudoOp::Li(rd, imm) => write!(f, "{:<8} {}, {}", "li", rd, imm),
             PseudoOp::La(rd, s) => write!(f, "{:<8} {}, {}", "la", rd, s),
-            PseudoOp::LoadGlobal(op, rd, expr) => write!(f, "{:<8} {}, {}", op, rd, expr),
-            PseudoOp::StoreGlobal(op, rs, expr, temp) => write!(f, "{:<8} {}, {}, {}", op, rs, expr, temp),
+            PseudoOp::LoadGlobal(op, rd, expr) => {
+                write!(f, "{:<8} {}, {}", op, rd, expr)
+            }
+            PseudoOp::StoreGlobal(op, rs, expr, temp) => {
+                write!(f, "{:<8} {}, {}, {}", op, rs, expr, temp)
+            }
             PseudoOp::Call(expr) => write!(f, "{:<8} {}", "call", expr),
             PseudoOp::Tail(expr) => write!(f, "{:<8} {}", "tail", expr),
         }
@@ -591,11 +731,21 @@ impl fmt::Display for PseudoOp {
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Instruction::RType(op, rd, rs1, rs2) => write!(f, "{:<8} {}, {}, {}", op, rd, rs1, rs2),
-            Instruction::IType(op, rd, rs1, imm) => write!(f, "{:<8} {}, {}, {}", op, rd, rs1, imm),
-            Instruction::BType(op, rs1, rs2, expr) => write!(f, "{:<8} {}, {}, {}", op, rs1, rs2, expr),
-            Instruction::UType(op, rd, imm) => write!(f, "{:<8} {}, {}", op, rd, imm),
-            Instruction::JType(op, rd, expr) => write!(f, "{:<8} {}, {}", op, rd, expr),
+            Instruction::RType(op, rd, rs1, rs2) => {
+                write!(f, "{:<8} {}, {}, {}", op, rd, rs1, rs2)
+            }
+            Instruction::IType(op, rd, rs1, imm) => {
+                write!(f, "{:<8} {}, {}, {}", op, rd, rs1, imm)
+            }
+            Instruction::BType(op, rs1, rs2, expr) => {
+                write!(f, "{:<8} {}, {}, {}", op, rs1, rs2, expr)
+            }
+            Instruction::UType(op, rd, imm) => {
+                write!(f, "{:<8} {}, {}", op, rd, imm)
+            }
+            Instruction::JType(op, rd, expr) => {
+                write!(f, "{:<8} {}, {}", op, rd, expr)
+            }
             Instruction::Special(op) => write!(f, "{}", op),
             Instruction::LoadStore(op, rd, offset, rs) => {
                 write!(f, "{:<8} {}, {}({})", op, rd, offset, rs)
@@ -605,39 +755,66 @@ impl fmt::Display for Instruction {
     }
 }
 
-
 impl fmt::Display for Directive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Directive::Global(s) => write!(f, "{:<8} {}", ".global", s.join(" ")),
-            Directive::Equ(name, expr) => write!(f, "{:<8} {}, {}", ".equ", name, expr),
+            Directive::Global(s) => {
+                write!(f, "{:<8} {}", ".global", s.join(" "))
+            }
+            Directive::Equ(name, expr) => {
+                write!(f, "{:<8} {}, {}", ".equ", name, expr)
+            }
             Directive::Text => write!(f, ".text"),
             Directive::Data => write!(f, ".data"),
             Directive::Bss => write!(f, ".bss"),
             Directive::Space(expr) => write!(f, "{:<8} {}", ".space", expr),
             Directive::Balign(expr) => write!(f, "{:<8} {}", ".balign", expr),
             Directive::String(items) => {
-                let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|s| format!("{:?}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<8} {}", ".string", formatted)
             }
             Directive::Asciz(items) => {
-                let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|s| format!("{:?}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<8} {}", ".asciz", formatted)
             }
             Directive::Byte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<8} {}", ".byte", formatted)
             }
             Directive::TwoByte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<8} {}", ".2byte", formatted)
             }
             Directive::FourByte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<8} {}", ".4byte", formatted)
             }
             Directive::EightByte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<8} {}", ".8byte", formatted)
             }
         }
@@ -651,13 +828,25 @@ impl fmt::Display for Expression {
             Expression::Literal(i) => write!(f, "{}", i),
             Expression::PlusOp { lhs, rhs } => write!(f, "{} + {}", lhs, rhs),
             Expression::MinusOp { lhs, rhs } => write!(f, "{} - {}", lhs, rhs),
-            Expression::MultiplyOp { lhs, rhs } => write!(f, "{} * {}", lhs, rhs),
+            Expression::MultiplyOp { lhs, rhs } => {
+                write!(f, "{} * {}", lhs, rhs)
+            }
             Expression::DivideOp { lhs, rhs } => write!(f, "{} / {}", lhs, rhs),
-            Expression::LeftShiftOp { lhs, rhs } => write!(f, "{} << {}", lhs, rhs),
-            Expression::RightShiftOp { lhs, rhs } => write!(f, "{} >> {}", lhs, rhs),
-            Expression::BitwiseOrOp { lhs, rhs } => write!(f, "{} | {}", lhs, rhs),
-            Expression::BitwiseAndOp { lhs, rhs } => write!(f, "{} & {}", lhs, rhs),
-            Expression::BitwiseXorOp { lhs, rhs } => write!(f, "{} ^ {}", lhs, rhs),
+            Expression::LeftShiftOp { lhs, rhs } => {
+                write!(f, "{} << {}", lhs, rhs)
+            }
+            Expression::RightShiftOp { lhs, rhs } => {
+                write!(f, "{} >> {}", lhs, rhs)
+            }
+            Expression::BitwiseOrOp { lhs, rhs } => {
+                write!(f, "{} | {}", lhs, rhs)
+            }
+            Expression::BitwiseAndOp { lhs, rhs } => {
+                write!(f, "{} & {}", lhs, rhs)
+            }
+            Expression::BitwiseXorOp { lhs, rhs } => {
+                write!(f, "{} ^ {}", lhs, rhs)
+            }
             Expression::NegateOp { expr } => write!(f, "-{}", expr),
             Expression::BitwiseNotOp { expr } => write!(f, "~{}", expr),
             Expression::Parenthesized(expr) => write!(f, "({})", expr),
