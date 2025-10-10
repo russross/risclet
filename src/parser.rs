@@ -181,8 +181,8 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    // Grammar: multiplicative ::= unary ( * unary | / unary )* (part of expression grammar)
-    // Examples: a * b, c / d, e * f / g
+     // Grammar: multiplicative ::= unary ( * unary | / unary | % unary )* (part of expression grammar)
+     // Examples: a * b, c / d, e % f, g * h / i % j
     fn parse_multiplicative(&mut self) -> Result<Expression, String> {
         let mut left = self.parse_unary()?;
         while let Some(op) = self.peek() {
@@ -195,14 +195,22 @@ impl<'a> Parser<'a> {
                         rhs: Box::new(right),
                     };
                 }
-                Token::Operator(OperatorOp::Divide) => {
-                    self.next();
-                    let right = self.parse_unary()?;
-                    left = Expression::DivideOp {
-                        lhs: Box::new(left),
-                        rhs: Box::new(right),
-                    };
-                }
+                 Token::Operator(OperatorOp::Divide) => {
+                     self.next();
+                     let right = self.parse_unary()?;
+                     left = Expression::DivideOp {
+                         lhs: Box::new(left),
+                         rhs: Box::new(right),
+                     };
+                 }
+                 Token::Operator(OperatorOp::Modulo) => {
+                     self.next();
+                     let right = self.parse_unary()?;
+                     left = Expression::ModuloOp {
+                         lhs: Box::new(left),
+                         rhs: Box::new(right),
+                     };
+                 }
                 _ => break,
             }
         }
@@ -216,7 +224,7 @@ impl<'a> Parser<'a> {
             self.next();
             let expr = self.parse_unary()?;
             Ok(Expression::NegateOp { expr: Box::new(expr) })
-        } else if let Some(Token::Operator(OperatorOp::Tilde)) = self.peek() {
+        } else if let Some(Token::Operator(OperatorOp::BitwiseNot)) = self.peek() {
             self.next();
             let expr = self.parse_unary()?;
             Ok(Expression::BitwiseNotOp { expr: Box::new(expr) })
@@ -225,8 +233,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Grammar: operand ::= int | char | ident | label_ref | ( exp ) (part of expression grammar)
-    // Examples: 42 (integer literal), 'a' (character literal), foo (identifier), 1f (numeric label), (a + b) (parenthesized expression)
+     // Grammar: operand ::= int | ident | label_ref | ( exp ) (part of expression grammar)
+     // Examples: 42 (integer literal), foo (identifier), 1f (numeric label), (a + b) (parenthesized expression)
     fn parse_operand(&mut self) -> Result<Expression, String> {
         if let Some(t) = self.peek().cloned() {
             match t {
@@ -254,10 +262,7 @@ impl<'a> Parser<'a> {
                         Ok(Expression::Literal(i)) // plain int
                     }
                 }
-                Token::CharacterLiteral(c) => {
-                    self.next();
-                    Ok(Expression::Literal(c as i64)) // char
-                }
+
                 Token::Identifier(s) => {
                     self.next();
                     Ok(Expression::Identifier(s)) // ident or symbolic label
@@ -852,4 +857,339 @@ pub fn parse(
 ) -> Result<Vec<Line>, String> {
     let mut parser = Parser::new(tokens, file, line);
     parser.parse_line()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::*;
+    use crate::tokenizer;
+
+    #[test]
+    fn test_parse_simple_instruction() {
+        let line = "add a0, a1, a2";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::RType(
+            RTypeOp::Add,
+            Register::X10,
+            Register::X11,
+            Register::X12,
+        )) = ast[0].content
+        {
+            // ok
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_label() {
+        let line = "loop: add a0, a1, a2";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 2);
+        assert_eq!(ast[0].content, LineContent::Label("loop".to_string()));
+        if let LineContent::Instruction(Instruction::RType(
+            RTypeOp::Add,
+            Register::X10,
+            Register::X11,
+            Register::X12,
+        )) = ast[1].content
+        {
+            // ok
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_directive() {
+        let line = ".global main";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Directive(Directive::Global(vec)) = &ast[0].content
+        {
+            assert_eq!(vec, &["main".to_string()]);
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_expression() {
+        let line = "li a0, 1 + 2";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+            Register::X10,
+            expr,
+        ))) = &ast[0].content
+        {
+            if let Expression::PlusOp { lhs, rhs } = &**expr {
+                if let Expression::Literal(1) = **lhs {
+                    if let Expression::Literal(2) = **rhs {
+                        // ok
+                    } else {
+                        panic!("Unexpected RHS");
+                    }
+                } else {
+                    panic!("Unexpected LHS");
+                }
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_numeric_label() {
+        let line = "bnez a0, 1f";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::BType(
+            BTypeOp::Bne,
+            Register::X10,
+            Register::X0,
+            expr,
+        )) = &ast[0].content
+        {
+            if let Expression::NumericLabelRef(nlr) = &**expr {
+                assert_eq!(nlr.num, 1);
+                assert!(nlr.is_forward);
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_load_with_expression() {
+        let line = "lb a0, 1+2(a1)";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::LoadStore(
+            LoadStoreOp::Lb,
+            Register::X10,
+            expr,
+            Register::X11,
+        )) = &ast[0].content
+        {
+            if let Expression::PlusOp { lhs, rhs } = &**expr {
+                if let Expression::Literal(1) = **lhs {
+                    if let Expression::Literal(2) = **rhs {
+                        // ok
+                    } else {
+                        panic!("Unexpected RHS");
+                    }
+                } else {
+                    panic!("Unexpected LHS");
+                }
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_branch_with_expression() {
+        let line = "beq a0, a1, 1+2";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::BType(
+            BTypeOp::Beq,
+            Register::X10,
+            Register::X11,
+            expr,
+        )) = &ast[0].content
+        {
+            if let Expression::PlusOp { lhs, rhs } = &**expr {
+                if let Expression::Literal(1) = **lhs {
+                    if let Expression::Literal(2) = **rhs {
+                        // ok
+                    } else {
+                        panic!("Unexpected RHS");
+                    }
+                } else {
+                    panic!("Unexpected LHS");
+                }
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_pseudo_li() {
+        let line = "li a0, 0x123456789ABCDEF";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+            Register::X10,
+            expr,
+        ))) = &ast[0].content
+        {
+            if let Expression::Literal(0x123456789ABCDEF) = **expr {
+                // ok
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_directive_space() {
+        let line = ".space 4";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Directive(Directive::Space(expr)) = &ast[0].content
+        {
+            if let Expression::Literal(4) = *expr {
+                // ok
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_directive_balign() {
+        let line = ".balign 8";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Directive(Directive::Balign(expr)) = &ast[0].content
+        {
+            if let Expression::Literal(8) = *expr {
+                // ok
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_directive_string() {
+        let line = ".string \"hello\", \"world\"";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Directive(Directive::String(vec)) = &ast[0].content
+        {
+            assert_eq!(*vec, vec!["hello".to_string(), "world".to_string()]);
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_directive_byte() {
+        let line = ".byte 1, 2, 3";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Directive(Directive::Byte(vec)) = &ast[0].content {
+            assert_eq!(vec.len(), 3);
+            if let Expression::Literal(1) = vec[0] {
+                if let Expression::Literal(2) = vec[1] {
+                    if let Expression::Literal(3) = vec[2] {
+                        // ok
+                    } else {
+                        panic!("Unexpected third");
+                    }
+                } else {
+                    panic!("Unexpected second");
+                }
+            } else {
+                panic!("Unexpected first");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_current_address() {
+        let line = "li a0, .";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+            Register::X10,
+            expr,
+        ))) = &ast[0].content
+        {
+            if let Expression::CurrentAddress = **expr {
+                // ok
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
+
+    #[test]
+    fn test_parse_complex_expression() {
+        let line = "li a0, (1 + 2) << 3";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
+        assert_eq!(ast.len(), 1);
+        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+            Register::X10,
+            expr,
+        ))) = &ast[0].content
+        {
+            if let Expression::LeftShiftOp { lhs, rhs } = &**expr {
+                if let Expression::Parenthesized(plus_expr) = &**lhs {
+                    if let Expression::PlusOp { lhs: l, rhs: r } = &**plus_expr
+                    {
+                        if let Expression::Literal(1) = **l {
+                            if let Expression::Literal(2) = **r {
+                                if let Expression::Literal(3) = **rhs {
+                                    // ok
+                                } else {
+                                    panic!("Unexpected shift amount");
+                                }
+                            } else {
+                                panic!("Unexpected plus RHS");
+                            }
+                        } else {
+                            panic!("Unexpected plus LHS");
+                        }
+                    } else {
+                        panic!("Unexpected parenthesized");
+                    }
+                } else {
+                    panic!("Unexpected LHS");
+                }
+            } else {
+                panic!("Unexpected expression");
+            }
+        } else {
+            panic!("Unexpected AST");
+        }
+    }
 }

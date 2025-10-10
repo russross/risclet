@@ -27,7 +27,7 @@ use std::fmt;
 /// The parser will attach this to every `Line` to provide context for errors.
 ///
 /// **Grammar Rule:** N/A (this is a data structure for parser context)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Location {
     pub file: String,
     pub line: u32,
@@ -47,8 +47,10 @@ pub struct Location {
 /// **Grammar Rule:** N/A (Tokenizer maps raw identifiers to this concrete type)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
-    X0, X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12, X13, X14, X15,
-    X16, X17, X18, X19, X20, X21, X22, X23, X24, X25, X26, X27, X28, X29, X30, X31,
+    X0, X1, X2, X3, X4, X5, X6, X7,
+    X8, X9, X10, X11, X12, X13, X14, X15,
+    X16, X17, X18, X19, X20, X21, X22, X23,
+    X24, X25, X26, X27, X28, X29, X30, X31,
 }
 
 /// An enum for all supported assembler directives.
@@ -80,12 +82,13 @@ pub enum OperatorOp {
     Minus,
     Multiply,
     Divide,
+    Modulo,
     LeftShift,
     RightShift,
     BitwiseOr,
     BitwiseAnd,
     BitwiseXor,
-    Tilde,
+    BitwiseNot,
 }
 
 /// Represents a single token produced by the tokenizer.
@@ -96,14 +99,14 @@ pub enum OperatorOp {
 ///**Grammar Rule:** N/A (Tokenizer output)
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    /// A general identifier (e.g., a variable, label, or instruction name).
+    /// A general identifier (e.g., a symbol, label, or instruction name).
     Identifier(String),
     /// A reserved register name (e.g., "a0", "x10").
     Register(Register),
-    /// An integer literal, including binary, octal, decimal, and hexadecimal.
+    /// An integer literal, including binary, octal, decimal, and hexadecimal. Single-quoted
+    /// character literals (including \n and other scale sequences) are also tokenized as integer
+    /// literals.
     Integer(i64),
-    /// A character literal like 'a' or '\n'. Any single UTF-8-encoded character is accepted.
-    CharacterLiteral(char),
     /// A string literal. We accept valid UTF-8 strings with \n and other standard escape sequences.
     StringLiteral(String),
     /// A directive (e.g., ".text", ".global"). The tokenizer accepts anything
@@ -504,10 +507,14 @@ pub enum Expression {
         lhs: Box<Expression>,
         rhs: Box<Expression>,
     },
-    DivideOp {
-        lhs: Box<Expression>,
-        rhs: Box<Expression>,
-    },
+     DivideOp {
+         lhs: Box<Expression>,
+         rhs: Box<Expression>,
+     },
+     ModuloOp {
+         lhs: Box<Expression>,
+         rhs: Box<Expression>,
+     },
     LeftShiftOp {
         lhs: Box<Expression>,
         rhs: Box<Expression>,
@@ -607,7 +614,8 @@ impl fmt::Display for OperatorOp {
             OperatorOp::BitwiseOr => "|",
             OperatorOp::BitwiseAnd => "&",
             OperatorOp::BitwiseXor => "^",
-            OperatorOp::Tilde => "~",
+            OperatorOp::BitwiseNot => "~",
+            OperatorOp::Modulo => "%",
         };
         write!(f, "{}", s)
     }
@@ -640,7 +648,7 @@ impl fmt::Display for Token {
             Token::Identifier(s) => write!(f, "{}", s),
             Token::Register(r) => write!(f, "{}", r),
             Token::Integer(i) => write!(f, "{}", i),
-            Token::CharacterLiteral(c) => write!(f, "{:?}", c),
+
             Token::StringLiteral(s) => write!(f, "{:?}", s),
             Token::Directive(d) => write!(f, "{}", d),
             Token::Colon => write!(f, ":"),
@@ -831,7 +839,8 @@ impl fmt::Display for Expression {
             Expression::MultiplyOp { lhs, rhs } => {
                 write!(f, "{} * {}", lhs, rhs)
             }
-            Expression::DivideOp { lhs, rhs } => write!(f, "{} / {}", lhs, rhs),
+             Expression::DivideOp { lhs, rhs } => write!(f, "{} / {}", lhs, rhs),
+             Expression::ModuloOp { lhs, rhs } => write!(f, "{} % {}", lhs, rhs),
             Expression::LeftShiftOp { lhs, rhs } => {
                 write!(f, "{} << {}", lhs, rhs)
             }

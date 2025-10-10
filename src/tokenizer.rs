@@ -43,10 +43,14 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token::Operator(OperatorOp::Multiply));
                 chars.next();
             }
-            '/' => {
-                tokens.push(Token::Operator(OperatorOp::Divide));
-                chars.next();
-            }
+             '/' => {
+                 tokens.push(Token::Operator(OperatorOp::Divide));
+                 chars.next();
+             }
+             '%' => {
+                 tokens.push(Token::Operator(OperatorOp::Modulo));
+                 chars.next();
+             }
             '|' => {
                 tokens.push(Token::Operator(OperatorOp::BitwiseOr));
                 chars.next();
@@ -60,7 +64,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                 chars.next();
             }
             '~' => {
-                tokens.push(Token::Operator(OperatorOp::Tilde));
+                tokens.push(Token::Operator(OperatorOp::BitwiseNot));
                 chars.next();
             }
             '<' => {
@@ -81,11 +85,29 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     return Err("Unexpected '>'".to_string());
                 }
             }
-            '\'' => {
-                chars.next();
-                let c = parse_char_literal(&mut chars)?;
-                tokens.push(Token::CharacterLiteral(c));
-            }
+             '\'' => {
+                 chars.next();
+                 let ch = chars.next().ok_or("Unexpected end in char literal")?;
+                 let c = if ch == '\\' {
+                     let esc = chars.next().ok_or("Unexpected end in escape sequence")?;
+                     match esc {
+                         'n' => '\n',
+                         't' => '\t',
+                         'r' => '\r',
+                         '\\' => '\\',
+                         '\'' => '\'',
+                         '"' => '"',
+                         '0' => '\0',
+                         _ => return Err(format!("Unknown escape sequence \\{}", esc)),
+                     }
+                 } else {
+                     ch
+                 };
+                 if chars.next() != Some('\'') {
+                     return Err("Unclosed char literal".to_string());
+                 }
+                 tokens.push(Token::Integer(c as i64));
+             }
             '"' => {
                 chars.next();
                 let s = parse_string_literal(&mut chars)?;
@@ -112,7 +134,10 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                         "4byte" => DirectiveOp::FourByte,
                         "8byte" => DirectiveOp::EightByte,
                         _ => {
-                            return Err(format!("Unknown directive .{}", ident));
+                            return Err(format!(
+                                "Unknown directive .{}",
+                                ident
+                            ));
                         }
                     };
                     tokens.push(Token::Directive(dir));
@@ -210,33 +235,7 @@ fn parse_number(
     }
 }
 
-fn parse_char_literal(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-) -> Result<char, String> {
-    let ch = chars.next().ok_or("Unexpected end in char literal")?;
-    if ch == '\\' {
-        let esc = chars.next().ok_or("Unexpected end in escape sequence")?;
-        let c = match esc {
-            'n' => '\n',
-            't' => '\t',
-            'r' => '\r',
-            '\\' => '\\',
-            '\'' => '\'',
-            '"' => '"',
-            '0' => '\0',
-            _ => return Err(format!("Unknown escape sequence \\{}", esc)),
-        };
-        if chars.next() != Some('\'') {
-            return Err("Unclosed char literal".to_string());
-        }
-        Ok(c)
-    } else {
-        if chars.next() != Some('\'') {
-            return Err("Unclosed char literal".to_string());
-        }
-        Ok(ch)
-    }
-}
+
 
 fn parse_string_literal(
     chars: &mut std::iter::Peekable<std::str::Chars>,
@@ -301,5 +300,51 @@ fn parse_register(ident: &str) -> Option<Register> {
         "t5" | "x30" => Some(Register::X30),
         "t6" | "x31" => Some(Register::X31),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenize_simple_instruction() {
+        let line = "add a0, a1, a2";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens.len(), 6);
+        assert_eq!(tokens[0], Token::Identifier("add".to_string()));
+        assert_eq!(tokens[1], Token::Register(Register::X10));
+        assert_eq!(tokens[2], Token::Comma);
+        assert_eq!(tokens[3], Token::Register(Register::X11));
+        assert_eq!(tokens[4], Token::Comma);
+        assert_eq!(tokens[5], Token::Register(Register::X12));
+    }
+
+    #[test]
+    fn test_tokenize_number() {
+        let line = "li a0, 42";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(42));
+    }
+
+    #[test]
+    fn test_tokenize_hex() {
+        let line = "li a0, 0x10";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(16));
+    }
+
+    #[test]
+    fn test_tokenize_string() {
+        let line = ".string \"hello\"";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[1], Token::StringLiteral("hello".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_comment() {
+        let line = "add a0, a1, a2 # comment";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens.len(), 6); // comment removed
     }
 }

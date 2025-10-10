@@ -1,3 +1,4 @@
+use ast::Line;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -12,7 +13,11 @@ fn main() -> io::Result<()> {
         eprintln!("Usage: {} <file> [file...]", args[0]);
         std::process::exit(1);
     }
-    for file_path in &args[1..] {
+
+    let files: Vec<String> = args[1..].to_vec();
+
+    let mut all_ast_lines: Vec<Line> = Vec::new();
+    for file_path in &files {
         let file = match File::open(file_path) {
             Ok(f) => f,
             Err(e) => {
@@ -31,30 +36,25 @@ fn main() -> io::Result<()> {
                             file_path.clone(),
                             (line_num + 1) as u32,
                         ) {
-                            Ok(ast_lines) => {
-                                for line in ast_lines {
-                                    println!("{}", line);
+                            Ok(lines) => {
+                                for line in lines {
+                                    all_ast_lines.push(line);
                                 }
                             }
                             Err(e) => {
-                                println!(
+                                eprintln!(
                                     "Parse error in {} on line {}: {}",
                                     file_path,
                                     line_num + 1,
                                     e
                                 );
-                                let token_strs: Vec<String> = tokens
-                                    .iter()
-                                    .map(|t| t.to_string())
-                                    .collect();
-                                println!("Tokens: {}", token_strs.join(" "));
                                 std::process::exit(1);
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    println!(
+                    eprintln!(
                         "Tokenize error in {} on line {}: {}",
                         file_path,
                         line_num + 1,
@@ -65,5 +65,13 @@ fn main() -> io::Result<()> {
             }
         }
     }
+
+    // Dump all parsed AST lines to stdout
+    for line in &all_ast_lines {
+        println!("{}", line);
+    }
+
     Ok(())
 }
+
+
