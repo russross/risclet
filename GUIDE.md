@@ -116,6 +116,99 @@ AST types (some tokenizer types are carried over):
     directives, etc.
 
 
+## Symbol resolution
+
+The symbol resolution phase locates every symbol reference in the source and
+links it to the Line that produces that symbol's value. The link is a pair of
+SourceFile and Line index values that can be used to find the line given the
+Source object, which we call a "pointer" in this section. Every Line has a Vec
+of (symbol, pointer) pairs listing outgoing references.
+
+The implementation works in a single pass with back patching:
+
+*   `SourceFile`s are processed one at a time
+    *   Start with:
+        *   definitions: initially empty map of symbol -> pointer mapping symbols
+            to the line where they are defined
+        *   unresolved: initially empty list of (symbol, pointer) mapping
+            unresolved symbols (forward/external references) to where they are
+            referenced
+        *   globals: initially empty map of symbol -> Option<pointer> mapping
+            declared global symbols to where they are defined
+    *   Each line has a Vec of outgoing references, which are added when the
+        symbol is fully linked to the pointer where it is defined. So this Vec
+        is not used to build the links, it is used to collect the completed
+        links. When a symbol is resolved below the link is added to the
+        Line with the outgoing reference.
+    *   Iterate over each line
+        *   The AST for the line is walked to identify symbol references, and
+            they are pulled out into a list of (symbol, pointer) pairs. These
+            are either resolved immediately and added to the list for the line,
+            or added to the unresolved
+            *   Numerical backreferences are resolved immediately from the map
+                of symbol definitions. If not present, this is an error
+            *   Numerical forwardreferences are added to the set of unresolved
+                references
+            *   Non-numerical references are resolved immediately if they are
+                present in the set of symbol definitions, else they are added to
+                the set of unresolved references
+        *   If the line generates a symbol (a label or .equ) record it the
+            symbol and the pointer to the line that defines it
+            *   If it is a numeric label, it replaces an existing label
+            *   If it is .equ, it replaces an existing symbol from an earlier
+                .equ. Note that the expression for a .equ should be processed
+                for outgoing references before the new symbol definition
+                replaces the old, so something like ".equ counter, counter+1"
+                will work. Note that this is not a self-reference.
+            *   It is an error to redefine a non-numeric label
+            *   It is an error to define a label that collides with an .equ
+                symbol or an .equ symbol that collides with a label
+            *   A non-numeric label "poisons" all numeric labels currently
+                defined. Any reference that resolves to a poisoned label creates
+                an error with an explaination that local label references are
+                not allowed across non-local labels (treating them kind of like
+                `1$` labels in gas, but with a descriptive error rather than a
+                silent reset. Likewise, a non-numeric label causes all
+                unresolved forward references to numeric labels to fail as
+                errors.
+            *   If the new symbol matches the name of a global from the global
+                list for the current file, that global is updated to point to
+                the current definition (possibly replacing an old pointer in the
+                case of .equ symbols).
+        *   If the line declares one or more globals, they are added to the list
+            of globals for the file.
+            *   It is an error to declare a symbol global that was already
+                declared global in this file
+            *   It is an error to declare a numeric label as global
+            *   It is okay to declare a symbol global before it is
+                defined--hence the Option type for the pointer
+            *   If a symbol is already defined in the file, the global is
+                pointed to the current definition location
+    *   At the end of each file, its global definitions are scanned.
+        *   Any unresolved global (one that was declared as .global but no such
+            symbol was defined in the file) creates an error.
+        *   Resolved globals are added to the Source-wide list of globals (which
+            records (symbol, pointer) pairs, the Option is not needed at this
+            level).
+        *   A duplicate global symbol means a symbol was declared global in
+            multiple files and this is an error.
+        *   The unresolved symbol references from the file are added to the
+            Source-wide list of cross-file references, but no attempt is made to
+            resolve them yet. This is a single merged list of all unresolved
+            references in all files, no need to partition it by source file
+        *   The complete list of symbols defined in the file is cleared of any
+            numeric labels, and the rest (with their pointers) stored for later
+            inclusion in the ELF symbol table.
+    *   After all files have been processed, cross-file references are resolved
+        *   All unresolved references must link successfully to global symbols.
+            a dangling link is an error. The original source Line is updated
+            with the (symbol, pointer) pair, just as happened with local symbol
+            resolution within a file
+        *   At this point all symbols references are directly linked to the line
+            where their value comes from, with no ambiguity
+        *   The list of global symbol definitions and locations is stored for
+            the ELF symbol table
+
 ## Expression evaluation
 
 We have some more specific constraints on expression evaluation. We tag every
@@ -131,3 +224,66 @@ value as Address or Integer and have these rules:
 * labels are Addresses
 * integer literals are Integers
 * .equ symbol type is based on the expression computed
+* `__global_pointer$` is a special symbol recognized directly by the evaluator
+  (it is not present in the symbol table). It always resolves as an Address
+  whose value is (.data segment start + 2048)
+* Any lost precision is a compile-time error. This includes overflow, underflow,
+  non-zero bits being lost in right shifts, non-sign-bit-extension bits being
+  lost in left shifts (note that RISC-V treats virtual addresses as effectively
+  signed values)
+
+Expressions can reference symbols. The only rule is no circular references are
+allowed. By the time expressions are evaluated:
+
+* Eech line with an expression has been annotated with links to the definition
+  site of each referenced symbol
+* Every line has also been assigned a global address relative to the beginning
+  of its segment
+* The global size of each segment is known
+
+Expressions are computed lazily with memoization and cycle detection.  At the
+beginning of the code generation phase, the beginning address of each segment is
+calculated:
+
+* .text starts at a fixed address. By default this is 0x100e8, but a command
+  line option can pick a different address.
+* .data starts at the next 4k page after .text
+* .bss starts immediately after .data
+
+The symbol value table maps a (symbol name, definition pointer) -> (concrete value, type)
+using named structs for clarity in the code. It is seeded with
+(__global_pointer$, no pointer) -> (data start + 2048, Address). The table
+persists across code generation for the entire program across all source files
+and is kept to help build the symbol table in the ELF binary at the end.
+
+As each line of source is evaluated during code generation, its list of outgoing
+symbol references is first evaluated to ensure all symbols are present with
+concrete values in the symbol value table:
+
+* Each outgoing reference to a symbol with a missing value is followed
+* A list of (symbol, pointer) pairs is maintained for cycle detection
+* Labels resolve to the absolute address (segment start + offset) of the line
+  where the label was defined
+* .equ expressions are evaluated recursively, first resolving their dependencies
+  and then evaluating their expressions to populate the value table
+* The cycle detection list is reset for each new line, i.e., it is used to
+  prevent cycles in a single tree of recursive lookups
+
+Once the values of all symbols are present in the value table the expression is
+evaluated using a straightforward tree walker, with full enforcement of type
+rules and loss-of-precision rules. All referenced symbols and their values and
+types are present in the value table (it is a bug if this is ever not the case).
+There may be any number of duplicate symbols in the value table, but they are
+made unique when paired with their definition location. The expression always
+uses the definition location discovered during symbol resolution and recorded in
+the list of outgoing symbols.
+
+For lines that define a label or an .equ, the value table is consulted and if
+the value is not yet known the value of the symbol is calculated and added to
+the table.
+
+Re: handling of the special __global_pointer$ symbol. During symbol resolution,
+this symbol is ignored as a special case, so no outgoing symbol reference lists
+will contain it. The user is also forbidden from generating the symbol. The
+evaluator must watch for and special-case this symbol (defined as
+`SPECIAL_GLOBAL_POINTER`) since it has no definition pointer.

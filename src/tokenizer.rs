@@ -43,14 +43,14 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                 tokens.push(Token::Operator(OperatorOp::Multiply));
                 chars.next();
             }
-             '/' => {
-                 tokens.push(Token::Operator(OperatorOp::Divide));
-                 chars.next();
-             }
-             '%' => {
-                 tokens.push(Token::Operator(OperatorOp::Modulo));
-                 chars.next();
-             }
+            '/' => {
+                tokens.push(Token::Operator(OperatorOp::Divide));
+                chars.next();
+            }
+            '%' => {
+                tokens.push(Token::Operator(OperatorOp::Modulo));
+                chars.next();
+            }
             '|' => {
                 tokens.push(Token::Operator(OperatorOp::BitwiseOr));
                 chars.next();
@@ -85,29 +85,37 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     return Err("Unexpected '>'".to_string());
                 }
             }
-             '\'' => {
-                 chars.next();
-                 let ch = chars.next().ok_or("Unexpected end in char literal")?;
-                 let c = if ch == '\\' {
-                     let esc = chars.next().ok_or("Unexpected end in escape sequence")?;
-                     match esc {
-                         'n' => '\n',
-                         't' => '\t',
-                         'r' => '\r',
-                         '\\' => '\\',
-                         '\'' => '\'',
-                         '"' => '"',
-                         '0' => '\0',
-                         _ => return Err(format!("Unknown escape sequence \\{}", esc)),
-                     }
-                 } else {
-                     ch
-                 };
-                 if chars.next() != Some('\'') {
-                     return Err("Unclosed char literal".to_string());
-                 }
-                 tokens.push(Token::Integer(c as i64));
-             }
+            '\'' => {
+                chars.next();
+                let ch =
+                    chars.next().ok_or("Unexpected end in char literal")?;
+                let c = if ch == '\\' {
+                    let esc = chars
+                        .next()
+                        .ok_or("Unexpected end in escape sequence")?;
+                    match esc {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '\\' => '\\',
+                        '\'' => '\'',
+                        '"' => '"',
+                        '0' => '\0',
+                        _ => {
+                            return Err(format!(
+                                "Unknown escape sequence \\{}",
+                                esc
+                            ));
+                        }
+                    }
+                } else {
+                    ch
+                };
+                if chars.next() != Some('\'') {
+                    return Err("Unclosed char literal".to_string());
+                }
+                tokens.push(Token::Integer(c as i64));
+            }
             '"' => {
                 chars.next();
                 let s = parse_string_literal(&mut chars)?;
@@ -234,8 +242,6 @@ fn parse_number(
         },
     }
 }
-
-
 
 fn parse_string_literal(
     chars: &mut std::iter::Peekable<std::str::Chars>,

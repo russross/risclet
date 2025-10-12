@@ -181,8 +181,8 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-     // Grammar: multiplicative ::= unary ( * unary | / unary | % unary )* (part of expression grammar)
-     // Examples: a * b, c / d, e % f, g * h / i % j
+    // Grammar: multiplicative ::= unary ( * unary | / unary | % unary )* (part of expression grammar)
+    // Examples: a * b, c / d, e % f, g * h / i % j
     fn parse_multiplicative(&mut self) -> Result<Expression, String> {
         let mut left = self.parse_unary()?;
         while let Some(op) = self.peek() {
@@ -195,22 +195,22 @@ impl<'a> Parser<'a> {
                         rhs: Box::new(right),
                     };
                 }
-                 Token::Operator(OperatorOp::Divide) => {
-                     self.next();
-                     let right = self.parse_unary()?;
-                     left = Expression::DivideOp {
-                         lhs: Box::new(left),
-                         rhs: Box::new(right),
-                     };
-                 }
-                 Token::Operator(OperatorOp::Modulo) => {
-                     self.next();
-                     let right = self.parse_unary()?;
-                     left = Expression::ModuloOp {
-                         lhs: Box::new(left),
-                         rhs: Box::new(right),
-                     };
-                 }
+                Token::Operator(OperatorOp::Divide) => {
+                    self.next();
+                    let right = self.parse_unary()?;
+                    left = Expression::DivideOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
+                }
+                Token::Operator(OperatorOp::Modulo) => {
+                    self.next();
+                    let right = self.parse_unary()?;
+                    left = Expression::ModuloOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
+                }
                 _ => break,
             }
         }
@@ -224,7 +224,9 @@ impl<'a> Parser<'a> {
             self.next();
             let expr = self.parse_unary()?;
             Ok(Expression::NegateOp { expr: Box::new(expr) })
-        } else if let Some(Token::Operator(OperatorOp::BitwiseNot)) = self.peek() {
+        } else if let Some(Token::Operator(OperatorOp::BitwiseNot)) =
+            self.peek()
+        {
             self.next();
             let expr = self.parse_unary()?;
             Ok(Expression::BitwiseNotOp { expr: Box::new(expr) })
@@ -233,8 +235,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-     // Grammar: operand ::= int | ident | label_ref | ( exp ) (part of expression grammar)
-     // Examples: 42 (integer literal), foo (identifier), 1f (numeric label), (a + b) (parenthesized expression)
+    // Grammar: operand ::= int | ident | label_ref | ( exp ) (part of expression grammar)
+    // Examples: 42 (integer literal), foo (identifier), 1f (numeric label), (a + b) (parenthesized expression)
     fn parse_operand(&mut self) -> Result<Expression, String> {
         if let Some(t) = self.peek().cloned() {
             match t {
@@ -327,10 +329,21 @@ impl<'a> Parser<'a> {
             lines.push(Line {
                 location: location.clone(),
                 content: LineContent::Label(l),
+                segment: Segment::Text, // Default, will be overridden
+                offset: 0,              // Default, will be overridden
+                size: 0,                // Default, will be set
+                outgoing_refs: Vec::new(),
             });
         }
         if let Some(c) = content {
-            lines.push(Line { location, content: c });
+            lines.push(Line {
+                location,
+                content: c,
+                segment: Segment::Text, // Default, will be overridden
+                offset: 0,              // Default, will be overridden
+                size: 0,                // Default, will be set
+                outgoing_refs: Vec::new(),
+            });
         }
         if lines.is_empty() {
             return Err("Empty line".to_string());
@@ -344,8 +357,13 @@ impl<'a> Parser<'a> {
         if let Some(Token::Directive(d)) = self.next() {
             match d {
                 DirectiveOp::Global => {
-                    let name = self.parse_identifier()?;
-                    Ok(Directive::Global(vec![name]))
+                    let mut names = Vec::new();
+                    names.push(self.parse_identifier()?);
+                    while let Some(Token::Comma) = self.peek() {
+                        self.next();
+                        names.push(self.parse_identifier()?);
+                    }
+                    Ok(Directive::Global(names))
                 }
                 DirectiveOp::Equ => {
                     let name = self.parse_identifier()?;
@@ -856,7 +874,18 @@ pub fn parse(
     line: u32,
 ) -> Result<Vec<Line>, String> {
     let mut parser = Parser::new(tokens, file, line);
-    parser.parse_line()
+    let lines = parser.parse_line()?;
+
+    // Check for leftover tokens
+    if parser.pos < parser.tokens.len() {
+        let remaining: Vec<String> = parser.tokens[parser.pos..]
+            .iter()
+            .map(|t| format!("{:?}", t))
+            .collect();
+        return Err(format!("Unexpected tokens after parsing: {}", remaining.join(" ")));
+    }
+
+    Ok(lines)
 }
 
 #[cfg(test)]
@@ -1191,5 +1220,15 @@ mod tests {
         } else {
             panic!("Unexpected AST");
         }
+    }
+
+    #[test]
+    fn test_parse_error_leftover_tokens() {
+        let line = "add a0, a1, a2 extra";
+        let tokens = tokenizer::tokenize(line).unwrap();
+        let result = parse(&tokens, "test".to_string(), 1);
+        assert!(result.is_err(), "Should fail with leftover tokens");
+        let err = result.unwrap_err();
+        assert!(err.contains("Unexpected tokens"), "Error should mention unexpected tokens: {}", err);
     }
 }
