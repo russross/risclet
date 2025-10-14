@@ -91,8 +91,6 @@ pub struct GlobalDefinition {
     pub declaration_pointer: LinePointer,
 }
 
-
-
 // ==============================================================================
 // Tokenization Data Types
 // ==============================================================================
@@ -689,33 +687,50 @@ impl fmt::Display for Source {
         for (file_index, file) in self.files.iter().enumerate() {
             writeln!(f, "{}", file)?;
             for (line_index, line) in file.lines.iter().enumerate() {
-                write!(f, "  [{}:{}] {}+{}: {}",
-                    file_index, line_index, line.segment, line.offset, line.content)?;
+                write!(
+                    f,
+                    "  [{}:{}] {}+{}: {}",
+                    file_index,
+                    line_index,
+                    line.segment,
+                    line.offset,
+                    line.content
+                )?;
                 if !line.outgoing_refs.is_empty() {
                     write!(f, " -> ")?;
                     for (i, sym_ref) in line.outgoing_refs.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
-                        write!(f, "{}@[{}:{}]", sym_ref.symbol,
-                            sym_ref.pointer.file_index, sym_ref.pointer.line_index)?;
+                        write!(
+                            f,
+                            "{}@[{}:{}]",
+                            sym_ref.symbol,
+                            sym_ref.pointer.file_index,
+                            sym_ref.pointer.line_index
+                        )?;
                     }
                 }
                 writeln!(f)?;
             }
 
             // Show exported symbols for this file
-            let exported: Vec<_> = self.global_symbols.iter()
+            let exported: Vec<_> = self
+                .global_symbols
+                .iter()
                 .filter(|g| g.definition_pointer.file_index == file_index)
                 .collect();
 
             if !exported.is_empty() {
                 writeln!(f, "  Exported symbols:")?;
                 for global in exported {
-                    writeln!(f, "    {} -> [{}:{}]",
+                    writeln!(
+                        f,
+                        "    {} -> [{}:{}]",
                         global.symbol,
                         global.definition_pointer.file_index,
-                        global.definition_pointer.line_index)?;
+                        global.definition_pointer.line_index
+                    )?;
                 }
             }
         }

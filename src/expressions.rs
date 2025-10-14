@@ -6,10 +6,13 @@
 // It enforces a two-type system (Integer and Address) with strict type checking
 // and precision loss detection.
 
+use crate::ast::{
+    Directive, Expression, Line, LineContent, LinePointer, Location, Segment,
+    Source,
+};
+use crate::error::AssemblerError;
 use std::collections::HashMap;
 use std::fmt;
-use crate::ast::{Directive, Expression, Line, LineContent, LinePointer, Location, Segment, Source};
-use crate::error::AssemblerError;
 
 // Type alias for Result with AssemblerError
 type Result<T> = std::result::Result<T, AssemblerError>;
@@ -43,17 +46,11 @@ pub struct EvaluatedValue {
 
 impl EvaluatedValue {
     pub fn new_integer(value: i64) -> Self {
-        Self {
-            value,
-            value_type: ValueType::Integer,
-        }
+        Self { value, value_type: ValueType::Integer }
     }
 
     pub fn new_address(value: i64) -> Self {
-        Self {
-            value,
-            value_type: ValueType::Address,
-        }
+        Self { value, value_type: ValueType::Address }
     }
 }
 
@@ -117,10 +114,7 @@ impl EvaluationContext {
                         "Internal error: invalid line pointer [{}:{}]",
                         pointer.file_index, pointer.line_index
                     ),
-                    Location {
-                        file: "unknown".to_string(),
-                        line: 0,
-                    },
+                    Location { file: "unknown".to_string(), line: 0 },
                 )
             })
     }
@@ -138,7 +132,10 @@ impl EvaluationContext {
 ///
 /// # Returns
 /// A new EvaluationContext ready for expression evaluation
-pub fn new_evaluation_context(source: Source, text_start: i64) -> EvaluationContext {
+pub fn new_evaluation_context(
+    source: Source,
+    text_start: i64,
+) -> EvaluationContext {
     // Calculate segment addresses
     let text_size = source.text_size;
     let data_size = source.data_size;
@@ -194,7 +191,10 @@ pub fn eval_expr(
     let result = evaluate_expression(expr, context, line, &mut cycle_stack)?;
 
     // Sanity check: cycle_stack should be empty
-    debug_assert!(cycle_stack.is_empty(), "Cycle stack not empty after evaluation");
+    debug_assert!(
+        cycle_stack.is_empty(),
+        "Cycle stack not empty after evaluation"
+    );
 
     Ok(result)
 }
@@ -213,15 +213,26 @@ pub fn eval_expr(
 ///
 /// # Errors
 /// Propagates any errors from symbol resolution
-pub fn evaluate_line_symbols(line: &Line, context: &mut EvaluationContext) -> Result<()> {
+pub fn evaluate_line_symbols(
+    line: &Line,
+    context: &mut EvaluationContext,
+) -> Result<()> {
     let mut cycle_stack = Vec::new();
 
     for sym_ref in &line.outgoing_refs {
-        resolve_symbol_value(&sym_ref.symbol, &sym_ref.pointer, context, &mut cycle_stack)?;
+        resolve_symbol_value(
+            &sym_ref.symbol,
+            &sym_ref.pointer,
+            context,
+            &mut cycle_stack,
+        )?;
     }
 
     // Sanity check
-    debug_assert!(cycle_stack.is_empty(), "Cycle stack not empty after line symbol evaluation");
+    debug_assert!(
+        cycle_stack.is_empty(),
+        "Cycle stack not empty after line symbol evaluation"
+    );
 
     Ok(())
 }
@@ -260,10 +271,7 @@ fn resolve_symbol_value(
     }
 
     // Create key
-    let key = SymbolKey {
-        name: symbol.to_string(),
-        pointer: pointer.clone(),
-    };
+    let key = SymbolKey { name: symbol.to_string(), pointer: pointer.clone() };
 
     // Check memoization
     if let Some(&value) = context.symbol_values.get(&key) {
@@ -272,7 +280,8 @@ fn resolve_symbol_value(
 
     // Check for cycles
     if cycle_stack.contains(&key) {
-        let cycle_chain: Vec<String> = cycle_stack.iter().map(|k| k.name.clone()).collect();
+        let cycle_chain: Vec<String> =
+            cycle_stack.iter().map(|k| k.name.clone()).collect();
         let line = context.get_line(pointer)?;
         return Err(AssemblerError::from_context(
             format!(
@@ -295,7 +304,8 @@ fn resolve_symbol_value(
     let result = match &line.content {
         LineContent::Label(_) => {
             // Calculate absolute address
-            let absolute_addr = context.segment_start(&line.segment) + line.offset;
+            let absolute_addr =
+                context.segment_start(&line.segment) + line.offset;
             EvaluatedValue::new_address(absolute_addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
@@ -307,7 +317,10 @@ fn resolve_symbol_value(
         }
         _ => {
             return Err(AssemblerError::from_context(
-                format!("Symbol '{}' definition points to invalid line", symbol),
+                format!(
+                    "Symbol '{}' definition points to invalid line",
+                    symbol
+                ),
                 line.location.clone(),
             ));
         }
@@ -377,14 +390,19 @@ fn evaluate_expression(
         }
 
         Expression::CurrentAddress => {
-            let addr = context.segment_start(&current_line.segment) + current_line.offset;
+            let addr = context.segment_start(&current_line.segment)
+                + current_line.offset;
             Ok(EvaluatedValue::new_address(addr))
         }
 
         Expression::NumericLabelRef(nlr) => {
             // Find the numeric label reference in outgoing_refs
             // The symbol name for numeric labels includes the direction suffix (e.g., "3f" or "2b")
-            let label_name = format!("{}{}", nlr.num, if nlr.is_forward { "f" } else { "b" });
+            let label_name = format!(
+                "{}{}",
+                nlr.num,
+                if nlr.is_forward { "f" } else { "b" }
+            );
             let sym_ref = current_line
                 .outgoing_refs
                 .iter()
@@ -399,7 +417,12 @@ fn evaluate_expression(
                     )
                 })?;
 
-            resolve_symbol_value(&label_name, &sym_ref.pointer, context, cycle_stack)
+            resolve_symbol_value(
+                &label_name,
+                &sym_ref.pointer,
+                context,
+                cycle_stack,
+            )
         }
 
         Expression::Parenthesized(inner) => {
@@ -408,27 +431,44 @@ fn evaluate_expression(
         }
 
         Expression::PlusOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
             checked_add(lhs_val, rhs_val, &current_line.location)
         }
 
         Expression::MinusOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
             checked_sub(lhs_val, rhs_val, &current_line.location)
         }
 
         Expression::MultiplyOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "multiplication", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "multiplication", &current_line.location)?;
+            let lhs_int = require_integer(
+                lhs_val,
+                "multiplication",
+                &current_line.location,
+            )?;
+            let rhs_int = require_integer(
+                rhs_val,
+                "multiplication",
+                &current_line.location,
+            )?;
 
             let result = lhs_int.checked_mul(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in multiplication: {} * {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in multiplication: {} * {}",
+                        lhs_int, rhs_int
+                    ),
                     current_line.location.clone(),
                 )
             })?;
@@ -437,11 +477,15 @@ fn evaluate_expression(
         }
 
         Expression::DivideOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "division", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "division", &current_line.location)?;
+            let lhs_int =
+                require_integer(lhs_val, "division", &current_line.location)?;
+            let rhs_int =
+                require_integer(rhs_val, "division", &current_line.location)?;
 
             if rhs_int == 0 {
                 return Err(AssemblerError::from_context(
@@ -452,7 +496,10 @@ fn evaluate_expression(
 
             let result = lhs_int.checked_div(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in division: {} / {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in division: {} / {}",
+                        lhs_int, rhs_int
+                    ),
                     current_line.location.clone(),
                 )
             })?;
@@ -461,11 +508,15 @@ fn evaluate_expression(
         }
 
         Expression::ModuloOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "modulo", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "modulo", &current_line.location)?;
+            let lhs_int =
+                require_integer(lhs_val, "modulo", &current_line.location)?;
+            let rhs_int =
+                require_integer(rhs_val, "modulo", &current_line.location)?;
 
             if rhs_int == 0 {
                 return Err(AssemblerError::from_context(
@@ -479,81 +530,129 @@ fn evaluate_expression(
         }
 
         Expression::LeftShiftOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "left shift", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "left shift", &current_line.location)?;
+            let lhs_int =
+                require_integer(lhs_val, "left shift", &current_line.location)?;
+            let rhs_int =
+                require_integer(rhs_val, "left shift", &current_line.location)?;
 
-            if rhs_int < 0 || rhs_int >= 64 {
+            if !(0..64).contains(&rhs_int) {
                 return Err(AssemblerError::from_context(
                     format!("Invalid shift amount {} (must be 0..64)", rhs_int),
                     current_line.location.clone(),
                 ));
             }
 
-            check_left_shift_precision(lhs_int, rhs_int, &current_line.location)?;
+            check_left_shift_precision(
+                lhs_int,
+                rhs_int,
+                &current_line.location,
+            )?;
 
             let result = lhs_int << rhs_int;
             Ok(EvaluatedValue::new_integer(result))
         }
 
         Expression::RightShiftOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "right shift", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "right shift", &current_line.location)?;
+            let lhs_int = require_integer(
+                lhs_val,
+                "right shift",
+                &current_line.location,
+            )?;
+            let rhs_int = require_integer(
+                rhs_val,
+                "right shift",
+                &current_line.location,
+            )?;
 
-            if rhs_int < 0 || rhs_int >= 64 {
+            if !(0..64).contains(&rhs_int) {
                 return Err(AssemblerError::from_context(
                     format!("Invalid shift amount {} (must be 0..64)", rhs_int),
                     current_line.location.clone(),
                 ));
             }
 
-            check_right_shift_precision(lhs_int, rhs_int, &current_line.location)?;
+            check_right_shift_precision(
+                lhs_int,
+                rhs_int,
+                &current_line.location,
+            )?;
 
             let result = lhs_int >> rhs_int;
             Ok(EvaluatedValue::new_integer(result))
         }
 
         Expression::BitwiseOrOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "bitwise OR", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "bitwise OR", &current_line.location)?;
+            let lhs_int =
+                require_integer(lhs_val, "bitwise OR", &current_line.location)?;
+            let rhs_int =
+                require_integer(rhs_val, "bitwise OR", &current_line.location)?;
 
             let result = lhs_int | rhs_int;
             Ok(EvaluatedValue::new_integer(result))
         }
 
         Expression::BitwiseAndOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "bitwise AND", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "bitwise AND", &current_line.location)?;
+            let lhs_int = require_integer(
+                lhs_val,
+                "bitwise AND",
+                &current_line.location,
+            )?;
+            let rhs_int = require_integer(
+                rhs_val,
+                "bitwise AND",
+                &current_line.location,
+            )?;
 
             let result = lhs_int & rhs_int;
             Ok(EvaluatedValue::new_integer(result))
         }
 
         Expression::BitwiseXorOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line, cycle_stack)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line, cycle_stack)?;
+            let lhs_val =
+                evaluate_expression(lhs, context, current_line, cycle_stack)?;
+            let rhs_val =
+                evaluate_expression(rhs, context, current_line, cycle_stack)?;
 
-            let lhs_int = require_integer(lhs_val, "bitwise XOR", &current_line.location)?;
-            let rhs_int = require_integer(rhs_val, "bitwise XOR", &current_line.location)?;
+            let lhs_int = require_integer(
+                lhs_val,
+                "bitwise XOR",
+                &current_line.location,
+            )?;
+            let rhs_int = require_integer(
+                rhs_val,
+                "bitwise XOR",
+                &current_line.location,
+            )?;
 
             let result = lhs_int ^ rhs_int;
             Ok(EvaluatedValue::new_integer(result))
         }
 
         Expression::NegateOp { expr: inner } => {
-            let val = evaluate_expression(inner, context, current_line, cycle_stack)?;
-            let int_val = require_integer(val, "negation", &current_line.location)?;
+            let val =
+                evaluate_expression(inner, context, current_line, cycle_stack)?;
+            let int_val =
+                require_integer(val, "negation", &current_line.location)?;
 
             let result = int_val.checked_neg().ok_or_else(|| {
                 AssemblerError::from_context(
@@ -566,8 +665,10 @@ fn evaluate_expression(
         }
 
         Expression::BitwiseNotOp { expr: inner } => {
-            let val = evaluate_expression(inner, context, current_line, cycle_stack)?;
-            let int_val = require_integer(val, "bitwise NOT", &current_line.location)?;
+            let val =
+                evaluate_expression(inner, context, current_line, cycle_stack)?;
+            let int_val =
+                require_integer(val, "bitwise NOT", &current_line.location)?;
 
             let result = !int_val;
             Ok(EvaluatedValue::new_integer(result))
@@ -589,13 +690,17 @@ fn checked_add(
         (ValueType::Integer, ValueType::Integer) => {
             let result = lhs.value.checked_add(rhs.value).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in addition: {} + {}", lhs.value, rhs.value),
+                    format!(
+                        "Arithmetic overflow in addition: {} + {}",
+                        lhs.value, rhs.value
+                    ),
                     location.clone(),
                 )
             })?;
             Ok(EvaluatedValue::new_integer(result))
         }
-        (ValueType::Address, ValueType::Integer) | (ValueType::Integer, ValueType::Address) => {
+        (ValueType::Address, ValueType::Integer)
+        | (ValueType::Integer, ValueType::Address) => {
             let result = lhs.value.checked_add(rhs.value).ok_or_else(|| {
                 AssemblerError::from_context(
                     "Arithmetic overflow in address + offset".to_string(),
@@ -604,10 +709,13 @@ fn checked_add(
             })?;
             Ok(EvaluatedValue::new_address(result))
         }
-        (ValueType::Address, ValueType::Address) => Err(AssemblerError::from_context(
-            "Type error in addition: cannot add Address + Address".to_string(),
-            location.clone(),
-        )),
+        (ValueType::Address, ValueType::Address) => {
+            Err(AssemblerError::from_context(
+                "Type error in addition: cannot add Address + Address"
+                    .to_string(),
+                location.clone(),
+            ))
+        }
     }
 }
 
@@ -648,15 +756,22 @@ fn checked_sub(
             })?;
             Ok(EvaluatedValue::new_integer(result))
         }
-        (ValueType::Integer, ValueType::Address) => Err(AssemblerError::from_context(
-            "Type error in subtraction: cannot compute Integer - Address".to_string(),
-            location.clone(),
-        )),
+        (ValueType::Integer, ValueType::Address) => {
+            Err(AssemblerError::from_context(
+                "Type error in subtraction: cannot compute Integer - Address"
+                    .to_string(),
+                location.clone(),
+            ))
+        }
     }
 }
 
 /// Check that a value is an Integer type, return error if not
-fn require_integer(value: EvaluatedValue, operation: &str, location: &Location) -> Result<i64> {
+fn require_integer(
+    value: EvaluatedValue,
+    operation: &str,
+    location: &Location,
+) -> Result<i64> {
     match value.value_type {
         ValueType::Integer => Ok(value.value),
         ValueType::Address => Err(AssemblerError::from_context(
@@ -670,7 +785,11 @@ fn require_integer(value: EvaluatedValue, operation: &str, location: &Location) 
 }
 
 /// Check if left shift would lose precision
-fn check_left_shift_precision(value: i64, shift: i64, location: &Location) -> Result<()> {
+fn check_left_shift_precision(
+    value: i64,
+    shift: i64,
+    location: &Location,
+) -> Result<()> {
     // For a left shift by N bits, check that the top N+1 bits are all the same
     // (all 0s or all 1s, i.e., sign-extension bits)
     if shift >= 63 {
@@ -705,7 +824,11 @@ fn check_left_shift_precision(value: i64, shift: i64, location: &Location) -> Re
 }
 
 /// Check if right shift would lose precision
-fn check_right_shift_precision(value: i64, shift: i64, location: &Location) -> Result<()> {
+fn check_right_shift_precision(
+    value: i64,
+    shift: i64,
+    location: &Location,
+) -> Result<()> {
     // For a right shift, check that no non-zero bits are shifted out
     // Create a mask for the bottom 'shift' bits
     if shift == 0 {
@@ -760,12 +883,13 @@ mod tests {
     }
 
     /// Helper to create a test line with an expression
-    fn make_test_line(segment: Segment, offset: i64, content: LineContent) -> Line {
+    fn make_test_line(
+        segment: Segment,
+        offset: i64,
+        content: LineContent,
+    ) -> Line {
         Line {
-            location: Location {
-                file: "test.s".to_string(),
-                line: 1,
-            },
+            location: Location { file: "test.s".to_string(), line: 1 },
             content,
             segment,
             offset,
@@ -779,7 +903,11 @@ mod tests {
         expr: Expression,
         context: &mut EvaluationContext,
     ) -> Result<EvaluatedValue> {
-        let line = make_test_line(Segment::Text, 0, LineContent::Label("test".to_string()));
+        let line = make_test_line(
+            Segment::Text,
+            0,
+            LineContent::Label("test".to_string()),
+        );
         eval_expr(&expr, &line, context)
     }
 
@@ -805,7 +933,11 @@ mod tests {
         let mut context = new_evaluation_context(source, 0x100e8);
 
         let expr = Expression::CurrentAddress;
-        let line = make_test_line(Segment::Text, 16, LineContent::Label("test".to_string()));
+        let line = make_test_line(
+            Segment::Text,
+            16,
+            LineContent::Label("test".to_string()),
+        );
 
         let result = eval_expr(&expr, &line, &mut context).unwrap();
 
@@ -824,7 +956,11 @@ mod tests {
             rhs: Box::new(Expression::Literal(4)),
         };
 
-        let line = make_test_line(Segment::Text, 0, LineContent::Label("test".to_string()));
+        let line = make_test_line(
+            Segment::Text,
+            0,
+            LineContent::Label("test".to_string()),
+        );
         let result = eval_expr(&expr, &line, &mut context).unwrap();
 
         assert_eq!(result.value_type, ValueType::Address);
@@ -842,7 +978,11 @@ mod tests {
             rhs: Box::new(Expression::CurrentAddress),
         };
 
-        let line = make_test_line(Segment::Text, 0, LineContent::Label("test".to_string()));
+        let line = make_test_line(
+            Segment::Text,
+            0,
+            LineContent::Label("test".to_string()),
+        );
         let result = eval_expr(&expr, &line, &mut context).unwrap();
 
         assert_eq!(result.value_type, ValueType::Address);
@@ -860,7 +1000,11 @@ mod tests {
             rhs: Box::new(Expression::Literal(8)),
         };
 
-        let line = make_test_line(Segment::Text, 16, LineContent::Label("test".to_string()));
+        let line = make_test_line(
+            Segment::Text,
+            16,
+            LineContent::Label("test".to_string()),
+        );
         let result = eval_expr(&expr, &line, &mut context).unwrap();
 
         assert_eq!(result.value_type, ValueType::Address);
@@ -876,10 +1020,11 @@ mod tests {
         let addr1 = EvaluatedValue::new_address(0x100e8 + 16);
         let addr2 = EvaluatedValue::new_address(0x100e8);
 
-        let result = checked_sub(addr1, addr2, &Location {
-            file: "test".to_string(),
-            line: 1,
-        })
+        let result = checked_sub(
+            addr1,
+            addr2,
+            &Location { file: "test".to_string(), line: 1 },
+        )
         .unwrap();
 
         assert_eq!(result.value_type, ValueType::Integer);
@@ -891,10 +1036,11 @@ mod tests {
         let addr1 = EvaluatedValue::new_address(0x100e8);
         let addr2 = EvaluatedValue::new_address(0x100f8);
 
-        let result = checked_add(addr1, addr2, &Location {
-            file: "test".to_string(),
-            line: 1,
-        });
+        let result = checked_add(
+            addr1,
+            addr2,
+            &Location { file: "test".to_string(), line: 1 },
+        );
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -906,10 +1052,11 @@ mod tests {
         let int_val = EvaluatedValue::new_integer(8);
         let addr_val = EvaluatedValue::new_address(0x100e8);
 
-        let result = checked_sub(int_val, addr_val, &Location {
-            file: "test".to_string(),
-            line: 1,
-        });
+        let result = checked_sub(
+            int_val,
+            addr_val,
+            &Location { file: "test".to_string(), line: 1 },
+        );
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -1057,9 +1204,8 @@ mod tests {
         let source = make_test_source();
         let mut context = new_evaluation_context(source, 0x100e8);
 
-        let expr = Expression::BitwiseNotOp {
-            expr: Box::new(Expression::Literal(0)),
-        };
+        let expr =
+            Expression::BitwiseNotOp { expr: Box::new(Expression::Literal(0)) };
 
         let result = eval_simple(expr, &mut context).unwrap();
 
@@ -1232,7 +1378,10 @@ mod tests {
         let result = eval_simple(expr, &mut context);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Precision loss") || err_msg.contains("precision loss"));
+        assert!(
+            err_msg.contains("Precision loss")
+                || err_msg.contains("precision loss")
+        );
     }
 
     #[test]
@@ -1266,7 +1415,10 @@ mod tests {
         let result = eval_simple(expr, &mut context);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Precision loss") || err_msg.contains("precision loss"));
+        assert!(
+            err_msg.contains("Precision loss")
+                || err_msg.contains("precision loss")
+        );
     }
 
     #[test]
@@ -1295,9 +1447,8 @@ mod tests {
         let source = make_test_source();
         let mut context = new_evaluation_context(source, 0x100e8);
 
-        let expr = Expression::NegateOp {
-            expr: Box::new(Expression::Literal(42)),
-        };
+        let expr =
+            Expression::NegateOp { expr: Box::new(Expression::Literal(42)) };
 
         let result = eval_simple(expr, &mut context).unwrap();
 
@@ -1333,10 +1484,12 @@ mod tests {
 
         // (2 + 3) * 4 = 20
         let expr = Expression::MultiplyOp {
-            lhs: Box::new(Expression::Parenthesized(Box::new(Expression::PlusOp {
-                lhs: Box::new(Expression::Literal(2)),
-                rhs: Box::new(Expression::Literal(3)),
-            }))),
+            lhs: Box::new(Expression::Parenthesized(Box::new(
+                Expression::PlusOp {
+                    lhs: Box::new(Expression::Literal(2)),
+                    rhs: Box::new(Expression::Literal(3)),
+                },
+            ))),
             rhs: Box::new(Expression::Literal(4)),
         };
 
@@ -1354,10 +1507,12 @@ mod tests {
         // (10 + 20) * 2 - 5 = 55
         let expr = Expression::MinusOp {
             lhs: Box::new(Expression::MultiplyOp {
-                lhs: Box::new(Expression::Parenthesized(Box::new(Expression::PlusOp {
-                    lhs: Box::new(Expression::Literal(10)),
-                    rhs: Box::new(Expression::Literal(20)),
-                }))),
+                lhs: Box::new(Expression::Parenthesized(Box::new(
+                    Expression::PlusOp {
+                        lhs: Box::new(Expression::Literal(10)),
+                        rhs: Box::new(Expression::Literal(20)),
+                    },
+                ))),
                 rhs: Box::new(Expression::Literal(2)),
             }),
             rhs: Box::new(Expression::Literal(5)),
@@ -1377,7 +1532,7 @@ mod tests {
     fn test_context_segment_addresses() {
         let source = Source {
             files: vec![],
-            text_size: 1000,  // Will cause data to be on next 4K boundary
+            text_size: 1000, // Will cause data to be on next 4K boundary
             data_size: 500,
             bss_size: 200,
             global_symbols: vec![],
@@ -1409,10 +1564,7 @@ mod tests {
         // Manually resolve __global_pointer$
         let gp_value = resolve_symbol_value(
             "__global_pointer$",
-            &LinePointer {
-                file_index: 0,
-                line_index: 0,
-            },
+            &LinePointer { file_index: 0, line_index: 0 },
             &mut context,
             &mut Vec::new(),
         )

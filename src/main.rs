@@ -1,48 +1,222 @@
 use ast::{Line, Segment, Source, SourceFile};
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 
+mod assembler;
 mod ast;
+mod elf;
+mod encoder;
 mod error;
 mod expressions;
 mod parser;
 mod symbols;
 mod tokenizer;
 
-fn main() {
+struct Config {
+    input_files: Vec<String>,
+    output_file: String,
+    text_start: i64,
+    verbose: bool,
+}
+
+fn parse_args() -> Result<Config, String> {
     let args: Vec<String> = env::args().collect();
+
     if args.len() < 2 {
-        eprintln!("Usage: {} <file> [file...]", args[0]);
-        std::process::exit(1);
+        return Err(format!("Usage: {} [options] <file.s> [file.s...]
+
+Options:
+  -o <file>        Write output to <file> (default: a.out)
+  -t <address>     Set text start address (default: 0x10000)
+  -v, --verbose    Show detailed assembly output
+  -h, --help       Show this help message", args[0]));
     }
 
-    let files: Vec<String> = args[1..].to_vec();
+    let mut input_files = Vec::new();
+    let mut output_file = "a.out".to_string();
+    let mut text_start = 0x10000i64;
+    let mut verbose = false;
+    let mut i = 1;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Error: -o requires an argument".to_string());
+                }
+                output_file = args[i].clone();
+            }
+            "-t" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Error: -t requires an argument".to_string());
+                }
+                text_start = parse_address(&args[i])?;
+            }
+            "-v" | "--verbose" => {
+                verbose = true;
+            }
+            "-h" | "--help" => {
+                return Err(format!("Usage: {} [options] <file.s> [file.s...]
+
+Options:
+  -o <file>        Write output to <file> (default: a.out)
+  -t <address>     Set text start address (default: 0x10000)
+  -v, --verbose    Show detailed assembly output
+  -h, --help       Show this help message", args[0]));
+            }
+            arg => {
+                if arg.starts_with('-') {
+                    return Err(format!("Error: unknown option: {}", arg));
+                }
+                input_files.push(arg.to_string());
+            }
+        }
+        i += 1;
+    }
+
+    if input_files.is_empty() {
+        return Err("Error: no input files specified".to_string());
+    }
+
+    Ok(Config {
+        input_files,
+        output_file,
+        text_start,
+        verbose,
+    })
+}
+
+fn parse_address(s: &str) -> Result<i64, String> {
+    if let Some(hex) = s.strip_prefix("0x") {
+        i64::from_str_radix(hex, 16)
+            .map_err(|_| format!("Error: invalid hex address: {}", s))
+    } else {
+        s.parse::<i64>()
+            .map_err(|_| format!("Error: invalid address: {}", s))
+    }
+}
+
+fn main() {
+    let config = match parse_args() {
+        Ok(cfg) => cfg,
+        Err(msg) => {
+            eprintln!("{}", msg);
+            std::process::exit(1);
+        }
+    };
+
+    let files = config.input_files.clone();
 
     match process_files(files) {
         Ok(mut source) => {
-            // Resolve symbols
+            // Resolve symbols (create symbol table with pointers to definitions)
             if let Err(e) = symbols::resolve_symbols(&mut source) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
-            compute_offsets(&mut source);
 
-            // Evaluate expressions
-            let text_start = 0x10000; // Default text start address
-            let mut eval_context = expressions::new_evaluation_context(source.clone(), text_start);
+            // Converge: repeatedly compute offsets, evaluate expressions, and encode
+            // until line sizes stabilize. Returns the final encoded segments.
+            let (text_bytes, data_bytes, bss_size) =
+                match assembler::converge_and_encode(&mut source, config.text_start) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        eprintln!("Error during convergence and encoding: {}", e);
+                        std::process::exit(1);
+                    }
+                };
 
-            // Evaluate all line symbols
+            // Create evaluation context with final addresses for display
+            let mut eval_context =
+                expressions::new_evaluation_context(source.clone(), config.text_start);
+
+            // Evaluate all line symbols for display
             for file in &source.files {
                 for line in &file.lines {
-                    if let Err(e) = expressions::evaluate_line_symbols(line, &mut eval_context) {
-                        eprintln!("Warning: Failed to evaluate symbols in line: {}", e);
+                    if let Err(e) = expressions::evaluate_line_symbols(
+                        line,
+                        &mut eval_context,
+                    ) {
+                        eprintln!(
+                            "Warning: Failed to evaluate symbols in line: {}",
+                            e
+                        );
                     }
                 }
             }
 
-            // Dump the parsed Source with evaluated expressions to stdout
-            dump_source_with_values(&source, &mut eval_context);
+            // Generate ELF binary
+            let has_data = !data_bytes.is_empty();
+            let has_bss = bss_size > 0;
+
+            let mut elf_builder = elf::ElfBuilder::new(config.text_start as u64);
+            elf_builder.set_segments(
+                text_bytes.clone(),
+                data_bytes.clone(),
+                bss_size as u64,
+                eval_context.data_start as u64,
+                eval_context.bss_start as u64,
+            );
+
+            // Build symbol table
+            elf::build_symbol_table(
+                &source,
+                &mut elf_builder,
+                config.text_start as u64,
+                eval_context.data_start as u64,
+                eval_context.bss_start as u64,
+                has_data,
+                has_bss,
+            );
+
+            // Find entry point (_start symbol if present, otherwise use text_start)
+            let entry_point = source
+                .global_symbols
+                .iter()
+                .find(|g| g.symbol == "_start")
+                .map(|g| {
+                    let line = &source.files[g.definition_pointer.file_index].lines
+                        [g.definition_pointer.line_index];
+                    config.text_start as u64 + line.offset as u64
+                })
+                .unwrap_or(config.text_start as u64);
+
+            let elf_bytes = elf_builder.build(entry_point);
+
+            // Write ELF binary to output file
+            match File::create(&config.output_file) {
+                Ok(mut file) => {
+                    if let Err(e) = file.write_all(&elf_bytes) {
+                        eprintln!("Error writing {}: {}", config.output_file, e);
+                        std::process::exit(1);
+                    }
+                    // Minimal output by default
+                    if config.verbose {
+                        eprintln!("Generated: {}", config.output_file);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error creating {}: {}", config.output_file, e);
+                    std::process::exit(1);
+                }
+            }
+
+            // Show summary or detailed output
+            if config.verbose {
+                dump_source_with_values(&source, &mut eval_context, &text_bytes, &data_bytes, bss_size);
+            } else {
+                // Just show a one-line summary
+                println!("{}: text={} data={} bss={} total={}",
+                    config.output_file,
+                    source.text_size,
+                    source.data_size,
+                    bss_size,
+                    elf_bytes.len()
+                );
+            }
         }
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -118,7 +292,7 @@ fn process_file(file_path: &str) -> Result<SourceFile, String> {
                                 let mut new_line = parsed_line;
                                 new_line.segment = current_segment.clone();
                                 new_line.size =
-                                    guess_line_size(&new_line.content)?;
+                                    assembler::guess_line_size(&new_line.content)?;
 
                                 lines.push(new_line);
                             }
@@ -155,109 +329,47 @@ fn process_file(file_path: &str) -> Result<SourceFile, String> {
     })
 }
 
-fn compute_offsets(source: &mut Source) {
-    let mut global_text_offset: i64 = 0;
-    let mut global_data_offset: i64 = 0;
-    let mut global_bss_offset: i64 = 0;
 
-    for source_file in &mut source.files {
-        // Track the starting offset for this file in each segment
-        let file_text_start = global_text_offset;
-        let file_data_start = global_data_offset;
-        let file_bss_start = global_bss_offset;
+fn get_encoded_bytes(line: &Line, text_bytes: &[u8], data_bytes: &[u8]) -> Vec<u8> {
+    if line.size == 0 {
+        return Vec::new();
+    }
 
-        // Track offsets within this file (continuing from global offsets)
-        let mut text_offset: i64 = global_text_offset;
-        let mut data_offset: i64 = global_data_offset;
-        let mut bss_offset: i64 = global_bss_offset;
+    let offset = line.offset as usize;
+    let size = line.size as usize;
 
-        for line in &mut source_file.lines {
-            let current_offset = match line.segment {
-                Segment::Text => text_offset,
-                Segment::Data => data_offset,
-                Segment::Bss => bss_offset,
-            };
-
-            // For .balign, compute actual size based on offset
-            if let ast::LineContent::Directive(ast::Directive::Balign(_expr)) =
-                &line.content
-            {
-                let align = 8; // Placeholder: should evaluate expr
-                let padding = (align - (current_offset % align)) % align;
-                line.size = padding;
-            }
-
-            line.offset = current_offset;
-
-            // Advance offset
-            let advance = line.size;
-            match line.segment {
-                Segment::Text => text_offset += advance,
-                Segment::Data => data_offset += advance,
-                Segment::Bss => bss_offset += advance,
+    match line.segment {
+        Segment::Text => {
+            if offset + size <= text_bytes.len() {
+                text_bytes[offset..offset + size].to_vec()
+            } else {
+                Vec::new()
             }
         }
-
-        // Update source_file sizes (size contributed by this file in each segment)
-        source_file.text_size = text_offset - file_text_start;
-        source_file.data_size = data_offset - file_data_start;
-        source_file.bss_size = bss_offset - file_bss_start;
-
-        // Update global offsets to continue in the next file
-        global_text_offset = text_offset;
-        global_data_offset = data_offset;
-        global_bss_offset = bss_offset;
-    }
-
-    // Update source sizes (total across all files)
-    source.text_size = global_text_offset;
-    source.data_size = global_data_offset;
-    source.bss_size = global_bss_offset;
-}
-
-fn guess_line_size(content: &ast::LineContent) -> Result<i64, String> {
-    match content {
-        ast::LineContent::Instruction(inst) => match inst {
-            ast::Instruction::Pseudo(_) => Ok(4),
-            _ => Ok(4),
-        },
-        ast::LineContent::Label(_) => Ok(0),
-        ast::LineContent::Directive(dir) => match dir {
-            ast::Directive::Space(_expr) => {
-                // Placeholder: in later phases, evaluate expression
-                Ok(0)
+        Segment::Data => {
+            if offset + size <= data_bytes.len() {
+                data_bytes[offset..offset + size].to_vec()
+            } else {
+                Vec::new()
             }
-            ast::Directive::Balign(_expr) => {
-                // Size computed in compute_offsets
-                Ok(0)
-            }
-            ast::Directive::Byte(exprs) => Ok(exprs.len() as i64 * 1),
-            ast::Directive::TwoByte(exprs) => Ok(exprs.len() as i64 * 2),
-            ast::Directive::FourByte(exprs) => Ok(exprs.len() as i64 * 4),
-            ast::Directive::EightByte(exprs) => Ok(exprs.len() as i64 * 8),
-            ast::Directive::String(strings) => {
-                let mut size = 0;
-                for s in strings {
-                    size += s.len() as i64;
-                }
-                Ok(size)
-            }
-            ast::Directive::Asciz(strings) => {
-                let mut size = 0;
-                for s in strings {
-                    size += s.len() as i64 + 1; // +1 for null terminator
-                }
-                Ok(size)
-            }
-            _ => Ok(0), // Non-data directives like .text, .global
-        },
+        }
+        Segment::Bss => {
+            // BSS segment has no encoded bytes (zero-initialized)
+            Vec::new()
+        }
     }
 }
 
-fn dump_source_with_values(source: &Source, eval_context: &mut expressions::EvaluationContext) {
+fn dump_source_with_values(
+    source: &Source,
+    eval_context: &mut expressions::EvaluationContext,
+    text_bytes: &[u8],
+    data_bytes: &[u8],
+    bss_size: i64,
+) {
     println!(
         "Source (text: {}, data: {}, bss: {})",
-        source.text_size, source.data_size, source.bss_size
+        source.text_size, source.data_size, bss_size
     );
 
     for (file_index, file) in source.files.iter().enumerate() {
@@ -266,12 +378,28 @@ fn dump_source_with_values(source: &Source, eval_context: &mut expressions::Eval
             file.file, file.text_size, file.data_size, file.bss_size
         );
 
-        for (line_index, line) in file.lines.iter().enumerate() {
-            // Start with basic line info
-            print!(
-                "  [{}:{}] {}+{}: {}",
-                file_index, line_index, line.segment, line.offset, line.content
-            );
+        for line in file.lines.iter() {
+            // Calculate absolute address
+            let abs_addr = line.offset + get_segment_base(line.segment.clone(), eval_context);
+
+            // Get encoded bytes for this line
+            let encoded_bytes = get_encoded_bytes(line, text_bytes, data_bytes);
+            let bytes_str = if !encoded_bytes.is_empty() {
+                encoded_bytes
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                String::new()
+            };
+
+            // Format with absolute address and encoded bytes
+            if !bytes_str.is_empty() {
+                print!("  {:08x}: {:20} {}", abs_addr, bytes_str, line.content);
+            } else {
+                print!("  {:08x}: {:20} {}", abs_addr, "", line.content);
+            }
 
             // Collect and show evaluated expression values inline
             let expr_values = collect_expression_values(line, eval_context);
@@ -318,12 +446,12 @@ fn collect_expression_values(
     // Helper to format an evaluated expression value
     let mut format_value = |expr: &ast::Expression| -> String {
         match expressions::eval_expr(expr, line, eval_context) {
-            Ok(value) => {
-                match value.value_type {
-                    expressions::ValueType::Integer => format!("{}", value.value),
-                    expressions::ValueType::Address => format!("{:#x}", value.value),
+            Ok(value) => match value.value_type {
+                expressions::ValueType::Integer => format!("{}", value.value),
+                expressions::ValueType::Address => {
+                    format!("{:#x}", value.value)
                 }
-            }
+            },
             Err(_) => "ERROR".to_string(),
         }
     };
@@ -331,7 +459,8 @@ fn collect_expression_values(
     match &line.content {
         ast::LineContent::Label(_label) => {
             // Show the address value of this label
-            let addr = line.offset + get_segment_base(line.segment.clone(), eval_context);
+            let addr = line.offset
+                + get_segment_base(line.segment.clone(), eval_context);
             values.push(format!("{:#x}", addr));
         }
         ast::LineContent::Directive(dir) => match dir {
@@ -366,7 +495,10 @@ fn collect_expression_values(
     values
 }
 
-fn get_segment_base(segment: ast::Segment, eval_context: &expressions::EvaluationContext) -> i64 {
+fn get_segment_base(
+    segment: ast::Segment,
+    eval_context: &expressions::EvaluationContext,
+) -> i64 {
     match segment {
         ast::Segment::Text => eval_context.text_start,
         ast::Segment::Data => eval_context.data_start,
@@ -374,7 +506,9 @@ fn get_segment_base(segment: ast::Segment, eval_context: &expressions::Evaluatio
     }
 }
 
-fn extract_instruction_expressions(inst: &ast::Instruction) -> Vec<&ast::Expression> {
+fn extract_instruction_expressions(
+    inst: &ast::Instruction,
+) -> Vec<&ast::Expression> {
     let mut exprs = Vec::new();
 
     match inst {

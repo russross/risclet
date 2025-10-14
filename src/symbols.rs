@@ -35,16 +35,22 @@ pub fn resolve_symbols(source: &mut Source) -> Result<(), AssemblerError> {
         for gd in file_globals {
             if globals.contains_key(&gd.symbol) {
                 let old_gd = globals.get(&gd.symbol).unwrap();
-                let old_file = &source.files[old_gd.definition_pointer.file_index];
-                let old_line = &old_file.lines[old_gd.definition_pointer.line_index];
+                let old_file =
+                    &source.files[old_gd.definition_pointer.file_index];
+                let old_line =
+                    &old_file.lines[old_gd.definition_pointer.line_index];
                 let old_location = old_line.location.clone();
 
                 let new_file = &source.files[gd.definition_pointer.file_index];
-                let new_line = &new_file.lines[gd.definition_pointer.line_index];
+                let new_line =
+                    &new_file.lines[gd.definition_pointer.line_index];
                 let new_location = new_line.location.clone();
 
                 return Err(AssemblerError::from_context(
-                    format!("Duplicate global symbol: {} (previously defined at {})", gd.symbol, old_location),
+                    format!(
+                        "Duplicate global symbol: {} (previously defined at {})",
+                        gd.symbol, old_location
+                    ),
                     new_location,
                 ));
             }
@@ -108,7 +114,8 @@ fn flush_numeric_labels(
     }
     if let Some(&i) = to_remove.first() {
         let unref = unresolved.remove(i);
-        let error_location = locations[unref.referencing_pointer.line_index].clone();
+        let error_location =
+            locations[unref.referencing_pointer.line_index].clone();
         return Err(AssemblerError::from_context(
             format!("Unresolved numeric label reference: {}", unref.symbol),
             error_location,
@@ -123,10 +130,12 @@ fn resolve_file(
     file_index: usize,
     file: &mut SourceFile,
 ) -> Result<(Vec<GlobalDefinition>, Vec<UnresolvedReference>), AssemblerError> {
-    let locations: Vec<Location> = file.lines.iter().map(|line| line.location.clone()).collect();
+    let locations: Vec<Location> =
+        file.lines.iter().map(|line| line.location.clone()).collect();
     let mut definitions: HashMap<String, LinePointer> = HashMap::new();
     let mut unresolved: Vec<UnresolvedReference> = Vec::new();
-    let mut unfinalized_globals: HashMap<String, UnfinalizedGlobal> = HashMap::new();
+    let mut unfinalized_globals: HashMap<String, UnfinalizedGlobal> =
+        HashMap::new();
 
     // Track resolved references that need to be added after the loop
     let mut patches: Vec<(usize, SymbolReference)> = Vec::new();
@@ -134,189 +143,223 @@ fn resolve_file(
     for (line_index, line) in file.lines.iter_mut().enumerate() {
         let line_ptr = LinePointer { file_index, line_index };
 
-         // Extract symbol references from the line
-         // This must happen before symbol definitions so .equ can redefine symbols
-         let refs = extract_references(line);
-         for symbol in refs {
-             if let Some(_num) = is_numeric_backward_ref(&symbol) {
-                 // Backward reference
-                 if let Some(def_ptr) = definitions.get(&symbol) {
-                     line.outgoing_refs.push(SymbolReference {
-                         symbol: symbol.clone(),
-                         pointer: def_ptr.clone(),
-                     });
-                 } else {
-                     // Error immediately
-                     return Err(AssemblerError::from_context(
-                         format!("Unresolved backward numeric label reference: {}", symbol),
-                         line.location.clone(),
-                     ));
-                 }
-             } else if let Some(_num) = is_numeric_forward_ref(&symbol) {
-                 // Forward reference
-                 unresolved.push(UnresolvedReference {
-                     symbol: symbol.clone(),
-                     referencing_pointer: line_ptr.clone(),
-                 });
-             } else {
-                 // Regular symbol
-                 if let Some(def_ptr) = definitions.get(&symbol) {
-                     line.outgoing_refs.push(SymbolReference {
-                         symbol: symbol.clone(),
-                         pointer: def_ptr.clone(),
-                     });
-                 } else {
-                     unresolved.push(UnresolvedReference {
-                         symbol: symbol.clone(),
-                         referencing_pointer: line_ptr.clone(),
-                     });
-                 }
-             }
-         }
+        // Extract symbol references from the line
+        // This must happen before symbol definitions so .equ can redefine symbols
+        let refs = extract_references(line);
+        for symbol in refs {
+            if let Some(_num) = is_numeric_backward_ref(&symbol) {
+                // Backward reference
+                if let Some(def_ptr) = definitions.get(&symbol) {
+                    line.outgoing_refs.push(SymbolReference {
+                        symbol: symbol.clone(),
+                        pointer: def_ptr.clone(),
+                    });
+                } else {
+                    // Error immediately
+                    return Err(AssemblerError::from_context(
+                        format!(
+                            "Unresolved backward numeric label reference: {}",
+                            symbol
+                        ),
+                        line.location.clone(),
+                    ));
+                }
+            } else if let Some(_num) = is_numeric_forward_ref(&symbol) {
+                // Forward reference
+                unresolved.push(UnresolvedReference {
+                    symbol: symbol.clone(),
+                    referencing_pointer: line_ptr.clone(),
+                });
+            } else {
+                // Regular symbol
+                if let Some(def_ptr) = definitions.get(&symbol) {
+                    line.outgoing_refs.push(SymbolReference {
+                        symbol: symbol.clone(),
+                        pointer: def_ptr.clone(),
+                    });
+                } else {
+                    unresolved.push(UnresolvedReference {
+                        symbol: symbol.clone(),
+                        referencing_pointer: line_ptr.clone(),
+                    });
+                }
+            }
+        }
 
-          // Handle definitions
-          let mut new_definition: Option<String> = None;
-          if let LineContent::Label(ref label) = line.content {
-              if label.parse::<u32>().is_ok() {
-                  // Numeric label
-                  let forward_symbol = format!("{}f", label);
-                  // Resolve any matching forward references
-                  let mut i = 0;
-                  while i < unresolved.len() {
-                      if unresolved[i].symbol == forward_symbol {
-                          let unref = unresolved.remove(i);
-                          // Schedule a patch to add the reference later
-                          patches.push((unref.referencing_pointer.line_index, SymbolReference {
-                              symbol: forward_symbol.clone(),
-                              pointer: line_ptr.clone(),
-                          }));
-                      } else {
-                          i += 1;
-                      }
-                  }
-                  // Insert with 'b' suffix
-                  let backward_symbol = format!("{}b", label);
-                  definitions.insert(backward_symbol.clone(), line_ptr.clone());
-                  new_definition = Some(backward_symbol);
-              } else {
-                  // Non-numeric label: flush numeric labels
-                  flush_numeric_labels(&locations, &mut definitions, &mut unresolved)?;
-                  // Check for special symbol names
-                  if label == SPECIAL_GLOBAL_POINTER {
-                      return Err(AssemblerError::from_context(
-                          format!("Cannot define special symbol: {}", label),
-                          line.location.clone(),
-                      ));
-                  }
-                  // Check if label already exists
-                  if definitions.contains_key(label) {
-                      return Err(AssemblerError::from_context(
-                          format!("Duplicate label: {}", label),
-                          line.location.clone(),
-                      ));
-                  }
-                  definitions.insert(label.clone(), line_ptr.clone());
-                  new_definition = Some(label.clone());
-                  // Update global if present
-                  if let Some(global) = unfinalized_globals.get_mut(label) {
-                      global.definition = Some(line_ptr.clone());
-                  }
-              }
-          } else if let LineContent::Directive(Directive::Equ(name, _)) = &line.content {
-              // .equ definition
-              if name.parse::<u32>().is_ok() {
-                  return Err(AssemblerError::from_context(
-                      format!("Numeric label cannot be defined in .equ: {}", name),
-                      line.location.clone(),
-                  ));
-              }
-              // Check for special symbol names
-              if name == SPECIAL_GLOBAL_POINTER {
-                  return Err(AssemblerError::from_context(
-                      format!("Cannot define special symbol: {}", name),
-                      line.location.clone(),
-                  ));
-              }
-              definitions.insert(name.clone(), line_ptr.clone());
-              new_definition = Some(name.clone());
-              // Update global if present
-              if let Some(global) = unfinalized_globals.get_mut(name) {
-                  global.definition = Some(line_ptr.clone());
-              }
-          }
+        // Handle definitions
+        let mut new_definition: Option<String> = None;
+        if let LineContent::Label(ref label) = line.content {
+            if label.parse::<u32>().is_ok() {
+                // Numeric label
+                let forward_symbol = format!("{}f", label);
+                // Resolve any matching forward references
+                let mut i = 0;
+                while i < unresolved.len() {
+                    if unresolved[i].symbol == forward_symbol {
+                        let unref = unresolved.remove(i);
+                        // Schedule a patch to add the reference later
+                        patches.push((
+                            unref.referencing_pointer.line_index,
+                            SymbolReference {
+                                symbol: forward_symbol.clone(),
+                                pointer: line_ptr.clone(),
+                            },
+                        ));
+                    } else {
+                        i += 1;
+                    }
+                }
+                // Insert with 'b' suffix
+                let backward_symbol = format!("{}b", label);
+                definitions.insert(backward_symbol.clone(), line_ptr.clone());
+                new_definition = Some(backward_symbol);
+            } else {
+                // Non-numeric label: flush numeric labels
+                flush_numeric_labels(
+                    &locations,
+                    &mut definitions,
+                    &mut unresolved,
+                )?;
+                // Check for special symbol names
+                if label == SPECIAL_GLOBAL_POINTER {
+                    return Err(AssemblerError::from_context(
+                        format!("Cannot define special symbol: {}", label),
+                        line.location.clone(),
+                    ));
+                }
+                // Check if label already exists
+                if definitions.contains_key(label) {
+                    return Err(AssemblerError::from_context(
+                        format!("Duplicate label: {}", label),
+                        line.location.clone(),
+                    ));
+                }
+                definitions.insert(label.clone(), line_ptr.clone());
+                new_definition = Some(label.clone());
+                // Update global if present
+                if let Some(global) = unfinalized_globals.get_mut(label) {
+                    global.definition = Some(line_ptr.clone());
+                }
+            }
+        } else if let LineContent::Directive(Directive::Equ(name, _)) =
+            &line.content
+        {
+            // .equ definition
+            if name.parse::<u32>().is_ok() {
+                return Err(AssemblerError::from_context(
+                    format!(
+                        "Numeric label cannot be defined in .equ: {}",
+                        name
+                    ),
+                    line.location.clone(),
+                ));
+            }
+            // Check for special symbol names
+            if name == SPECIAL_GLOBAL_POINTER {
+                return Err(AssemblerError::from_context(
+                    format!("Cannot define special symbol: {}", name),
+                    line.location.clone(),
+                ));
+            }
+            definitions.insert(name.clone(), line_ptr.clone());
+            new_definition = Some(name.clone());
+            // Update global if present
+            if let Some(global) = unfinalized_globals.get_mut(name) {
+                global.definition = Some(line_ptr.clone());
+            }
+        }
 
-         // Consolidated check and resolve unresolved references for new definition
-         if let Some(sym) = new_definition {
-             let mut i = 0;
-             while i < unresolved.len() {
-                 if unresolved[i].symbol == sym {
-                     let unref = unresolved.remove(i);
-                     // Schedule a patch to add the reference later
-                     patches.push((unref.referencing_pointer.line_index, SymbolReference {
-                         symbol: sym.clone(),
-                         pointer: line_ptr.clone(),
-                     }));
-                 } else {
-                     i += 1;
-                 }
-             }
-         }
+        // Consolidated check and resolve unresolved references for new definition
+        if let Some(sym) = new_definition {
+            let mut i = 0;
+            while i < unresolved.len() {
+                if unresolved[i].symbol == sym {
+                    let unref = unresolved.remove(i);
+                    // Schedule a patch to add the reference later
+                    patches.push((
+                        unref.referencing_pointer.line_index,
+                        SymbolReference {
+                            symbol: sym.clone(),
+                            pointer: line_ptr.clone(),
+                        },
+                    ));
+                } else {
+                    i += 1;
+                }
+            }
+        }
 
-          // Handle segment changes
-          if let LineContent::Directive(Directive::Text | Directive::Data | Directive::Bss) = line.content {
-              flush_numeric_labels(&locations, &mut definitions, &mut unresolved)?;
-          }
+        // Handle segment changes
+        if let LineContent::Directive(
+            Directive::Text | Directive::Data | Directive::Bss,
+        ) = line.content
+        {
+            flush_numeric_labels(
+                &locations,
+                &mut definitions,
+                &mut unresolved,
+            )?;
+        }
 
-         // Handle .global declarations
-         if let LineContent::Directive(Directive::Global(symbols)) = &line.content {
-             for sym in symbols {
-                 if sym.parse::<u32>().is_ok() {
-                     return Err(AssemblerError::from_context(
-                         format!("Numeric label cannot be declared global: {}", sym),
-                         line.location.clone(),
-                     ));
-                 }
-                 if unfinalized_globals.contains_key(sym) {
-                     return Err(AssemblerError::from_context(
-                         format!("Symbol already declared global: {}", sym),
-                         line.location.clone(),
-                     ));
-                 }
-                 unfinalized_globals.insert(sym.clone(), UnfinalizedGlobal {
-                     _symbol: sym.clone(),
-                     definition: definitions.get(sym).cloned(),
-                     declaration_pointer: line_ptr.clone(),
-                 });
-             }
-         }
+        // Handle .global declarations
+        if let LineContent::Directive(Directive::Global(symbols)) =
+            &line.content
+        {
+            for sym in symbols {
+                if sym.parse::<u32>().is_ok() {
+                    return Err(AssemblerError::from_context(
+                        format!(
+                            "Numeric label cannot be declared global: {}",
+                            sym
+                        ),
+                        line.location.clone(),
+                    ));
+                }
+                if unfinalized_globals.contains_key(sym) {
+                    return Err(AssemblerError::from_context(
+                        format!("Symbol already declared global: {}", sym),
+                        line.location.clone(),
+                    ));
+                }
+                unfinalized_globals.insert(
+                    sym.clone(),
+                    UnfinalizedGlobal {
+                        _symbol: sym.clone(),
+                        definition: definitions.get(sym).cloned(),
+                        declaration_pointer: line_ptr.clone(),
+                    },
+                );
+            }
+        }
     }
 
-     // Apply all the patches now that we're done iterating
-     for (line_index, sym_ref) in patches {
-         file.lines[line_index].outgoing_refs.push(sym_ref);
-     }
+    // Apply all the patches now that we're done iterating
+    for (line_index, sym_ref) in patches {
+        file.lines[line_index].outgoing_refs.push(sym_ref);
+    }
 
-     // Convert unfinalized globals to GlobalDefinition with validation
-     let mut global_definitions = Vec::new();
-     for (symbol, ug) in unfinalized_globals {
-         if ug.definition.is_none() {
-             let decl_location = file.lines[ug.declaration_pointer.line_index].location.clone();
-             return Err(AssemblerError::from_context(
-                 format!("Global symbol declared but not defined: {}", symbol),
-                 decl_location,
-             ));
-         }
-         global_definitions.push(GlobalDefinition {
-             symbol,
-             definition_pointer: ug.definition.unwrap(),
-             declaration_pointer: ug.declaration_pointer,
-         });
-     }
+    // Convert unfinalized globals to GlobalDefinition with validation
+    let mut global_definitions = Vec::new();
+    for (symbol, ug) in unfinalized_globals {
+        if ug.definition.is_none() {
+            let decl_location =
+                file.lines[ug.declaration_pointer.line_index].location.clone();
+            return Err(AssemblerError::from_context(
+                format!("Global symbol declared but not defined: {}", symbol),
+                decl_location,
+            ));
+        }
+        global_definitions.push(GlobalDefinition {
+            symbol,
+            definition_pointer: ug.definition.unwrap(),
+            declaration_pointer: ug.declaration_pointer,
+        });
+    }
 
-      // Flush any remaining numeric labels at the end of the file
-      if let Some(_last_line) = file.lines.last() {
-          flush_numeric_labels(&locations, &mut definitions, &mut unresolved)?;
-      }
+    // Flush any remaining numeric labels at the end of the file
+    if let Some(_last_line) = file.lines.last() {
+        flush_numeric_labels(&locations, &mut definitions, &mut unresolved)?;
+    }
 
     Ok((global_definitions, unresolved))
 }
@@ -349,49 +392,48 @@ fn extract_references(line: &Line) -> Vec<String> {
                 Instruction::LoadStore(_, _, expr, _) => {
                     refs.extend(extract_from_expression(expr));
                 }
-                Instruction::Pseudo(pseudo) => {
-                    match pseudo {
-                        PseudoOp::Li(_, expr) => {
-                            refs.extend(extract_from_expression(expr));
-                        }
-                        PseudoOp::La(_, expr) => {
-                            refs.extend(extract_from_expression(expr));
-                        }
-                        PseudoOp::LoadGlobal(_, _, expr) => {
-                            refs.extend(extract_from_expression(expr));
-                        }
-                        PseudoOp::StoreGlobal(_, _, expr, _) => {
-                            refs.extend(extract_from_expression(expr));
-                        }
-                        PseudoOp::Call(expr) => {
-                            refs.extend(extract_from_expression(expr));
-                        }
-                        PseudoOp::Tail(expr) => {
-                            refs.extend(extract_from_expression(expr));
-                        }
-                    }
-                }
-            }
-        }
-        LineContent::Directive(dir) => {
-            match dir {
-                Directive::Equ(_, expr) => {
-                    refs.extend(extract_from_expression(expr));
-                }
-                Directive::Space(expr) => {
-                    refs.extend(extract_from_expression(expr));
-                }
-                Directive::Balign(expr) => {
-                    refs.extend(extract_from_expression(expr));
-                }
-                Directive::Byte(exprs) | Directive::TwoByte(exprs) | Directive::FourByte(exprs) | Directive::EightByte(exprs) => {
-                    for expr in exprs {
+                Instruction::Pseudo(pseudo) => match pseudo {
+                    PseudoOp::Li(_, expr) => {
                         refs.extend(extract_from_expression(expr));
                     }
-                }
-                _ => {}
+                    PseudoOp::La(_, expr) => {
+                        refs.extend(extract_from_expression(expr));
+                    }
+                    PseudoOp::LoadGlobal(_, _, expr) => {
+                        refs.extend(extract_from_expression(expr));
+                    }
+                    PseudoOp::StoreGlobal(_, _, expr, _) => {
+                        refs.extend(extract_from_expression(expr));
+                    }
+                    PseudoOp::Call(expr) => {
+                        refs.extend(extract_from_expression(expr));
+                    }
+                    PseudoOp::Tail(expr) => {
+                        refs.extend(extract_from_expression(expr));
+                    }
+                },
             }
         }
+        LineContent::Directive(dir) => match dir {
+            Directive::Equ(_, expr) => {
+                refs.extend(extract_from_expression(expr));
+            }
+            Directive::Space(expr) => {
+                refs.extend(extract_from_expression(expr));
+            }
+            Directive::Balign(expr) => {
+                refs.extend(extract_from_expression(expr));
+            }
+            Directive::Byte(exprs)
+            | Directive::TwoByte(exprs)
+            | Directive::FourByte(exprs)
+            | Directive::EightByte(exprs) => {
+                for expr in exprs {
+                    refs.extend(extract_from_expression(expr));
+                }
+            }
+            _ => {}
+        },
         _ => {}
     }
     // Filter out special symbols that are handled during expression evaluation
@@ -499,7 +541,10 @@ mod tests {
     use crate::tokenizer;
 
     /// Helper: Parse source lines into a SourceFile
-    fn parse_source_file(filename: &str, source: &str) -> Result<SourceFile, String> {
+    fn parse_source_file(
+        filename: &str,
+        source: &str,
+    ) -> Result<SourceFile, String> {
         let mut lines = Vec::new();
         let mut current_segment = Segment::Text;
 
@@ -514,7 +559,11 @@ mod tests {
                 continue;
             }
 
-            let parsed_lines = parser::parse(&tokens, filename.to_string(), (line_num + 1) as u32)?;
+            let parsed_lines = parser::parse(
+                &tokens,
+                filename.to_string(),
+                (line_num + 1) as u32,
+            )?;
 
             for mut parsed_line in parsed_lines {
                 // Update segment if directive changes it
@@ -575,7 +624,10 @@ mod tests {
     }
 
     /// Helper: Find the line that contains a reference to the given symbol
-    fn find_referencing_line(source: &Source, symbol: &str) -> Option<LinePointer> {
+    fn find_referencing_line(
+        source: &Source,
+        symbol: &str,
+    ) -> Option<LinePointer> {
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, line) in file.lines.iter().enumerate() {
                 // Check if this line has an expression with the symbol
@@ -589,7 +641,12 @@ mod tests {
     }
 
     /// Helper: Assert that a line has a specific outgoing reference
-    fn assert_reference(source: &Source, line_ptr: &LinePointer, expected_symbol: &str, expected_def_ptr: &LinePointer) {
+    fn assert_reference(
+        source: &Source,
+        line_ptr: &LinePointer,
+        expected_symbol: &str,
+        expected_def_ptr: &LinePointer,
+    ) {
         let file = &source.files[line_ptr.file_index];
         let line = &file.lines[line_ptr.line_index];
 
@@ -622,12 +679,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with no symbols");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with no symbols"
+        );
 
         // Verify no outgoing references
         for file in &source.files {
             for line in &file.lines {
-                assert!(line.outgoing_refs.is_empty(), "No references should exist");
+                assert!(
+                    line.outgoing_refs.is_empty(),
+                    "No references should exist"
+                );
             }
         }
     }
@@ -650,7 +713,10 @@ mod tests {
         // Verify no outgoing references on the label
         let file = &source.files[label_ptr.file_index];
         let line = &file.lines[label_ptr.line_index];
-        assert!(line.outgoing_refs.is_empty(), "Label should have no outgoing references");
+        assert!(
+            line.outgoing_refs.is_empty(),
+            "Label should have no outgoing references"
+        );
     }
 
     #[test]
@@ -686,7 +752,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with forward reference");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with forward reference"
+        );
 
         // Find the label and the referencing line
         let label_ptr = find_line_by_label(&source, "skip").unwrap();
@@ -720,12 +789,18 @@ mod tests {
         for line in &file.lines {
             for sym_ref in &line.outgoing_refs {
                 if sym_ref.symbol == "target" {
-                    assert_eq!(sym_ref.pointer, label_ptr, "All references should point to the same label");
+                    assert_eq!(
+                        sym_ref.pointer, label_ptr,
+                        "All references should point to the same label"
+                    );
                     ref_count += 1;
                 }
             }
         }
-        assert_eq!(ref_count, 2, "Should have exactly 2 references to 'target'");
+        assert_eq!(
+            ref_count, 2,
+            "Should have exactly 2 references to 'target'"
+        );
     }
 
     #[test]
@@ -758,7 +833,10 @@ mod tests {
                     "start" => assert_eq!(sym_ref.pointer, start_ptr),
                     "middle" => assert_eq!(sym_ref.pointer, middle_ptr),
                     "end" => assert_eq!(sym_ref.pointer, end_ptr),
-                    _ => panic!("Unexpected symbol reference: {}", sym_ref.symbol),
+                    _ => panic!(
+                        "Unexpected symbol reference: {}",
+                        sym_ref.symbol
+                    ),
                 }
             }
         }
@@ -776,7 +854,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with numeric forward reference");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with numeric forward reference"
+        );
 
         let label_ptr = find_line_by_label(&source, "1").unwrap();
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
@@ -800,7 +881,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with numeric backward reference");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with numeric backward reference"
+        );
 
         let label_ptr = find_line_by_label(&source, "1").unwrap();
         let ref_ptr = find_referencing_line(&source, "1b").unwrap();
@@ -827,7 +911,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with reused numeric labels");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with reused numeric labels"
+        );
 
         // Find both labels named "1"
         let file = &source.files[0];
@@ -835,11 +922,18 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Label(ref l) = line.content {
                 if l == "1" {
-                    label_positions.push(LinePointer { file_index: 0, line_index: line_idx });
+                    label_positions.push(LinePointer {
+                        file_index: 0,
+                        line_index: line_idx,
+                    });
                 }
             }
         }
-        assert_eq!(label_positions.len(), 2, "Should have exactly 2 labels named '1'");
+        assert_eq!(
+            label_positions.len(),
+            2,
+            "Should have exactly 2 labels named '1'"
+        );
 
         // First reference should point to first label, second to second label
         let mut ref_positions = Vec::new();
@@ -850,15 +944,31 @@ mod tests {
                 }
             }
         }
-        assert_eq!(ref_positions.len(), 2, "Should have exactly 2 references to '1f'");
+        assert_eq!(
+            ref_positions.len(),
+            2,
+            "Should have exactly 2 references to '1f'"
+        );
 
         // First reference should point to first label
-        assert!(ref_positions[0].0 < label_positions[0].line_index, "First ref should come before first label");
-        assert_eq!(ref_positions[0].1, label_positions[0], "First '1f' should resolve to first '1'");
+        assert!(
+            ref_positions[0].0 < label_positions[0].line_index,
+            "First ref should come before first label"
+        );
+        assert_eq!(
+            ref_positions[0].1, label_positions[0],
+            "First '1f' should resolve to first '1'"
+        );
 
         // Second reference should point to second label
-        assert!(ref_positions[1].0 < label_positions[1].line_index, "Second ref should come before second label");
-        assert_eq!(ref_positions[1].1, label_positions[1], "Second '1f' should resolve to second '1'");
+        assert!(
+            ref_positions[1].0 < label_positions[1].line_index,
+            "Second ref should come before second label"
+        );
+        assert_eq!(
+            ref_positions[1].1, label_positions[1],
+            "Second '1f' should resolve to second '1'"
+        );
     }
 
     #[test]
@@ -875,7 +985,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with reused numeric labels");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with reused numeric labels"
+        );
 
         // Find both labels named "1"
         let file = &source.files[0];
@@ -883,11 +996,18 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Label(ref l) = line.content {
                 if l == "1" {
-                    label_positions.push(LinePointer { file_index: 0, line_index: line_idx });
+                    label_positions.push(LinePointer {
+                        file_index: 0,
+                        line_index: line_idx,
+                    });
                 }
             }
         }
-        assert_eq!(label_positions.len(), 2, "Should have exactly 2 labels named '1'");
+        assert_eq!(
+            label_positions.len(),
+            2,
+            "Should have exactly 2 labels named '1'"
+        );
 
         // Collect all backward references
         let mut ref_positions = Vec::new();
@@ -898,15 +1018,31 @@ mod tests {
                 }
             }
         }
-        assert_eq!(ref_positions.len(), 2, "Should have exactly 2 references to '1b'");
+        assert_eq!(
+            ref_positions.len(),
+            2,
+            "Should have exactly 2 references to '1b'"
+        );
 
         // First reference should point to first label (closest backward)
-        assert!(ref_positions[0].0 > label_positions[0].line_index, "First ref should come after first label");
-        assert_eq!(ref_positions[0].1, label_positions[0], "First '1b' should resolve to first '1'");
+        assert!(
+            ref_positions[0].0 > label_positions[0].line_index,
+            "First ref should come after first label"
+        );
+        assert_eq!(
+            ref_positions[0].1, label_positions[0],
+            "First '1b' should resolve to first '1'"
+        );
 
         // Second reference should point to second label (closest backward)
-        assert!(ref_positions[1].0 > label_positions[1].line_index, "Second ref should come after second label");
-        assert_eq!(ref_positions[1].1, label_positions[1], "Second '1b' should resolve to second '1'");
+        assert!(
+            ref_positions[1].0 > label_positions[1].line_index,
+            "Second ref should come after second label"
+        );
+        assert_eq!(
+            ref_positions[1].1, label_positions[1],
+            "Second '1b' should resolve to second '1'"
+        );
     }
 
     #[test]
@@ -922,11 +1058,16 @@ mod tests {
         let result = resolve_symbols(&mut source);
 
         // Should fail because numeric label reference crosses a non-numeric label
-        assert!(result.is_err(), "Symbol resolution should fail when numeric reference crosses non-numeric label");
+        assert!(
+            result.is_err(),
+            "Symbol resolution should fail when numeric reference crosses non-numeric label"
+        );
 
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("1b") || err_msg.contains("Undefined"),
-                "Error should mention the unresolved numeric label");
+        assert!(
+            err_msg.contains("1b") || err_msg.contains("Undefined"),
+            "Error should mention the unresolved numeric label"
+        );
     }
 
     #[test]
@@ -942,11 +1083,16 @@ mod tests {
         let result = resolve_symbols(&mut source);
 
         // Should fail because numeric forward reference crosses a non-numeric label
-        assert!(result.is_err(), "Symbol resolution should fail when numeric forward reference crosses non-numeric label");
+        assert!(
+            result.is_err(),
+            "Symbol resolution should fail when numeric forward reference crosses non-numeric label"
+        );
 
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("1f") || err_msg.contains("numeric"),
-                "Error should mention the unresolved numeric label");
+        assert!(
+            err_msg.contains("1f") || err_msg.contains("numeric"),
+            "Error should mention the unresolved numeric label"
+        );
     }
 
     #[test]
@@ -963,7 +1109,10 @@ mod tests {
         let result = resolve_symbols(&mut source);
 
         // Should fail because segment changes flush numeric labels
-        assert!(result.is_err(), "Symbol resolution should fail when numeric reference crosses segment boundary");
+        assert!(
+            result.is_err(),
+            "Symbol resolution should fail when numeric reference crosses segment boundary"
+        );
     }
 
     #[test]
@@ -979,7 +1128,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with multiple symbols in one expression");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with multiple symbols in one expression"
+        );
 
         let start_ptr = find_line_by_label(&source, "start").unwrap();
         let end_ptr = find_line_by_label(&source, "end").unwrap();
@@ -988,14 +1140,23 @@ mod tests {
         let file = &source.files[0];
         let mut found_both = false;
         for line in &file.lines {
-            let has_start = line.outgoing_refs.iter().any(|r| r.symbol == "start" && r.pointer == start_ptr);
-            let has_end = line.outgoing_refs.iter().any(|r| r.symbol == "end" && r.pointer == end_ptr);
+            let has_start = line
+                .outgoing_refs
+                .iter()
+                .any(|r| r.symbol == "start" && r.pointer == start_ptr);
+            let has_end = line
+                .outgoing_refs
+                .iter()
+                .any(|r| r.symbol == "end" && r.pointer == end_ptr);
             if has_start && has_end {
                 found_both = true;
                 break;
             }
         }
-        assert!(found_both, "Should find a line with references to both 'start' and 'end'");
+        assert!(
+            found_both,
+            "Should find a line with references to both 'start' and 'end'"
+        );
     }
 
     #[test]
@@ -1011,7 +1172,11 @@ mod tests {
 
         // Should have two lines: label and instruction
         let file = &source.files[0];
-        assert_eq!(file.lines.len(), 2, "Label + instruction should create 2 lines");
+        assert_eq!(
+            file.lines.len(),
+            2,
+            "Label + instruction should create 2 lines"
+        );
 
         // First should be label
         if let LineContent::Label(ref l) = file.lines[0].content {
@@ -1022,7 +1187,7 @@ mod tests {
 
         // Second should be instruction
         match &file.lines[1].content {
-            LineContent::Instruction(_) => {},
+            LineContent::Instruction(_) => {}
             _ => panic!("Second line should be an instruction"),
         }
     }
@@ -1042,11 +1207,21 @@ mod tests {
 
         // The instruction line should have a reference to the label
         let file = &source.files[0];
-        assert_eq!(file.lines.len(), 2, "Label + instruction should create 2 lines");
+        assert_eq!(
+            file.lines.len(),
+            2,
+            "Label + instruction should create 2 lines"
+        );
 
         let instr_line = &file.lines[1];
-        let has_ref = instr_line.outgoing_refs.iter().any(|r| r.symbol == "loop" && r.pointer == label_ptr);
-        assert!(has_ref, "Instruction should have reference back to its own label");
+        let has_ref = instr_line
+            .outgoing_refs
+            .iter()
+            .any(|r| r.symbol == "loop" && r.pointer == label_ptr);
+        assert!(
+            has_ref,
+            "Instruction should have reference back to its own label"
+        );
     }
 
     #[test]
@@ -1065,9 +1240,14 @@ mod tests {
         let file = &source.files[0];
         let mut equ_ptr = None;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "CONST" {
-                    equ_ptr = Some(LinePointer { file_index: 0, line_index: line_idx });
+                    equ_ptr = Some(LinePointer {
+                        file_index: 0,
+                        line_index: line_idx,
+                    });
                     break;
                 }
             }
@@ -1091,19 +1271,27 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with .equ redefinition");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with .equ redefinition"
+        );
 
         // Find all .equ lines
         let file = &source.files[0];
         let mut equ_count = 0;
         for line in &file.lines {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "counter" {
                     equ_count += 1;
                 }
             }
         }
-        assert_eq!(equ_count, 3, "Should have 3 .equ definitions for 'counter'");
+        assert_eq!(
+            equ_count, 3,
+            "Should have 3 .equ definitions for 'counter'"
+        );
 
         // The second and third .equ should reference previous definitions
         let mut ref_count = 0;
@@ -1127,11 +1315,17 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Symbol resolution should fail with undefined symbol");
+        assert!(
+            result.is_err(),
+            "Symbol resolution should fail with undefined symbol"
+        );
 
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("undefined_label") || err_msg.contains("Undefined"),
-                "Error should mention the undefined symbol");
+        assert!(
+            err_msg.contains("undefined_label")
+                || err_msg.contains("Undefined"),
+            "Error should mention the undefined symbol"
+        );
     }
 
     #[test]
@@ -1145,11 +1339,16 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Symbol resolution should fail with backward reference to non-existent label");
+        assert!(
+            result.is_err(),
+            "Symbol resolution should fail with backward reference to non-existent label"
+        );
 
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("1b") || err_msg.contains("backward"),
-                "Error should mention the backward numeric label");
+        assert!(
+            err_msg.contains("1b") || err_msg.contains("backward"),
+            "Error should mention the backward numeric label"
+        );
     }
 
     #[test]
@@ -1169,7 +1368,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with interleaved numeric labels");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with interleaved numeric labels"
+        );
 
         // Verify all references resolve correctly
         let file = &source.files[0];
@@ -1177,8 +1379,10 @@ mod tests {
             for sym_ref in &line.outgoing_refs {
                 // Each reference should point to a valid label
                 let target_line = &file.lines[sym_ref.pointer.line_index];
-                assert!(matches!(target_line.content, LineContent::Label(_)),
-                        "Reference should point to a label");
+                assert!(
+                    matches!(target_line.content, LineContent::Label(_)),
+                    "Reference should point to a label"
+                );
             }
         }
     }
@@ -1193,7 +1397,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with current address");
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with current address"
+        );
 
         // Should have a reference to 'start' but not to '.'
         let start_ptr = find_line_by_label(&source, "start").unwrap();
@@ -1223,7 +1430,9 @@ mod tests {
         let file = &source.files[0];
         let mut equ_positions = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "value" {
                     equ_positions.push(line_idx);
                 }
@@ -1248,7 +1457,10 @@ mod tests {
         // Actually, looking at the implementation, definitions.insert() will overwrite
         // the old value, but we don't explicitly check for label/equ conflicts.
         // Let's test what actually happens:
-        assert!(result.is_ok(), "Current implementation allows .equ to shadow label");
+        assert!(
+            result.is_ok(),
+            "Current implementation allows .equ to shadow label"
+        );
     }
 
     #[test]
@@ -1266,8 +1478,11 @@ mod tests {
         // Should fail with duplicate label error
         assert!(result.is_err(), "Should fail with duplicate label error");
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("duplicate") || err_msg.contains("Duplicate"),
-                "Error should mention the duplicate label: {}", err_msg);
+        assert!(
+            err_msg.contains("duplicate") || err_msg.contains("Duplicate"),
+            "Error should mention the duplicate label: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1282,13 +1497,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), ".equ should allow self-reference to previous value");
+        assert!(
+            result.is_ok(),
+            ".equ should allow self-reference to previous value"
+        );
 
         // The second .equ should reference the first, and third should reference second
         let file = &source.files[0];
         let mut equ_line_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "counter" {
                     equ_line_indices.push(line_idx);
                 }
@@ -1327,9 +1547,14 @@ mod tests {
         let file = &source.files[0];
         let mut equ_ptr = None;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "CONST" {
-                    equ_ptr = Some(LinePointer { file_index: 0, line_index: line_idx });
+                    equ_ptr = Some(LinePointer {
+                        file_index: 0,
+                        line_index: line_idx,
+                    });
                     break;
                 }
             }
@@ -1353,13 +1578,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Forward reference should resolve to first .equ");
+        assert!(
+            result.is_ok(),
+            "Forward reference should resolve to first .equ"
+        );
 
         // Find all .equ definitions
         let file = &source.files[0];
         let mut equ_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "value" {
                     equ_indices.push(line_idx);
                 }
@@ -1370,9 +1600,12 @@ mod tests {
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
         let li_line = &file.lines[ref_ptr.line_index];
-        let ref_to_value = li_line.outgoing_refs.iter().find(|r| r.symbol == "value").unwrap();
-        assert_eq!(ref_to_value.pointer.line_index, equ_indices[0],
-                   "Forward reference should resolve to first .equ definition");
+        let ref_to_value =
+            li_line.outgoing_refs.iter().find(|r| r.symbol == "value").unwrap();
+        assert_eq!(
+            ref_to_value.pointer.line_index, equ_indices[0],
+            "Forward reference should resolve to first .equ definition"
+        );
     }
 
     #[test]
@@ -1389,13 +1622,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Backward references should resolve to most recent .equ");
+        assert!(
+            result.is_ok(),
+            "Backward references should resolve to most recent .equ"
+        );
 
         // Find all .equ definitions
         let file = &source.files[0];
         let mut equ_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "value" {
                     equ_indices.push(line_idx);
                 }
@@ -1414,16 +1652,29 @@ mod tests {
                 }
             }
         }
-        assert_eq!(li_refs.len(), 3, "Should have 3 li instructions with references");
+        assert_eq!(
+            li_refs.len(),
+            3,
+            "Should have 3 li instructions with references"
+        );
 
         // First li should reference first .equ (backward)
-        assert_eq!(li_refs[0].1, equ_indices[0], "First li should reference first .equ");
+        assert_eq!(
+            li_refs[0].1, equ_indices[0],
+            "First li should reference first .equ"
+        );
 
         // Second li should reference second .equ (backward, most recent)
-        assert_eq!(li_refs[1].1, equ_indices[1], "Second li should reference second .equ");
+        assert_eq!(
+            li_refs[1].1, equ_indices[1],
+            "Second li should reference second .equ"
+        );
 
         // Third li should reference third .equ (backward, most recent)
-        assert_eq!(li_refs[2].1, equ_indices[2], "Third li should reference third .equ");
+        assert_eq!(
+            li_refs[2].1, equ_indices[2],
+            "Third li should reference third .equ"
+        );
     }
 
     // ============================================================================
@@ -1441,8 +1692,11 @@ mod tests {
 
         assert!(result.is_err(), "Should fail with undefined symbol");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("never_defined") || err.contains("Undefined"),
-                "Error should mention undefined symbol: {}", err);
+        assert!(
+            err.contains("never_defined") || err.contains("Undefined"),
+            "Error should mention undefined symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -1456,8 +1710,11 @@ mod tests {
 
         assert!(result.is_err(), "Should fail with undefined symbol");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("undefined_constant") || err.contains("Undefined"),
-                "Error should mention undefined symbol: {}", err);
+        assert!(
+            err.contains("undefined_constant") || err.contains("Undefined"),
+            "Error should mention undefined symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -1470,10 +1727,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should fail with undefined numeric forward reference");
+        assert!(
+            result.is_err(),
+            "Should fail with undefined numeric forward reference"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("1f") || err.contains("numeric") || err.contains("Unresolved"),
-                "Error should mention unresolved numeric label: {}", err);
+        assert!(
+            err.contains("1f")
+                || err.contains("numeric")
+                || err.contains("Unresolved"),
+            "Error should mention unresolved numeric label: {}",
+            err
+        );
     }
 
     #[test]
@@ -1489,10 +1754,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Numeric forward ref should not cross segment boundary");
+        assert!(
+            result.is_err(),
+            "Numeric forward ref should not cross segment boundary"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("1f") || err.contains("numeric") || err.contains("Unresolved"),
-                "Error should mention unresolved numeric label: {}", err);
+        assert!(
+            err.contains("1f")
+                || err.contains("numeric")
+                || err.contains("Unresolved"),
+            "Error should mention unresolved numeric label: {}",
+            err
+        );
     }
 
     #[test]
@@ -1508,10 +1781,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Numeric forward ref should not cross non-numeric label");
+        assert!(
+            result.is_err(),
+            "Numeric forward ref should not cross non-numeric label"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("1f") || err.contains("numeric") || err.contains("Unresolved"),
-                "Error should mention unresolved numeric label: {}", err);
+        assert!(
+            err.contains("1f")
+                || err.contains("numeric")
+                || err.contains("Unresolved"),
+            "Error should mention unresolved numeric label: {}",
+            err
+        );
     }
 
     #[test]
@@ -1523,10 +1804,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should fail with undefined numeric backward reference");
+        assert!(
+            result.is_err(),
+            "Should fail with undefined numeric backward reference"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("1b") || err.contains("backward") || err.contains("Unresolved"),
-                "Error should mention unresolved backward reference: {}", err);
+        assert!(
+            err.contains("1b")
+                || err.contains("backward")
+                || err.contains("Unresolved"),
+            "Error should mention unresolved backward reference: {}",
+            err
+        );
     }
 
     #[test]
@@ -1542,10 +1831,16 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Numeric backward ref should not cross non-numeric label");
+        assert!(
+            result.is_err(),
+            "Numeric backward ref should not cross non-numeric label"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("1b") || err.contains("Undefined"),
-                "Error should mention undefined symbol: {}", err);
+        assert!(
+            err.contains("1b") || err.contains("Undefined"),
+            "Error should mention undefined symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -1561,10 +1856,18 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Numeric backward ref should not cross segment boundary");
+        assert!(
+            result.is_err(),
+            "Numeric backward ref should not cross segment boundary"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("1b") || err.contains("backward") || err.contains("Unresolved"),
-                "Error should mention unresolved reference: {}", err);
+        assert!(
+            err.contains("1b")
+                || err.contains("backward")
+                || err.contains("Unresolved"),
+            "Error should mention unresolved reference: {}",
+            err
+        );
     }
 
     #[test]
@@ -1584,7 +1887,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "All numeric labels should be flushed by non-numeric label");
+        assert!(
+            result.is_err(),
+            "All numeric labels should be flushed by non-numeric label"
+        );
         // Should fail on the first backward reference that can't be resolved
     }
 
@@ -1602,8 +1908,11 @@ mod tests {
         let result = create_source(vec![("test.s", source_text)]);
         assert!(result.is_err(), "Parser should reject .equ with numeric name");
         let err = result.unwrap_err();
-        assert!(err.contains("identifier") || err.contains("Expected"),
-                "Error should indicate parser expected identifier: {}", err);
+        assert!(
+            err.contains("identifier") || err.contains("Expected"),
+            "Error should indicate parser expected identifier: {}",
+            err
+        );
     }
 
     #[test]
@@ -1623,7 +1932,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Numeric labels after non-numeric should work in new scope");
+        assert!(
+            result.is_ok(),
+            "Numeric labels after non-numeric should work in new scope"
+        );
 
         // Verify the references point to the labels after 'named'
         let file = &source.files[0];
@@ -1651,12 +1963,18 @@ mod tests {
         for line in &file.lines {
             for sym_ref in &line.outgoing_refs {
                 if sym_ref.symbol == "3b" {
-                    assert_eq!(sym_ref.pointer.line_index, label_3_idx.unwrap(),
-                               "3b should reference label 3 after 'named'");
+                    assert_eq!(
+                        sym_ref.pointer.line_index,
+                        label_3_idx.unwrap(),
+                        "3b should reference label 3 after 'named'"
+                    );
                 }
                 if sym_ref.symbol == "4b" {
-                    assert_eq!(sym_ref.pointer.line_index, label_4_idx.unwrap(),
-                               "4b should reference label 4 after 'named'");
+                    assert_eq!(
+                        sym_ref.pointer.line_index,
+                        label_4_idx.unwrap(),
+                        "4b should reference label 4 after 'named'"
+                    );
                 }
             }
         }
@@ -1685,7 +2003,9 @@ mod tests {
         let file = &source.files[0];
         let mut equ_line = None;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "size" {
                     equ_line = Some(line_idx);
                     break;
@@ -1695,9 +2015,18 @@ mod tests {
         assert!(equ_line.is_some());
 
         let equ = &file.lines[equ_line.unwrap()];
-        let has_start = equ.outgoing_refs.iter().any(|r| r.symbol == "start" && r.pointer == start_ptr);
-        let has_end = equ.outgoing_refs.iter().any(|r| r.symbol == "end" && r.pointer == end_ptr);
-        assert!(has_start && has_end, ".equ should reference both start and end");
+        let has_start = equ
+            .outgoing_refs
+            .iter()
+            .any(|r| r.symbol == "start" && r.pointer == start_ptr);
+        let has_end = equ
+            .outgoing_refs
+            .iter()
+            .any(|r| r.symbol == "end" && r.pointer == end_ptr);
+        assert!(
+            has_start && has_end,
+            ".equ should reference both start and end"
+        );
     }
 
     // ============================================================================
@@ -1722,18 +2051,29 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Cross-file reference should work with globals");
+        assert!(
+            result.is_ok(),
+            "Cross-file reference should work with globals"
+        );
 
         // Find helper in file2
         let helper_ptr = find_line_by_label(&source, "helper").unwrap();
-        assert_eq!(helper_ptr.file_index, 1, "helper should be in file 1 (file2.s)");
+        assert_eq!(
+            helper_ptr.file_index, 1,
+            "helper should be in file 1 (file2.s)"
+        );
 
         // Find call in file1
         let call_ptr = find_referencing_line(&source, "helper").unwrap();
-        assert_eq!(call_ptr.file_index, 0, "call should be in file 0 (file1.s)");
+        assert_eq!(
+            call_ptr.file_index, 0,
+            "call should be in file 0 (file1.s)"
+        );
 
         // Verify the cross-file reference
         assert_reference(&source, &call_ptr, "helper", &helper_ptr);
@@ -1752,16 +2092,23 @@ mod tests {
             li a0, counter
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Global should export the last version of .equ");
+        assert!(
+            result.is_ok(),
+            "Global should export the last version of .equ"
+        );
 
         // Find all three .equ definitions in file1
         let file = &source.files[0];
         let mut equ_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+            {
                 if name == "counter" {
                     equ_indices.push(line_idx);
                 }
@@ -1775,10 +2122,19 @@ mod tests {
 
         let file2 = &source.files[1];
         let li_line = &file2.lines[ref_ptr.line_index];
-        let ref_to_counter = li_line.outgoing_refs.iter().find(|r| r.symbol == "counter").unwrap();
-        assert_eq!(ref_to_counter.pointer.file_index, 0, "Should point to file1");
-        assert_eq!(ref_to_counter.pointer.line_index, equ_indices[2],
-                   "Global should export last .equ definition");
+        let ref_to_counter = li_line
+            .outgoing_refs
+            .iter()
+            .find(|r| r.symbol == "counter")
+            .unwrap();
+        assert_eq!(
+            ref_to_counter.pointer.file_index, 0,
+            "Should point to file1"
+        );
+        assert_eq!(
+            ref_to_counter.pointer.line_index, equ_indices[2],
+            "Global should export last .equ definition"
+        );
     }
 
     #[test]
@@ -1793,10 +2149,17 @@ mod tests {
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should fail when global is declared but not defined");
+        assert!(
+            result.is_err(),
+            "Should fail when global is declared but not defined"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("undefined_func") && err.contains("declared but not defined"),
-                "Error should mention symbol and reason: {}", err);
+        assert!(
+            err.contains("undefined_func")
+                && err.contains("declared but not defined"),
+            "Error should mention symbol and reason: {}",
+            err
+        );
     }
 
     #[test]
@@ -1811,10 +2174,17 @@ mod tests {
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Global declared before definition should work");
+        assert!(
+            result.is_ok(),
+            "Global declared before definition should work"
+        );
 
         // Verify global points to the label
-        assert_eq!(source.global_symbols.len(), 1, "Should have 1 global symbol");
+        assert_eq!(
+            source.global_symbols.len(),
+            1,
+            "Should have 1 global symbol"
+        );
         assert_eq!(source.global_symbols[0].symbol, "main");
     }
 
@@ -1833,7 +2203,11 @@ mod tests {
         assert!(result.is_ok(), "Global declared after definition should work");
 
         // Verify global points to the label
-        assert_eq!(source.global_symbols.len(), 1, "Should have 1 global symbol");
+        assert_eq!(
+            source.global_symbols.len(),
+            1,
+            "Should have 1 global symbol"
+        );
         assert_eq!(source.global_symbols[0].symbol, "main");
     }
 
@@ -1845,10 +2219,18 @@ mod tests {
 
         // The parser itself rejects this, so create_source will fail
         let result = create_source(vec![("file1.s", file1)]);
-        assert!(result.is_err(), "Parser should reject .global with numeric label");
+        assert!(
+            result.is_err(),
+            "Parser should reject .global with numeric label"
+        );
         let err = result.unwrap_err();
-        assert!(err.contains("identifier") || err.contains("Expected") || err.contains("123"),
-                "Error should indicate parser expected identifier: {}", err);
+        assert!(
+            err.contains("identifier")
+                || err.contains("Expected")
+                || err.contains("123"),
+            "Error should indicate parser expected identifier: {}",
+            err
+        );
     }
 
     #[test]
@@ -1864,10 +2246,16 @@ mod tests {
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should fail when same global declared twice in same file");
+        assert!(
+            result.is_err(),
+            "Should fail when same global declared twice in same file"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("func") && err.contains("already declared global"),
-                "Error should mention symbol: {}", err);
+        assert!(
+            err.contains("func") && err.contains("already declared global"),
+            "Error should mention symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -1886,13 +2274,21 @@ mod tests {
                 nop
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should fail when same global declared in multiple files");
+        assert!(
+            result.is_err(),
+            "Should fail when same global declared in multiple files"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("duplicate") && err.contains("Duplicate global"),
-                "Error should mention duplicate: {}", err);
+        assert!(
+            err.contains("duplicate") && err.contains("Duplicate global"),
+            "Error should mention duplicate: {}",
+            err
+        );
     }
 
     #[test]
@@ -1908,13 +2304,21 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should fail with undefined symbol in multi-file case");
+        assert!(
+            result.is_err(),
+            "Should fail with undefined symbol in multi-file case"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("undefined_func") && err.contains("Undefined"),
-                "Error should mention undefined symbol: {}", err);
+        assert!(
+            err.contains("undefined_func") && err.contains("Undefined"),
+            "Error should mention undefined symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -1933,7 +2337,11 @@ mod tests {
         let result = resolve_symbols(&mut source);
 
         assert!(result.is_ok(), "Unreferenced global should be OK");
-        assert_eq!(source.global_symbols.len(), 1, "Should have 1 global symbol");
+        assert_eq!(
+            source.global_symbols.len(),
+            1,
+            "Should have 1 global symbol"
+        );
         assert_eq!(source.global_symbols[0].symbol, "unused_func");
     }
 
@@ -1955,19 +2363,30 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
         assert!(result.is_ok(), "Both .equ and label globals should work");
-        assert_eq!(source.global_symbols.len(), 2, "Should have 2 global symbols");
+        assert_eq!(
+            source.global_symbols.len(),
+            2,
+            "Should have 2 global symbols"
+        );
 
         // Verify both globals exist
-        let global_names: Vec<&str> = source.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
-        assert!(global_names.contains(&"BUFFER_SIZE"), "Should have BUFFER_SIZE global");
+        let global_names: Vec<&str> =
+            source.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
+        assert!(
+            global_names.contains(&"BUFFER_SIZE"),
+            "Should have BUFFER_SIZE global"
+        );
         assert!(global_names.contains(&"main"), "Should have main global");
 
         // Verify cross-file reference to .equ global works
-        let ref_in_file2 = find_referencing_line(&source, "BUFFER_SIZE").unwrap();
+        let ref_in_file2 =
+            find_referencing_line(&source, "BUFFER_SIZE").unwrap();
         if ref_in_file2.file_index == 1 {
             // Found the reference in file2
             let equ_ptr = LinePointer { file_index: 0, line_index: 0 };
@@ -1997,7 +2416,9 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
         assert!(result.is_ok(), "Multiple cross-file references should work");
@@ -2062,17 +2483,25 @@ mod tests {
             ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Multiple symbols in single .global directive should work");
+        assert!(
+            result.is_ok(),
+            "Multiple symbols in single .global directive should work"
+        );
 
         // Verify all three symbols are exported as globals
-        assert_eq!(source.global_symbols.len(), 3, "Should have 3 global symbols");
+        assert_eq!(
+            source.global_symbols.len(),
+            3,
+            "Should have 3 global symbols"
+        );
 
-        let global_names: Vec<&str> = source.global_symbols.iter()
-            .map(|g| g.symbol.as_str())
-            .collect();
+        let global_names: Vec<&str> =
+            source.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
         assert!(global_names.contains(&"_start"), "Should have _start global");
         assert!(global_names.contains(&"exit"), "Should have exit global");
         assert!(global_names.contains(&"helper"), "Should have helper global");
@@ -2122,14 +2551,19 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "References to __global_pointer$ should be silently ignored");
+        assert!(
+            result.is_ok(),
+            "References to __global_pointer$ should be silently ignored"
+        );
 
         // Verify that __global_pointer$ does NOT appear in outgoing references
         let file = &source.files[0];
         for line in &file.lines {
             for sym_ref in &line.outgoing_refs {
-                assert_ne!(sym_ref.symbol, "__global_pointer$",
-                    "__global_pointer$ should be filtered out from outgoing references");
+                assert_ne!(
+                    sym_ref.symbol, "__global_pointer$",
+                    "__global_pointer$ should be filtered out from outgoing references"
+                );
             }
         }
     }
@@ -2144,10 +2578,16 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should reject attempt to define __global_pointer$ as a label");
+        assert!(
+            result.is_err(),
+            "Should reject attempt to define __global_pointer$ as a label"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("__global_pointer$") && err.contains("special symbol"),
-                "Error should mention special symbol: {}", err);
+        assert!(
+            err.contains("__global_pointer$") && err.contains("special symbol"),
+            "Error should mention special symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -2159,10 +2599,16 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_err(), "Should reject attempt to define __global_pointer$ in .equ");
+        assert!(
+            result.is_err(),
+            "Should reject attempt to define __global_pointer$ in .equ"
+        );
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("__global_pointer$") && err.contains("special symbol"),
-                "Error should mention special symbol: {}", err);
+        assert!(
+            err.contains("__global_pointer$") && err.contains("special symbol"),
+            "Error should mention special symbol: {}",
+            err
+        );
     }
 
     #[test]
@@ -2182,17 +2628,24 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
+        let mut source =
+            create_source(vec![("file1.s", file1), ("file2.s", file2)])
+                .unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Cross-file references to __global_pointer$ should work");
+        assert!(
+            result.is_ok(),
+            "Cross-file references to __global_pointer$ should work"
+        );
 
         // Verify that __global_pointer$ does NOT appear in any outgoing references
         for file in &source.files {
             for line in &file.lines {
                 for sym_ref in &line.outgoing_refs {
-                    assert_ne!(sym_ref.symbol, "__global_pointer$",
-                        "__global_pointer$ should be filtered out from all files");
+                    assert_ne!(
+                        sym_ref.symbol, "__global_pointer$",
+                        "__global_pointer$ should be filtered out from all files"
+                    );
                 }
             }
         }
@@ -2212,7 +2665,10 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
 
-        assert!(result.is_ok(), "Mix of regular and special symbols should work");
+        assert!(
+            result.is_ok(),
+            "Mix of regular and special symbols should work"
+        );
 
         // Verify that BUFFER references exist but __global_pointer$ does not
         let file = &source.files[0];
@@ -2231,6 +2687,9 @@ mod tests {
         }
 
         assert_eq!(buffer_ref_count, 2, "Should have 2 references to BUFFER");
-        assert_eq!(gp_ref_count, 0, "__global_pointer$ should not appear in references");
+        assert_eq!(
+            gp_ref_count, 0,
+            "__global_pointer$ should not appear in references"
+        );
     }
 }

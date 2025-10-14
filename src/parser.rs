@@ -882,7 +882,10 @@ pub fn parse(
             .iter()
             .map(|t| format!("{:?}", t))
             .collect();
-        return Err(format!("Unexpected tokens after parsing: {}", remaining.join(" ")));
+        return Err(format!(
+            "Unexpected tokens after parsing: {}",
+            remaining.join(" ")
+        ));
     }
 
     Ok(lines)
@@ -1229,6 +1232,10 @@ mod tests {
         let result = parse(&tokens, "test".to_string(), 1);
         assert!(result.is_err(), "Should fail with leftover tokens");
         let err = result.unwrap_err();
-        assert!(err.contains("Unexpected tokens"), "Error should mention unexpected tokens: {}", err);
+        assert!(
+            err.contains("Unexpected tokens"),
+            "Error should mention unexpected tokens: {}",
+            err
+        );
     }
 }
