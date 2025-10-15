@@ -811,7 +811,7 @@ pub fn build_symbol_table(
         // This marks the start of code from this file
         let marker_name = builder
             .symbol_names
-            .add("$xrv64i2p1_m2p0_a2p1_f2p2_d2p2_zicsr2p0_zifencei2p0_zmmul1p0_zaamo1p0_zalrsc1p0");
+            .add("$xrv64i2p1_m2p0");
 
         // Find the first .text line in this file to use as the marker address
         let mut marker_addr = text_start;
