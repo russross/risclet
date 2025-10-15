@@ -5,6 +5,7 @@ use std::io::{self, BufRead, Write};
 
 mod assembler;
 mod ast;
+mod dump;
 mod elf;
 mod encoder;
 mod error;
@@ -18,60 +19,84 @@ struct Config {
     output_file: String,
     text_start: i64,
     verbose: bool,
+    dump: dump::DumpConfig,
 }
 
 fn parse_args() -> Result<Config, String> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        return Err(format!("Usage: {} [options] <file.s> [file.s...]
-
-Options:
-  -o <file>        Write output to <file> (default: a.out)
-  -t <address>     Set text start address (default: 0x10000)
-  -v, --verbose    Show detailed assembly output
-  -h, --help       Show this help message", args[0]));
+        return Err(print_help(&args[0]));
     }
 
     let mut input_files = Vec::new();
     let mut output_file = "a.out".to_string();
     let mut text_start = 0x10000i64;
     let mut verbose = false;
+    let mut dump_config = dump::DumpConfig::new();
     let mut i = 1;
 
     while i < args.len() {
-        match args[i].as_str() {
-            "-o" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Error: -o requires an argument".to_string());
-                }
-                output_file = args[i].clone();
-            }
-            "-t" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Error: -t requires an argument".to_string());
-                }
-                text_start = parse_address(&args[i])?;
-            }
-            "-v" | "--verbose" => {
-                verbose = true;
-            }
-            "-h" | "--help" => {
-                return Err(format!("Usage: {} [options] <file.s> [file.s...]
+        let arg = &args[i];
 
-Options:
-  -o <file>        Write output to <file> (default: a.out)
-  -t <address>     Set text start address (default: 0x10000)
-  -v, --verbose    Show detailed assembly output
-  -h, --help       Show this help message", args[0]));
+        // Handle --dump-* options
+        if arg.starts_with("--dump-") {
+            if arg == "--dump-ast" {
+                dump_config.dump_ast = true;
+            } else if arg == "--dump-symbols" {
+                dump_config.dump_symbols = true;
+            } else if arg.starts_with("--dump-values") {
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_values = Some(dump::parse_dump_spec(spec_str)?);
+            } else if arg.starts_with("--dump-code") {
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_code = Some(dump::parse_dump_spec(spec_str)?);
+            } else if arg.starts_with("--dump-elf") {
+                let parts_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_elf = Some(dump::parse_elf_parts(parts_str)?);
+            } else {
+                return Err(format!("Error: unknown option: {}", arg));
             }
-            arg => {
-                if arg.starts_with('-') {
-                    return Err(format!("Error: unknown option: {}", arg));
+        } else {
+            match arg.as_str() {
+                "-o" => {
+                    i += 1;
+                    if i >= args.len() {
+                        return Err("Error: -o requires an argument".to_string());
+                    }
+                    output_file = args[i].clone();
                 }
-                input_files.push(arg.to_string());
+                "-t" => {
+                    i += 1;
+                    if i >= args.len() {
+                        return Err("Error: -t requires an argument".to_string());
+                    }
+                    text_start = parse_address(&args[i])?;
+                }
+                "-v" | "--verbose" => {
+                    verbose = true;
+                }
+                "-h" | "--help" => {
+                    return Err(print_help(&args[0]));
+                }
+                _ => {
+                    if arg.starts_with('-') {
+                        return Err(format!("Error: unknown option: {}", arg));
+                    }
+                    input_files.push(arg.to_string());
+                }
             }
         }
         i += 1;
@@ -86,7 +111,53 @@ Options:
         output_file,
         text_start,
         verbose,
+        dump: dump_config,
     })
+}
+
+fn print_help(program_name: &str) -> String {
+    format!("Usage: {} [options] <file.s> [file.s...]
+
+Options:
+  -o <file>            Write output to <file> (default: a.out)
+  -t <address>         Set text start address (default: 0x10000)
+  -v, --verbose        Show detailed assembly output
+  -h, --help           Show this help message
+
+Debug Dump Options:
+  --dump-ast                      Dump AST after parsing (s-expression format)
+  --dump-symbols                  Dump after symbol resolution with references
+  --dump-values[=PASSES[:FILES]]  Dump symbol values for specific passes/files
+  --dump-code[=PASSES[:FILES]]    Dump generated code for specific passes/files
+  --dump-elf[=PARTS]              Dump detailed ELF info
+
+  PASSES syntax:
+    (empty)   Final pass only (default)
+    N         Specific pass (e.g., 1, 2)
+    N-M       Range (e.g., 1-3)
+    N-        From N to end (e.g., 1- for all passes)
+    -M        From start to M (e.g., -2 for first two)
+    *         All passes
+
+  FILES syntax:
+    (empty)   All files (default)
+    *         All files
+    file1.s,file2.s  Specific files (comma-separated)
+
+  PARTS syntax (for --dump-elf):
+    (empty)   All parts (default)
+    headers   ELF and program headers
+    sections  Section headers
+    symbols   Symbol table
+    (comma-separated for multiple, e.g., headers,symbols)
+
+Examples:
+  --dump-values=1-              Dump values for all passes, all files
+  --dump-code=2:prog.s          Dump code for pass 2, prog.s only
+  --dump-elf=headers,symbols    Dump ELF headers and symbol table
+
+Note: When any --dump-* option is used, no output file is generated.",
+        program_name)
 }
 
 fn parse_address(s: &str) -> Result<i64, String> {
@@ -112,23 +183,113 @@ fn main() {
 
     match process_files(files) {
         Ok(mut source) => {
+            // Dump AST if requested
+            if config.dump.dump_ast {
+                dump::dump_ast(&source);
+                if !config.dump.dump_symbols
+                    && config.dump.dump_values.is_none()
+                    && config.dump.dump_code.is_none()
+                    && config.dump.dump_elf.is_none()
+                {
+                    println!("\n(No output file generated)");
+                    return;
+                }
+                println!();
+            }
+
             // Resolve symbols (create symbol table with pointers to definitions)
             if let Err(e) = symbols::resolve_symbols(&mut source) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
 
+            // Dump symbol resolution if requested
+            if config.dump.dump_symbols {
+                dump::dump_symbols(&source);
+                if config.dump.dump_values.is_none()
+                    && config.dump.dump_code.is_none()
+                    && config.dump.dump_elf.is_none()
+                {
+                    println!("\n(No output file generated)");
+                    return;
+                }
+                println!();
+            }
+
             // Converge: repeatedly compute offsets, evaluate expressions, and encode
             // until line sizes stabilize. Returns the final encoded segments.
-            let (text_bytes, data_bytes, bss_size) =
+            // If dump options are enabled, pass them to enable per-pass dumping.
+            let (text_bytes, data_bytes, bss_size) = if config.dump.dump_values.is_some() || config.dump.dump_code.is_some() {
+                // Use dump-aware version
+                match converge_and_encode_with_dumps(
+                    &mut source,
+                    config.text_start,
+                    &config.dump,
+                ) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        eprintln!("Error during convergence and encoding: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                // Use standard version (no dump overhead)
                 match assembler::converge_and_encode(&mut source, config.text_start) {
                     Ok(result) => result,
                     Err(e) => {
                         eprintln!("Error during convergence and encoding: {}", e);
                         std::process::exit(1);
                     }
-                };
+                }
+            };
 
+            // If dump options were used, we're done (no ELF generation)
+            if config.dump.has_dumps() {
+                // Create evaluation context for final ELF dump if needed
+                if config.dump.dump_elf.is_some() {
+                    let mut eval_context =
+                        expressions::new_evaluation_context(source.clone(), config.text_start);
+
+                    // Evaluate all line symbols
+                    for file in &source.files {
+                        for line in &file.lines {
+                            let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
+                        }
+                    }
+
+                    // Generate ELF binary (for dumping purposes)
+                    let has_data = !data_bytes.is_empty();
+                    let has_bss = bss_size > 0;
+
+                    let mut elf_builder = elf::ElfBuilder::new(config.text_start as u64);
+                    elf_builder.set_segments(
+                        text_bytes.clone(),
+                        data_bytes.clone(),
+                        bss_size as u64,
+                        eval_context.data_start as u64,
+                        eval_context.bss_start as u64,
+                    );
+
+                    // Build symbol table
+                    elf::build_symbol_table(
+                        &source,
+                        &mut elf_builder,
+                        config.text_start as u64,
+                        eval_context.data_start as u64,
+                        eval_context.bss_start as u64,
+                        has_data,
+                        has_bss,
+                    );
+
+                    // Dump ELF
+                    dump::dump_elf(&elf_builder, &source, config.dump.dump_elf.as_ref().unwrap());
+                }
+
+                println!("\n(No output file generated)");
+                return;
+            }
+
+            // Normal path: generate ELF and write to file
             // Create evaluation context with final addresses for display
             let mut eval_context =
                 expressions::new_evaluation_context(source.clone(), config.text_start);
@@ -223,6 +384,88 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+// Convergence function with per-pass dump support
+fn converge_and_encode_with_dumps(
+    source: &mut Source,
+    text_start: i64,
+    dump_config: &dump::DumpConfig,
+) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
+    const MAX_ITERATIONS: usize = 10;
+
+    for iteration in 0..MAX_ITERATIONS {
+        let pass_number = iteration + 1;
+
+        // Step 1: Calculate addresses based on current size guesses
+        assembler::compute_offsets(source);
+
+        // Step 2 & 3: Calculate symbol values and evaluate expressions
+        let mut eval_context = expressions::new_evaluation_context(source.clone(), text_start);
+
+        // Evaluate all line symbols to populate the expression evaluation context
+        for file in &source.files {
+            for line in &file.lines {
+                // Ignore errors - some expressions may not be evaluable yet
+                let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
+            }
+        }
+
+        // Dump symbol values if requested for this pass
+        if let Some(ref spec) = dump_config.dump_values {
+            let is_final = false; // We don't know yet if this will be the final pass
+            dump::dump_values(pass_number, is_final, source, &mut eval_context, spec);
+        }
+
+        // Step 4: Encode everything and update line sizes
+        // Track if any size changed
+        let mut any_changed = false;
+
+        // Encode and collect results
+        let encode_result = encoder::encode_source_with_size_tracking(
+            source,
+            &mut eval_context,
+            &mut any_changed,
+        );
+
+        // Get the encoded bytes for code dump
+        let (text_bytes, data_bytes, bss_size) = match encode_result {
+            Ok(result) => result,
+            Err(e) => return Err(format!("Encode error: {}", e)),
+        };
+
+        // Dump code generation if requested for this pass
+        if let Some(ref spec) = dump_config.dump_code {
+            let is_final = !any_changed; // If nothing changed, this will be the final pass
+            dump::dump_code(
+                pass_number,
+                is_final,
+                source,
+                &mut eval_context,
+                &text_bytes,
+                &data_bytes,
+                spec,
+            );
+        }
+
+        // Step 5: Check convergence
+        if !any_changed {
+            // Converged! Dump final pass if requested
+            if let Some(ref spec) = dump_config.dump_values {
+                dump::dump_values(pass_number, true, source, &mut eval_context, spec);
+            }
+
+            return Ok((text_bytes, data_bytes, bss_size));
+        }
+
+        // Sizes changed, discard encoded data and loop again
+        // (The encoder already updated source.lines[].size)
+    }
+
+    Err(format!(
+        "Failed to converge after {} iterations - possible cyclic size dependencies",
+        MAX_ITERATIONS
+    ))
 }
 
 fn process_files(files: Vec<String>) -> Result<Source, String> {

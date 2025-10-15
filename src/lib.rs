@@ -7,3 +7,6 @@ pub mod expressions;
 pub mod parser;
 pub mod symbols;
 pub mod tokenizer;
+
+#[cfg(test)]
+mod encoder_tests;
