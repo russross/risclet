@@ -14,12 +14,12 @@ use crate::expressions::{self, EvaluationContext, ValueType};
 /// Specifies which relaxation passes to dump
 #[derive(Debug, Clone, PartialEq)]
 pub enum PassRange {
-    Final,              // Only the final pass (default)
-    Specific(usize),    // A specific pass number (1, 2, etc.)
-    Range(usize, usize),// Range of passes (1-3)
-    From(usize),        // From pass N to end (1-)
-    UpTo(usize),        // From start to pass N (-2)
-    All,                // All passes (*)
+    Final,               // Only the final pass (default)
+    Specific(usize),     // A specific pass number (1, 2, etc.)
+    Range(usize, usize), // Range of passes (1-3)
+    From(usize),         // From pass N to end (1-)
+    UpTo(usize),         // From start to pass N (-2)
+    All,                 // All passes (*)
 }
 
 /// Specifies which files to include in the dump
@@ -46,11 +46,7 @@ pub struct ElfDumpParts {
 
 impl Default for ElfDumpParts {
     fn default() -> Self {
-        Self {
-            headers: true,
-            symbols: true,
-            sections: true,
-        }
+        Self { headers: true, symbols: true, sections: true }
     }
 }
 
@@ -113,29 +109,37 @@ pub fn parse_pass_range(s: &str) -> Result<PassRange, String> {
 
         if before.is_empty() && !after.is_empty() {
             // "-N" format (up to N)
-            let n = after.parse::<usize>()
+            let n = after
+                .parse::<usize>()
                 .map_err(|_| format!("Invalid pass number: {}", after))?;
             return Ok(PassRange::UpTo(n));
         } else if !before.is_empty() && after.is_empty() {
             // "N-" format (from N)
-            let n = before.parse::<usize>()
+            let n = before
+                .parse::<usize>()
                 .map_err(|_| format!("Invalid pass number: {}", before))?;
             return Ok(PassRange::From(n));
         } else if !before.is_empty() && !after.is_empty() {
             // "N-M" format (range)
-            let start = before.parse::<usize>()
+            let start = before
+                .parse::<usize>()
                 .map_err(|_| format!("Invalid pass number: {}", before))?;
-            let end = after.parse::<usize>()
+            let end = after
+                .parse::<usize>()
                 .map_err(|_| format!("Invalid pass number: {}", after))?;
             if start > end {
-                return Err(format!("Invalid pass range: start {} > end {}", start, end));
+                return Err(format!(
+                    "Invalid pass range: start {} > end {}",
+                    start, end
+                ));
             }
             return Ok(PassRange::Range(start, end));
         }
     }
 
     // Try parsing as a single number
-    let n = s.parse::<usize>()
+    let n = s
+        .parse::<usize>()
         .map_err(|_| format!("Invalid pass specification: {}", s))?;
     Ok(PassRange::Specific(n))
 }
@@ -147,7 +151,8 @@ pub fn parse_file_selection(s: &str) -> FileSelection {
         return FileSelection::All;
     }
 
-    let files: Vec<String> = s.split(',')
+    let files: Vec<String> = s
+        .split(',')
         .map(|f| f.trim().to_string())
         .filter(|f| !f.is_empty())
         .collect();
@@ -160,10 +165,16 @@ pub fn parse_file_selection(s: &str) -> FileSelection {
 }
 
 /// Check if a file matches the selection criteria
-fn matches_file_selection(selection: &FileSelection, filename: &str, index: usize) -> bool {
+fn matches_file_selection(
+    selection: &FileSelection,
+    filename: &str,
+    index: usize,
+) -> bool {
     match selection {
         FileSelection::All => true,
-        FileSelection::Specific(files) => files.iter().any(|f| f == filename || f == &format!("{}", index)),
+        FileSelection::Specific(files) => {
+            files.iter().any(|f| f == filename || f == &format!("{}", index))
+        }
     }
 }
 
@@ -196,11 +207,8 @@ pub fn parse_elf_parts(s: &str) -> Result<ElfDumpParts, String> {
         return Ok(ElfDumpParts::default());
     }
 
-    let mut parts = ElfDumpParts {
-        headers: false,
-        symbols: false,
-        sections: false,
-    };
+    let mut parts =
+        ElfDumpParts { headers: false, symbols: false, sections: false };
 
     for part in s.split(',') {
         match part.trim() {
@@ -215,7 +223,11 @@ pub fn parse_elf_parts(s: &str) -> Result<ElfDumpParts, String> {
 }
 
 /// Check if a pass should be included based on PassRange
-pub fn should_include_pass(pass: usize, range: &PassRange, is_final: bool) -> bool {
+pub fn should_include_pass(
+    pass: usize,
+    range: &PassRange,
+    is_final: bool,
+) -> bool {
     match range {
         PassRange::Final => is_final,
         PassRange::Specific(n) => pass == *n,
@@ -284,16 +296,19 @@ pub fn dump_ast(source: &Source, spec: &DumpSpec) {
         println!("Global symbols:");
         println!("{}", "=".repeat(60));
         for global in &source.global_symbols {
-            println!("  {} -> {}:{}",
+            println!(
+                "  {} -> {}:{}",
                 global.symbol,
                 source.files[global.definition_pointer.file_index].file,
-                source.files[global.definition_pointer.file_index].lines[global.definition_pointer.line_index].location.line);
+                source.files[global.definition_pointer.file_index].lines
+                    [global.definition_pointer.line_index]
+                    .location
+                    .line
+            );
         }
         println!();
     }
 }
-
-
 
 fn dump_line_content_ast(content: &LineContent) {
     match content {
@@ -550,7 +565,11 @@ fn dump_expression_ast(expr: &Expression) {
         }
         Expression::CurrentAddress => print!("(current-address)"),
         Expression::NumericLabelRef(ref_item) => {
-            print!("(numeric-label {} {})", ref_item.num, if ref_item.is_forward { "f" } else { "b" });
+            print!(
+                "(numeric-label {} {})",
+                ref_item.num,
+                if ref_item.is_forward { "f" } else { "b" }
+            );
         }
     }
 }
@@ -581,12 +600,16 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
                         if j > 0 {
                             print!(",");
                         }
-                        let def_file = &source.files[ref_item.pointer.file_index];
-                        let def_line = &def_file.lines[ref_item.pointer.line_index];
-                        print!(" {}@{}:{}",
+                        let def_file =
+                            &source.files[ref_item.pointer.file_index];
+                        let def_line =
+                            &def_file.lines[ref_item.pointer.line_index];
+                        print!(
+                            " {}@{}:{}",
                             ref_item.symbol,
                             def_line.location.file,
-                            def_line.location.line);
+                            def_line.location.line
+                        );
                     }
                 }
 
@@ -603,14 +626,21 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
         println!("{}", "=".repeat(60));
         for global in &source.global_symbols {
             let def_file = &source.files[global.definition_pointer.file_index];
-            let def_line = &def_file.lines[global.definition_pointer.line_index];
-            let decl_file = &source.files[global.declaration_pointer.file_index];
-            let decl_line = &decl_file.lines[global.declaration_pointer.line_index];
+            let def_line =
+                &def_file.lines[global.definition_pointer.line_index];
+            let decl_file =
+                &source.files[global.declaration_pointer.file_index];
+            let decl_line =
+                &decl_file.lines[global.declaration_pointer.line_index];
 
-            println!("  {} → defined at {}:{}, declared at {}:{}",
+            println!(
+                "  {} → defined at {}:{}, declared at {}:{}",
                 global.symbol,
-                def_line.location.file, def_line.location.line,
-                decl_line.location.file, decl_line.location.line);
+                def_line.location.file,
+                def_line.location.line,
+                decl_line.location.file,
+                decl_line.location.line
+            );
         }
         println!();
     }
@@ -631,8 +661,11 @@ pub fn dump_values(
         return;
     }
 
-    println!("========== SYMBOL VALUES DUMP (Pass {}{}) ==========\n",
-        pass_number, if is_final { " - FINAL" } else { "" });
+    println!(
+        "========== SYMBOL VALUES DUMP (Pass {}{}) ==========\n",
+        pass_number,
+        if is_final { " - FINAL" } else { "" }
+    );
 
     for file in &source.files {
         if !should_include_file(&file.file, &spec.files) {
@@ -644,13 +677,15 @@ pub fn dump_values(
 
         for line in &file.lines {
             // Get absolute address
-            let segment_base = get_segment_base(line.segment.clone(), eval_context);
+            let segment_base =
+                get_segment_base(line.segment.clone(), eval_context);
             let abs_addr = segment_base + line.offset;
 
             // Format: [file:line] address: content
-            print!("[{}:{}] {:016x}: {}",
-                line.location.file, line.location.line,
-                abs_addr, line.content);
+            print!(
+                "[{}:{}] {:016x}: {}",
+                line.location.file, line.location.line, abs_addr, line.content
+            );
 
             // Collect and show evaluated expression values
             let expr_values = collect_expression_values(line, eval_context);
@@ -688,8 +723,11 @@ pub fn dump_code(
         return;
     }
 
-    println!("========== CODE GENERATION DUMP (Pass {}{}) ==========\n",
-        pass_number, if is_final { " - FINAL" } else { "" });
+    println!(
+        "========== CODE GENERATION DUMP (Pass {}{}) ==========\n",
+        pass_number,
+        if is_final { " - FINAL" } else { "" }
+    );
 
     for file in &source.files {
         if !should_include_file(&file.file, &spec.files) {
@@ -701,7 +739,8 @@ pub fn dump_code(
 
         for line in &file.lines {
             // Get absolute address
-            let segment_base = get_segment_base(line.segment.clone(), eval_context);
+            let segment_base =
+                get_segment_base(line.segment.clone(), eval_context);
             let abs_addr = segment_base + line.offset;
 
             // Get segment prefix (t. for text, d. for data, b. for bss)
@@ -724,11 +763,15 @@ pub fn dump_code(
             };
 
             // Format: [file:line] seg.address: bytes    content
-            print!("[{}:{}] {}.{:08x}: {:20}  {}",
-                line.location.file, line.location.line,
-                seg_prefix, abs_addr,
+            print!(
+                "[{}:{}] {}.{:08x}: {:20}  {}",
+                line.location.file,
+                line.location.line,
+                seg_prefix,
+                abs_addr,
                 bytes_str,
-                line.content);
+                line.content
+            );
 
             // Collect and show evaluated expression values
             let expr_values = collect_expression_values(line, eval_context);
@@ -753,11 +796,7 @@ pub fn dump_code(
 // ELF Dump
 // ============================================================================
 
-pub fn dump_elf(
-    builder: &ElfBuilder,
-    source: &Source,
-    parts: &ElfDumpParts,
-) {
+pub fn dump_elf(builder: &ElfBuilder, source: &Source, parts: &ElfDumpParts) {
     println!("========== ELF DUMP ==========\n");
 
     if parts.headers {
@@ -792,7 +831,9 @@ fn dump_elf_headers(builder: &ElfBuilder) {
 
     // Class, data, version
     println!("  Class:                           ELF64");
-    println!("  Data:                            2's complement, little endian");
+    println!(
+        "  Data:                            2's complement, little endian"
+    );
     println!("  Version:                         {}", h.e_ident[6]);
     println!("  OS/ABI:                          UNIX - System V");
     println!("  ABI Version:                     {}", h.e_ident[8]);
@@ -808,8 +849,14 @@ fn dump_elf_headers(builder: &ElfBuilder) {
     println!("  Machine:                         RISC-V");
     println!("  Version:                         0x{:x}", h.e_version);
     println!("  Entry point address:             0x{:x}", h.e_entry);
-    println!("  Start of program headers:        {} (bytes into file)", h.e_phoff);
-    println!("  Start of section headers:        {} (bytes into file)", h.e_shoff);
+    println!(
+        "  Start of program headers:        {} (bytes into file)",
+        h.e_phoff
+    );
+    println!(
+        "  Start of section headers:        {} (bytes into file)",
+        h.e_shoff
+    );
     println!("  Flags:                           0x{:x}", h.e_flags);
     println!("  Size of this header:             {} (bytes)", h.e_ehsize);
     println!("  Size of program headers:         {} (bytes)", h.e_phentsize);
@@ -823,7 +870,9 @@ fn dump_elf_headers(builder: &ElfBuilder) {
     println!("Program Headers:");
     println!("{}", "-".repeat(60));
     println!("  Type           Offset             VirtAddr           PhysAddr");
-    println!("                 FileSiz            MemSiz             Flags  Align");
+    println!(
+        "                 FileSiz            MemSiz             Flags  Align"
+    );
 
     for ph in &builder.program_headers {
         let type_str = match ph.p_type {
@@ -832,15 +881,21 @@ fn dump_elf_headers(builder: &ElfBuilder) {
             _ => "UNKNOWN",
         };
 
-        let flags_str = format!("{}{}{}",
+        let flags_str = format!(
+            "{}{}{}",
             if ph.p_flags & 4 != 0 { "R" } else { " " },
             if ph.p_flags & 2 != 0 { "W" } else { " " },
-            if ph.p_flags & 1 != 0 { "E" } else { " " });
+            if ph.p_flags & 1 != 0 { "E" } else { " " }
+        );
 
-        println!("  {:14} 0x{:016x} 0x{:016x} 0x{:016x}",
-            type_str, ph.p_offset, ph.p_vaddr, ph.p_paddr);
-        println!("                 0x{:016x} 0x{:016x} {}  0x{:x}",
-            ph.p_filesz, ph.p_memsz, flags_str, ph.p_align);
+        println!(
+            "  {:14} 0x{:016x} 0x{:016x} 0x{:016x}",
+            type_str, ph.p_offset, ph.p_vaddr, ph.p_paddr
+        );
+        println!(
+            "                 0x{:016x} 0x{:016x} {}  0x{:x}",
+            ph.p_filesz, ph.p_memsz, flags_str, ph.p_align
+        );
     }
     println!();
 }
@@ -848,7 +903,9 @@ fn dump_elf_headers(builder: &ElfBuilder) {
 fn dump_elf_sections(builder: &ElfBuilder) {
     println!("Section Headers:");
     println!("{}", "-".repeat(60));
-    println!("  [Nr] Name              Type            Address          Off    Size   Flg Lk");
+    println!(
+        "  [Nr] Name              Type            Address          Off    Size   Flg Lk"
+    );
 
     for (i, sh) in builder.section_headers.iter().enumerate() {
         // Get section name from string table
@@ -880,14 +937,24 @@ fn dump_elf_sections(builder: &ElfBuilder) {
             _ => "UNKNOWN",
         };
 
-        let flags_str = format!("{}{}{}",
+        let flags_str = format!(
+            "{}{}{}",
             if sh.sh_flags & 1 != 0 { "W" } else { "" },
             if sh.sh_flags & 2 != 0 { "A" } else { "" },
-            if sh.sh_flags & 4 != 0 { "X" } else { "" });
+            if sh.sh_flags & 4 != 0 { "X" } else { "" }
+        );
 
-        println!("  [{:3}] {:17} {:15} {:016x} {:06x} {:06x} {:3} {:2}",
-            i, name, type_str, sh.sh_addr, sh.sh_offset, sh.sh_size,
-            flags_str, sh.sh_link);
+        println!(
+            "  [{:3}] {:17} {:15} {:016x} {:06x} {:06x} {:3} {:2}",
+            i,
+            name,
+            type_str,
+            sh.sh_addr,
+            sh.sh_offset,
+            sh.sh_size,
+            flags_str,
+            sh.sh_link
+        );
     }
 
     println!();
@@ -942,8 +1009,10 @@ fn dump_elf_symbols(builder: &ElfBuilder, _source: &Source) {
             n => format!("{}", n),
         };
 
-        println!("  {:4}:  {:016x} {:5} {:7} {:6} {:>3} {}",
-            i, sym.st_value, sym.st_size, type_str, bind_str, ndx_str, name);
+        println!(
+            "  {:4}:  {:016x} {:5} {:7} {:6} {:>3} {}",
+            i, sym.st_value, sym.st_size, type_str, bind_str, ndx_str, name
+        );
     }
 
     println!();
@@ -961,7 +1030,11 @@ fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> i64 {
     }
 }
 
-fn get_encoded_bytes(line: &Line, text_bytes: &[u8], data_bytes: &[u8]) -> Vec<u8> {
+fn get_encoded_bytes(
+    line: &Line,
+    text_bytes: &[u8],
+    data_bytes: &[u8],
+) -> Vec<u8> {
     if line.size == 0 {
         return Vec::new();
     }
@@ -1049,9 +1122,7 @@ fn collect_expression_values(
     values
 }
 
-fn extract_instruction_expressions(
-    inst: &Instruction,
-) -> Vec<&Expression> {
+fn extract_instruction_expressions(inst: &Instruction) -> Vec<&Expression> {
     let mut exprs = Vec::new();
 
     match inst {

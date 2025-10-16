@@ -56,14 +56,16 @@ fn process_cli_args() -> Result<Config, String> {
                 } else {
                     ""
                 };
-                dump_config.dump_symbols = Some(dump::parse_dump_spec(spec_str)?);
+                dump_config.dump_symbols =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-values") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                dump_config.dump_values = Some(dump::parse_dump_spec(spec_str)?);
+                dump_config.dump_values =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-code") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
@@ -86,14 +88,18 @@ fn process_cli_args() -> Result<Config, String> {
                 "-o" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -o requires an argument".to_string());
+                        return Err(
+                            "Error: -o requires an argument".to_string()
+                        );
                     }
                     output_file = args[i].clone();
                 }
                 "-t" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -t requires an argument".to_string());
+                        return Err(
+                            "Error: -t requires an argument".to_string()
+                        );
                     }
                     text_start = parse_address(&args[i])?;
                 }
@@ -184,8 +190,7 @@ fn parse_address(s: &str) -> Result<i64, String> {
         i64::from_str_radix(hex, 16)
             .map_err(|_| format!("Error: invalid hex address: {}", s))
     } else {
-        s.parse::<i64>()
-            .map_err(|_| format!("Error: invalid address: {}", s))
+        s.parse::<i64>().map_err(|_| format!("Error: invalid address: {}", s))
     }
 }
 
@@ -206,10 +211,10 @@ fn main() {
 // Assembly phases - each phase has a checkpoint where we can dump and optionally exit
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
-    Parse,           // After parsing source files into AST
+    Parse,            // After parsing source files into AST
     SymbolResolution, // After resolving all symbols
-    Convergence,     // During/after code generation convergence
-    Elf,             // After ELF generation
+    Convergence,      // During/after code generation convergence
+    Elf,              // After ELF generation
 }
 
 // Callback for convergence dumps - implements assembler::ConvergenceCallback
@@ -240,7 +245,15 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         data_bytes: &[u8],
     ) {
         if let Some(ref spec) = self.dump_config.dump_code {
-            dump::dump_code(pass, is_final, source, eval_context, text_bytes, data_bytes, spec);
+            dump::dump_code(
+                pass,
+                is_final,
+                source,
+                eval_context,
+                text_bytes,
+                data_bytes,
+                spec,
+            );
         }
     }
 }
@@ -254,7 +267,9 @@ fn should_dump_phase(config: &Config, phase: Phase) -> bool {
     match phase {
         Phase::Parse => config.dump.dump_ast.is_some(),
         Phase::SymbolResolution => config.dump.dump_symbols.is_some(),
-        Phase::Convergence => config.dump.dump_values.is_some() || config.dump.dump_code.is_some(),
+        Phase::Convergence => {
+            config.dump.dump_values.is_some() || config.dump.dump_code.is_some()
+        }
         Phase::Elf => config.dump.dump_elf.is_some(),
     }
 }
@@ -276,9 +291,7 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
             !should_dump_phase(config, Phase::Convergence)
                 && !should_dump_phase(config, Phase::Elf)
         }
-        Phase::Convergence => {
-            !should_dump_phase(config, Phase::Elf)
-        }
+        Phase::Convergence => !should_dump_phase(config, Phase::Elf),
         Phase::Elf => {
             // ELF is always terminal if we're dumping it
             true
@@ -327,17 +340,30 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
         print_input_statistics(&source);
     }
 
-    let (text_bytes, data_bytes, bss_size) = if should_dump_phase(&config, Phase::Convergence) {
-        // Use callback-based convergence with dump support
-        let dump_callback = DumpCallback { dump_config: &config.dump };
-        assembler::converge_and_encode(&mut source, config.text_start, &dump_callback, config.verbose)?
-    } else {
-        // Use standard convergence with verbose stats if requested
-        assembler::converge_and_encode(&mut source, config.text_start, &assembler::NoOpCallback, config.verbose)?
-    };
+    let (text_bytes, data_bytes, bss_size) =
+        if should_dump_phase(&config, Phase::Convergence) {
+            // Use callback-based convergence with dump support
+            let dump_callback = DumpCallback { dump_config: &config.dump };
+            assembler::converge_and_encode(
+                &mut source,
+                config.text_start,
+                &dump_callback,
+                config.verbose,
+            )?
+        } else {
+            // Use standard convergence with verbose stats if requested
+            assembler::converge_and_encode(
+                &mut source,
+                config.text_start,
+                &assembler::NoOpCallback,
+                config.verbose,
+            )?
+        };
 
     // Checkpoint: after convergence, check if we should exit before ELF generation
-    if should_dump_phase(&config, Phase::Convergence) && is_terminal_phase(&config, Phase::Convergence) {
+    if should_dump_phase(&config, Phase::Convergence)
+        && is_terminal_phase(&config, Phase::Convergence)
+    {
         println!("\n(No output file generated)");
         return Ok(());
     }
@@ -347,7 +373,8 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
     // ========================================================================
 
     // Create evaluation context for symbol values and ELF generation
-    let mut eval_context = expressions::new_evaluation_context(source.clone(), config.text_start);
+    let mut eval_context =
+        expressions::new_evaluation_context(source.clone(), config.text_start);
 
     // Evaluate all symbols to populate the context
     for file in &source.files {
@@ -385,7 +412,11 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
 
     // Checkpoint: dump ELF if requested
     if should_dump_phase(&config, Phase::Elf) {
-        dump::dump_elf(&elf_builder, &source, config.dump.dump_elf.as_ref().unwrap());
+        dump::dump_elf(
+            &elf_builder,
+            &source,
+            config.dump.dump_elf.as_ref().unwrap(),
+        );
         if is_terminal_phase(&config, Phase::Elf) {
             println!("\n(No output file generated)");
             return Ok(());
@@ -405,11 +436,16 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
 
     // Find entry point (_start symbol is required for executables)
     let entry_point = {
-        if let Some(g) = source.global_symbols.iter().find(|g| g.symbol == "_start") {
-            let line = &source.files[g.definition_pointer.file_index].lines[g.definition_pointer.line_index];
+        if let Some(g) =
+            source.global_symbols.iter().find(|g| g.symbol == "_start")
+        {
+            let line = &source.files[g.definition_pointer.file_index].lines
+                [g.definition_pointer.line_index];
             Ok(eval_context.text_start as u64 + line.offset as u64)
         } else {
-            Err(error::AssemblerError::no_context("_start symbol not defined".to_string()))
+            Err(error::AssemblerError::no_context(
+                "_start symbol not defined".to_string(),
+            ))
         }
     }?;
 
@@ -422,7 +458,8 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
         .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
 
     // Set executable permissions (0755)
-    let metadata = file.metadata()
+    let metadata = file
+        .metadata()
         .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(0o755);
@@ -488,16 +525,24 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
 }
 
 fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
-    let file = File::open(file_path)
-        .map_err(|e| error::AssemblerError::no_context(format!("could not open file '{}': {}", file_path, e)))?;
+    let file = File::open(file_path).map_err(|e| {
+        error::AssemblerError::no_context(format!(
+            "could not open file '{}': {}",
+            file_path, e
+        ))
+    })?;
     let reader = io::BufReader::new(file);
 
     let mut current_segment = Segment::Text;
     let mut lines: Vec<Line> = Vec::new();
 
     for (line_num, line_result) in reader.lines().enumerate() {
-        let line = line_result
-            .map_err(|e| error::AssemblerError::no_context(format!("could not read file '{}': {}", file_path, e)))?;
+        let line = line_result.map_err(|e| {
+            error::AssemblerError::no_context(format!(
+                "could not read file '{}': {}",
+                file_path, e
+            ))
+        })?;
         if line.trim().is_empty() {
             continue;
         }
@@ -507,15 +552,22 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
             line: (line_num + 1) as u32,
         };
 
-        let tokens = tokenizer::tokenize(&line)
-            .map_err(|e| error::AssemblerError::from_context(e, location.clone()))?;
-        
+        let tokens = tokenizer::tokenize(&line).map_err(|e| {
+            error::AssemblerError::from_context(e, location.clone())
+        })?;
+
         if !tokens.is_empty() {
-            let parsed_lines = parser::parse(&tokens, file_path.to_string(), (line_num + 1) as u32)?;
+            let parsed_lines = parser::parse(
+                &tokens,
+                file_path.to_string(),
+                (line_num + 1) as u32,
+            )?;
 
             for parsed_line in parsed_lines {
                 // Update segment if directive changes it
-                if let ast::LineContent::Directive(ref dir) = parsed_line.content {
+                if let ast::LineContent::Directive(ref dir) =
+                    parsed_line.content
+                {
                     match dir {
                         ast::Directive::Text => current_segment = Segment::Text,
                         ast::Directive::Data => current_segment = Segment::Data,
@@ -528,7 +580,12 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
                 let mut new_line = parsed_line;
                 new_line.segment = current_segment.clone();
                 new_line.size = assembler::guess_line_size(&new_line.content)
-                    .map_err(|e| error::AssemblerError::from_context(e, new_line.location.clone()))?;
+                    .map_err(|e| {
+                    error::AssemblerError::from_context(
+                        e,
+                        new_line.location.clone(),
+                    )
+                })?;
 
                 lines.push(new_line);
             }

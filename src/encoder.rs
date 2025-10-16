@@ -91,7 +91,8 @@ pub fn encode_source_with_size_tracking(
         for line_idx in 0..source.files[file_idx].lines.len() {
             // Extract the data we need from the line before encoding
             let old_size = source.files[file_idx].lines[line_idx].size;
-            let segment = source.files[file_idx].lines[line_idx].segment.clone();
+            let segment =
+                source.files[file_idx].lines[line_idx].segment.clone();
 
             // Create encoding context
             let mut context = EncodingContext {
@@ -143,8 +144,10 @@ pub fn encode_line(
     context: &mut EncodingContext,
 ) -> Result<Vec<u8>> {
     // BSS segment should be handled separately in encode_source
-    assert!(line.segment != Segment::Bss, "BSS lines should be handled separately");
-
+    assert!(
+        line.segment != Segment::Bss,
+        "BSS lines should be handled separately"
+    );
 
     // Encode based on line content
     match &line.content {
@@ -947,8 +950,7 @@ fn split_offset_hi_lo(offset: i64) -> (i64, i64) {
     let hi = (offset + 0x800) >> 12;
     let lo = offset & 0xFFF;
     // Sign-extend the lower 12 bits
-    let lo_signed =
-        if lo & 0x800 != 0 { lo | !0xFFF } else { lo };
+    let lo_signed = if lo & 0x800 != 0 { lo | !0xFFF } else { lo };
     (hi, lo_signed)
 }
 
@@ -1064,7 +1066,8 @@ fn expand_call(
     // Try optimized encoding: single JAL if offset fits in 21 bits
     if fits_signed(offset, 21) && offset % 2 == 0 {
         // jal ra, offset (single 4-byte instruction)
-        let jal_inst = encode_j_type(0b1101111, Register::X1, offset, location)?;
+        let jal_inst =
+            encode_j_type(0b1101111, Register::X1, offset, location)?;
         bytes.extend_from_slice(&u32_to_le_bytes(jal_inst));
         return Ok(bytes);
     }
@@ -1109,7 +1112,8 @@ fn expand_tail(
     // Try optimized encoding: single JAL (j offset) if offset fits in 21 bits
     if fits_signed(offset, 21) && offset % 2 == 0 {
         // jal x0, offset (j offset - single 4-byte instruction)
-        let jal_inst = encode_j_type(0b1101111, Register::X0, offset, location)?;
+        let jal_inst =
+            encode_j_type(0b1101111, Register::X0, offset, location)?;
         bytes.extend_from_slice(&u32_to_le_bytes(jal_inst));
         return Ok(bytes);
     }

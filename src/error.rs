@@ -29,14 +29,18 @@ impl AssemblerError {
             let file = fs::File::open(&location.file);
             if let Ok(file) = file {
                 let reader = io::BufReader::new(file);
-                let lines: Vec<String> =
-                    reader.lines().collect::<Result<_, _>>().unwrap_or_default();
+                let lines: Vec<String> = reader
+                    .lines()
+                    .collect::<Result<_, _>>()
+                    .unwrap_or_default();
                 let line_num = location.line as usize;
                 let start = line_num.saturating_sub(3);
                 let end = (line_num + 3).min(lines.len());
                 let mut context = String::new();
-                for (i, line) in lines.iter().enumerate().take(end).skip(start) {
-                    let marker = if i + 1 == line_num { ">>> " } else { "    " };
+                for (i, line) in lines.iter().enumerate().take(end).skip(start)
+                {
+                    let marker =
+                        if i + 1 == line_num { ">>> " } else { "    " };
                     context.push_str(&format!(
                         "{}{:4}: {}\n",
                         marker,

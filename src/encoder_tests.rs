@@ -3,7 +3,7 @@
 // Unit tests for the RISC-V instruction encoder
 // These tests compare our encoder output against GNU assembler output
 
-use crate::assembler::{converge_and_encode, NoOpCallback};
+use crate::assembler::{NoOpCallback, converge_and_encode};
 use crate::ast::{Source, SourceFile};
 use crate::parser::parse;
 use crate::symbols::resolve_symbols;
@@ -79,7 +79,8 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    converge_and_encode(&mut source, 0x10000, &NoOpCallback, false).map_err(|e| e.with_source_context())
+    converge_and_encode(&mut source, 0x10000, &NoOpCallback, false)
+        .map_err(|e| e.with_source_context())
 }
 
 /// Helper to format bytes as hex for debugging
@@ -714,7 +715,8 @@ fn test_bss_space_directive() {
 .space 64
 "#;
 
-    let (text, data, bss_size) = assemble(source).expect("Assembly should succeed");
+    let (text, data, bss_size) =
+        assemble(source).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -729,7 +731,8 @@ buffer1: .space 128
 buffer2: .space 256
 "#;
 
-    let (text, data, bss_size) = assemble(source).expect("Assembly should succeed");
+    let (text, data, bss_size) =
+        assemble(source).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -803,7 +806,9 @@ li x1, target
     assert!(result.is_err(), "Expected error for li with address");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("li") && err_msg.contains("Integer") && err_msg.contains("Address"),
+        err_msg.contains("li")
+            && err_msg.contains("Integer")
+            && err_msg.contains("Address"),
         "Error should mention type mismatch (expected Integer, got Address), got: {}",
         err_msg
     );
@@ -820,7 +825,9 @@ la x1, 42
     assert!(result.is_err(), "Expected error for la with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("la") && err_msg.contains("Address") && err_msg.contains("Integer"),
+        err_msg.contains("la")
+            && err_msg.contains("Address")
+            && err_msg.contains("Integer"),
         "Error should mention type mismatch (expected Address, got Integer), got: {}",
         err_msg
     );
@@ -837,7 +844,9 @@ call 100
     assert!(result.is_err(), "Expected error for call with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("call") && err_msg.contains("Address") && err_msg.contains("Integer"),
+        err_msg.contains("call")
+            && err_msg.contains("Address")
+            && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -854,7 +863,9 @@ tail 200
     assert!(result.is_err(), "Expected error for tail with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("tail") && err_msg.contains("Address") && err_msg.contains("Integer"),
+        err_msg.contains("tail")
+            && err_msg.contains("Address")
+            && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -871,7 +882,9 @@ jal x1, 42
     assert!(result.is_err(), "Expected error for jal with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump") && err_msg.contains("Address") && err_msg.contains("Integer"),
+        err_msg.contains("Jump")
+            && err_msg.contains("Address")
+            && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -888,7 +901,9 @@ beq x1, x2, 16
     assert!(result.is_err(), "Expected error for branch with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch") && err_msg.contains("Address") && err_msg.contains("Integer"),
+        err_msg.contains("Branch")
+            && err_msg.contains("Address")
+            && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -906,7 +921,9 @@ addi x1, x2, target
     assert!(result.is_err(), "Expected error for addi with address");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("I-type") && err_msg.contains("Integer") && err_msg.contains("Address"),
+        err_msg.contains("I-type")
+            && err_msg.contains("Integer")
+            && err_msg.contains("Address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -924,7 +941,9 @@ lui x1, target
     assert!(result.is_err(), "Expected error for lui with address");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("U-type") && err_msg.contains("Integer") && err_msg.contains("Address"),
+        err_msg.contains("U-type")
+            && err_msg.contains("Integer")
+            && err_msg.contains("Address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -942,7 +961,9 @@ ld x1, target(x2)
     assert!(result.is_err(), "Expected error for load with address offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Load/Store") && err_msg.contains("Integer") && err_msg.contains("Address"),
+        err_msg.contains("Load/Store")
+            && err_msg.contains("Integer")
+            && err_msg.contains("Address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -1031,7 +1052,8 @@ slli x1, x2, 64
     assert!(result.is_err(), "Expected error for shift amount out of range");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("64") && (err_msg.contains("0-63") || err_msg.contains("RV64")),
+        err_msg.contains("64")
+            && (err_msg.contains("0-63") || err_msg.contains("RV64")),
         "Error should mention shift amount out of range, got: {}",
         err_msg
     );
@@ -1045,7 +1067,10 @@ slliw x1, x2, 32
 "#;
 
     let result = assemble(source);
-    assert!(result.is_err(), "Expected error for word shift amount out of range");
+    assert!(
+        result.is_err(),
+        "Expected error for word shift amount out of range"
+    );
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("32") && err_msg.contains("0-31"),
@@ -1072,7 +1097,10 @@ nop
     assert!(result.is_err(), "Expected error for branch offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch") && (err_msg.contains("13-bit") || err_msg.contains("range") || err_msg.contains("4096")),
+        err_msg.contains("Branch")
+            && (err_msg.contains("13-bit")
+                || err_msg.contains("range")
+                || err_msg.contains("4096")),
         "Error should mention branch offset out of range, got: {}",
         err_msg
     );
@@ -1094,7 +1122,8 @@ nop
     assert!(result.is_err(), "Expected error for misaligned branch offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch") && (err_msg.contains("even") || err_msg.contains("aligned")),
+        err_msg.contains("Branch")
+            && (err_msg.contains("even") || err_msg.contains("aligned")),
         "Error should mention branch offset must be even, got: {}",
         err_msg
     );
@@ -1116,7 +1145,8 @@ nop
     assert!(result.is_err(), "Expected error for misaligned jal offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump") && (err_msg.contains("even") || err_msg.contains("aligned")),
+        err_msg.contains("Jump")
+            && (err_msg.contains("even") || err_msg.contains("aligned")),
         "Error should mention jump offset must be even, got: {}",
         err_msg
     );
@@ -1206,7 +1236,9 @@ foo:
     assert!(result.is_err(), "Expected error for duplicate label");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("duplic") || err_msg.contains("Duplic") || err_msg.contains("already"),
+        err_msg.contains("duplic")
+            || err_msg.contains("Duplic")
+            || err_msg.contains("already"),
         "Error should mention duplicate label, got: {}",
         err_msg
     );
@@ -1230,7 +1262,9 @@ target:
     assert!(result.is_err(), "Expected error for jal offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump") || err_msg.contains("range") || err_msg.contains("21-bit"),
+        err_msg.contains("Jump")
+            || err_msg.contains("range")
+            || err_msg.contains("21-bit"),
         "Error should mention jump out of range, got: {}",
         err_msg
     );
@@ -1264,7 +1298,8 @@ nop
 nop
 "#;
 
-    let (text, _data, _bss) = assemble(source).expect("Data directives in .text should be allowed");
+    let (text, _data, _bss) =
+        assemble(source).expect("Data directives in .text should be allowed");
     assert_eq!(text.len(), 9); // 4 (nop) + 1 (byte) + 4 (nop)
 }
 
@@ -1297,7 +1332,8 @@ target:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source).expect("call should relax to auipc+jalr for far targets");
+    let (text, _data, _bss) = assemble(source)
+        .expect("call should relax to auipc+jalr for far targets");
 
     // call should expand to 8-byte auipc+jalr sequence
     // Plus .space 1048580 bytes, plus 4-byte nop = 1048592 bytes total
@@ -1319,15 +1355,24 @@ target:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source).expect("tail should relax to auipc+jalr for far targets");
+    let (text, _data, _bss) = assemble(source)
+        .expect("tail should relax to auipc+jalr for far targets");
 
     // tail should expand to 8-byte auipc+jalr sequence
     assert_eq!(text.len(), 1048592);
 
     // First 8 bytes should be auipc t1 + jalr x0, t1
     // auipc t1 has opcode 0x17, jalr has opcode 0x67
-    assert_eq!(text[0] & 0x7f, 0x17, "First instruction should be auipc (opcode 0x17)");
-    assert_eq!(text[4] & 0x7f, 0x67, "Second instruction should be jalr (opcode 0x67)");
+    assert_eq!(
+        text[0] & 0x7f,
+        0x17,
+        "First instruction should be auipc (opcode 0x17)"
+    );
+    assert_eq!(
+        text[4] & 0x7f,
+        0x67,
+        "Second instruction should be jalr (opcode 0x67)"
+    );
 }
 
 #[test]
@@ -1338,7 +1383,8 @@ fn test_string_escapes() {
 .string "hello\nworld\t\"\\"
 "#;
 
-    let (text, data, _bss) = assemble(source).expect("String escapes should be supported");
+    let (text, data, _bss) =
+        assemble(source).expect("String escapes should be supported");
     assert_eq!(text.len(), 0);
 
     // Expected: h e l l o \n w o r l d \t " \
@@ -1373,7 +1419,8 @@ end:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source).expect("Cascading relaxation should converge");
+    let (text, _data, _bss) =
+        assemble(source).expect("Cascading relaxation should converge");
 
     // All three calls should relax to 4-byte jal
     // Total: 3x(4-byte call + 4-byte nop) + 4-byte nop = 28 bytes

@@ -36,7 +36,9 @@ pub fn compute_offsets(source: &mut Source) {
             };
 
             // For .balign, compute actual size based on offset
-            if let LineContent::Directive(Directive::Balign(_expr)) = &line.content {
+            if let LineContent::Directive(Directive::Balign(_expr)) =
+                &line.content
+            {
                 let align = 8; // Placeholder: should evaluate expr
                 let padding = (align - (current_offset % align)) % align;
                 line.size = padding;
@@ -106,8 +108,24 @@ pub trait ConvergenceCallback {
 pub struct NoOpCallback;
 
 impl ConvergenceCallback for NoOpCallback {
-    fn on_values_computed(&self, _: usize, _: bool, _: &Source, _: &mut expressions::EvaluationContext) {}
-    fn on_code_generated(&self, _: usize, _: bool, _: &Source, _: &mut expressions::EvaluationContext, _: &[u8], _: &[u8]) {}
+    fn on_values_computed(
+        &self,
+        _: usize,
+        _: bool,
+        _: &Source,
+        _: &mut expressions::EvaluationContext,
+    ) {
+    }
+    fn on_code_generated(
+        &self,
+        _: usize,
+        _: bool,
+        _: &Source,
+        _: &mut expressions::EvaluationContext,
+        _: &[u8],
+        _: &[u8],
+    ) {
+    }
 }
 
 /// Converge line sizes and offsets by iterating until stable
@@ -149,7 +167,10 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         if show_progress {
             eprintln!(
                 "  {:4}  {:5}  {:6}  {:6}",
-                pass_number, source.text_size, source.data_size, source.bss_size
+                pass_number,
+                source.text_size,
+                source.data_size,
+                source.bss_size
             );
         }
 
@@ -161,12 +182,18 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         for file in &source.files {
             for line in &file.lines {
                 // Ignore errors - some expressions may not be evaluable yet
-                let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
+                let _ =
+                    expressions::evaluate_line_symbols(line, &mut eval_context);
             }
         }
 
         // Callback: after symbol values computed
-        callback.on_values_computed(pass_number, false, source, &mut eval_context);
+        callback.on_values_computed(
+            pass_number,
+            false,
+            source,
+            &mut eval_context,
+        );
 
         // Step 4: Encode everything and update line sizes
         // Track if any size changed
@@ -194,9 +221,18 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // Step 5: Check convergence
         if !any_changed {
             // Converged! Call final value callback
-            callback.on_values_computed(pass_number, true, source, &mut eval_context);
+            callback.on_values_computed(
+                pass_number,
+                true,
+                source,
+                &mut eval_context,
+            );
             if show_progress {
-                eprintln!("  Converged after {} pass{}", pass_number, if pass_number == 1 { "" } else { "es" });
+                eprintln!(
+                    "  Converged after {} pass{}",
+                    pass_number,
+                    if pass_number == 1 { "" } else { "es" }
+                );
             }
             return Ok((text_bytes, data_bytes, bss_size));
         }
@@ -221,7 +257,7 @@ pub fn guess_line_size(content: &ast::LineContent) -> Result<i64, String> {
         ast::LineContent::Instruction(inst) => match inst {
             // Pseudo-instructions that expand to 2 base instructions (8 bytes)
             Instruction::Pseudo(pseudo) => match pseudo {
-                PseudoOp::Li(_,_) => Ok(8),  // lui + addiw (worst case)
+                PseudoOp::Li(_, _) => Ok(8), // lui + addiw (worst case)
                 PseudoOp::La(_, _) => Ok(8), // auipc + addi
                 PseudoOp::Call(_) => Ok(8),  // auipc + jalr
                 PseudoOp::Tail(_) => Ok(8),  // auipc + jalr

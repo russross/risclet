@@ -188,12 +188,11 @@ impl Elf64ProgramHeader {
 /// # Returns
 /// The total size in bytes (ELF header + program headers).
 pub fn compute_header_size(num_segments: i64) -> i64 {
-    const ELF_HEADER_SIZE: i64 = 64;  // From e_ehsize in Elf64Header
-    const PROGRAM_HEADER_SIZE: i64 = 56;  // From e_phentsize in Elf64Header
+    const ELF_HEADER_SIZE: i64 = 64; // From e_ehsize in Elf64Header
+    const PROGRAM_HEADER_SIZE: i64 = 56; // From e_phentsize in Elf64Header
 
     ELF_HEADER_SIZE + (num_segments * PROGRAM_HEADER_SIZE)
 }
-
 
 /// ELF-64 Section Header
 #[derive(Debug, Clone)]
@@ -326,10 +325,7 @@ impl Default for StringTable {
 impl StringTable {
     pub fn new() -> Self {
         // String tables start with a null byte
-        Self {
-            strings: vec![0],
-            offsets: HashMap::new(),
-        }
+        Self { strings: vec![0], offsets: HashMap::new() }
     }
 
     /// Add a string and return its offset
@@ -406,7 +402,8 @@ pub fn generate_riscv_attributes() -> Vec<u8> {
 
     // Patch total length
     let total_length = (attrs.len() - length_pos) as u32;
-    attrs[length_pos..length_pos + 4].copy_from_slice(&total_length.to_le_bytes());
+    attrs[length_pos..length_pos + 4]
+        .copy_from_slice(&total_length.to_le_bytes());
 
     attrs
 }
@@ -617,7 +614,8 @@ impl ElfBuilder {
         for ph in &self.program_headers {
             ph_bytes.extend_from_slice(&ph.encode());
         }
-        output[phoff as usize..(phoff as usize + ph_bytes.len())].copy_from_slice(&ph_bytes);
+        output[phoff as usize..(phoff as usize + ph_bytes.len())]
+            .copy_from_slice(&ph_bytes);
 
         output
     }
@@ -720,7 +718,8 @@ impl ElfBuilder {
                 sh_type: SHT_NOBITS,
                 sh_flags: SHF_WRITE | SHF_ALLOC,
                 sh_addr: self.bss_start,
-                sh_offset: data_offset.unwrap_or(text_offset + self.text_data.len() as u64),
+                sh_offset: data_offset
+                    .unwrap_or(text_offset + self.text_data.len() as u64),
                 sh_size: self.bss_size,
                 sh_link: 0,
                 sh_info: 0,
@@ -747,11 +746,11 @@ impl ElfBuilder {
 
         // Section: .symtab
         let strtab_section_index = section_index + 1; // .strtab comes next
-        let first_global = self
-            .symbol_table
-            .iter()
-            .position(|sym| (sym.st_info >> 4) == STB_GLOBAL)
-            .unwrap_or(self.symbol_table.len()) as u32;
+        let first_global =
+            self.symbol_table
+                .iter()
+                .position(|sym| (sym.st_info >> 4) == STB_GLOBAL)
+                .unwrap_or(self.symbol_table.len()) as u32;
 
         self.section_headers.push(Elf64SectionHeader {
             sh_name: self.section_names.add(".symtab"),
@@ -793,8 +792,6 @@ impl ElfBuilder {
             sh_addralign: 1,
             sh_entsize: 0,
         });
-
-
     }
 }
 
@@ -853,9 +850,7 @@ pub fn build_symbol_table(
 
         // Add special $xrv64i2p1_m2p0 marker symbol
         // This marks the start of code from this file
-        let marker_name = builder
-            .symbol_names
-            .add("$xrv64i2p1_m2p0");
+        let marker_name = builder.symbol_names.add("$xrv64i2p1_m2p0");
 
         // Find the first .text line in this file to use as the marker address
         let mut marker_addr = text_start;
@@ -893,13 +888,18 @@ pub fn build_symbol_table(
                 if !is_global {
                     let name_idx = builder.symbol_names.add(name);
                     let (addr, section_idx) = match line.segment {
-                        Segment::Text => (text_start + line.offset as u64, text_section_index),
-                        Segment::Data => {
-                            (data_start + line.offset as u64, data_section_index.unwrap())
-                        }
-                        Segment::Bss => {
-                            (bss_start + line.offset as u64, bss_section_index.unwrap())
-                        }
+                        Segment::Text => (
+                            text_start + line.offset as u64,
+                            text_section_index,
+                        ),
+                        Segment::Data => (
+                            data_start + line.offset as u64,
+                            data_section_index.unwrap(),
+                        ),
+                        Segment::Bss => (
+                            bss_start + line.offset as u64,
+                            bss_section_index.unwrap(),
+                        ),
                     };
 
                     builder.add_symbol(Elf64Symbol {
@@ -956,9 +956,15 @@ pub fn build_symbol_table(
 
         let name_idx = builder.symbol_names.add(&global.symbol);
         let (addr, section_idx) = match line.segment {
-            Segment::Text => (text_start + line.offset as u64, text_section_index),
-            Segment::Data => (data_start + line.offset as u64, data_section_index.unwrap()),
-            Segment::Bss => (bss_start + line.offset as u64, bss_section_index.unwrap()),
+            Segment::Text => {
+                (text_start + line.offset as u64, text_section_index)
+            }
+            Segment::Data => {
+                (data_start + line.offset as u64, data_section_index.unwrap())
+            }
+            Segment::Bss => {
+                (bss_start + line.offset as u64, bss_section_index.unwrap())
+            }
         };
 
         builder.add_symbol(Elf64Symbol {
@@ -980,11 +986,8 @@ pub fn build_symbol_table(
     } else {
         end_text
     };
-    let end_bss = if has_bss {
-        bss_start + source.bss_size as u64
-    } else {
-        end_data
-    };
+    let end_bss =
+        if has_bss { bss_start + source.bss_size as u64 } else { end_data };
 
     // __bss_start
     let bss_start_name = builder.symbol_names.add("__bss_start");

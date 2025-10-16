@@ -296,10 +296,16 @@ impl<'a> Parser<'a> {
                     self.next();
                     Ok(Expression::CurrentAddress) // .
                 }
-                _ => Err(AssemblerError::from_context("Expected operand".to_string(), self.location())),
+                _ => Err(AssemblerError::from_context(
+                    "Expected operand".to_string(),
+                    self.location(),
+                )),
             }
         } else {
-            Err(AssemblerError::from_context("Expected operand".to_string(), self.location()))
+            Err(AssemblerError::from_context(
+                "Expected operand".to_string(),
+                self.location(),
+            ))
         }
     }
 
@@ -363,7 +369,10 @@ impl<'a> Parser<'a> {
             });
         }
         if lines.is_empty() {
-            return Err(AssemblerError::from_context("Empty line".to_string(), self.location()));
+            return Err(AssemblerError::from_context(
+                "Empty line".to_string(),
+                self.location(),
+            ));
         }
         Ok(lines)
     }
@@ -463,7 +472,10 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            Err(AssemblerError::from_context("Expected directive".to_string(), self.location()))
+            Err(AssemblerError::from_context(
+                "Expected directive".to_string(),
+                self.location(),
+            ))
         }
     }
 
@@ -770,13 +782,19 @@ impl<'a> Parser<'a> {
                     Box::new(Expression::Literal(-1)),
                 ))
             }
-            _ => Err(AssemblerError::from_context(format!("Unknown instruction {}", opcode), self.location())),
+            _ => Err(AssemblerError::from_context(
+                format!("Unknown instruction {}", opcode),
+                self.location(),
+            )),
         }
     }
 
     // Grammar: reg , reg , reg
     // Example: add a0, a1, a2
-    fn parse_rtype(&mut self, op: RTypeOp) -> Result<Instruction, AssemblerError> {
+    fn parse_rtype(
+        &mut self,
+        op: RTypeOp,
+    ) -> Result<Instruction, AssemblerError> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs1 = self.parse_register()?;
@@ -787,7 +805,10 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , exp
     // Examples: addi a0, a1, 1, addi a0, a1, 'z' - 'a'
-    fn parse_itype(&mut self, op: ITypeOp) -> Result<Instruction, AssemblerError> {
+    fn parse_itype(
+        &mut self,
+        op: ITypeOp,
+    ) -> Result<Instruction, AssemblerError> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs1 = self.parse_register()?;
@@ -798,7 +819,10 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , expression
     // Examples: beq a0, a1, loop (symbolic), beq a0, a1, . + 8 (expression)
-    fn parse_btype(&mut self, op: BTypeOp) -> Result<Instruction, AssemblerError> {
+    fn parse_btype(
+        &mut self,
+        op: BTypeOp,
+    ) -> Result<Instruction, AssemblerError> {
         let rs1 = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs2 = self.parse_register()?;
@@ -809,7 +833,10 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , [exp] ( reg ) | reg , exp (global load, exp not followed by '(')
     // Examples: lb a0, 0(sp) (immediate offset), lb a0, (sp) (zero offset via peekahead), lb a0, label (global load, no parens; parentheses in exp like (label + 4) are part of the expression)
-    fn parse_load(&mut self, op: LoadStoreOp) -> Result<Instruction, AssemblerError> {
+    fn parse_load(
+        &mut self,
+        op: LoadStoreOp,
+    ) -> Result<Instruction, AssemblerError> {
         let reg = self.parse_register()?;
         self.expect(&Token::Comma)?;
         // Peekahead for ( reg ) to handle zero offset: reg , ( reg )
@@ -846,7 +873,10 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , [exp] ( reg ) | reg , exp , reg (global store, exp not followed by '(')
     // Examples: sb a0, 0(sp) (immediate offset), sb a0, (sp) (zero offset via peekahead), sb a0, label, t0 (global store, no parens; parentheses in exp like (label + 4) are part of the expression)
-    fn parse_store(&mut self, op: LoadStoreOp) -> Result<Instruction, AssemblerError> {
+    fn parse_store(
+        &mut self,
+        op: LoadStoreOp,
+    ) -> Result<Instruction, AssemblerError> {
         let reg = self.parse_register()?;
         self.expect(&Token::Comma)?;
         // Peekahead for ( reg ) to handle zero offset: reg , ( reg )
@@ -899,10 +929,10 @@ pub fn parse(
             .iter()
             .map(|t| format!("{:?}", t))
             .collect();
-        return Err(AssemblerError::from_context(format!(
-            "Unexpected tokens after parsing: {}",
-            remaining.join(" ")
-        ), Location { file: file.clone(), line }));
+        return Err(AssemblerError::from_context(
+            format!("Unexpected tokens after parsing: {}", remaining.join(" ")),
+            Location { file: file.clone(), line },
+        ));
     }
 
     Ok(lines)

@@ -563,7 +563,8 @@ mod tests {
                 &tokens,
                 filename.to_string(),
                 (line_num + 1) as u32,
-            ).map_err(|e| e.with_source_context())?;
+            )
+            .map_err(|e| e.with_source_context())?;
 
             for mut parsed_line in parsed_lines {
                 // Update segment if directive changes it

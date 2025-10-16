@@ -145,7 +145,8 @@ pub fn new_evaluation_context(
     let data_size = source.data_size;
 
     // data_start = next 4K page boundary after (text_start + text_size)
-    let data_start = ((text_first_instruction + text_size + 4095) / 4096) * 4096;
+    let data_start =
+        ((text_first_instruction + text_size + 4095) / 4096) * 4096;
 
     // bss_start = immediately after data
     let bss_start = data_start + data_size;
