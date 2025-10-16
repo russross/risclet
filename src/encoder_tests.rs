@@ -50,7 +50,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
                 }
             }
 
-            line.segment = current_segment.clone();
+            line.segment = current_segment;
             line.size = guess_line_size(&line.content)?;
             all_lines.push(line);
         }

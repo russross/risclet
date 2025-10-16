@@ -577,7 +577,7 @@ mod tests {
                     }
                 }
 
-                parsed_line.segment = current_segment.clone();
+                parsed_line.segment = current_segment;
                 parsed_line.size = 4; // Simplified size guess for tests
                 lines.push(parsed_line);
             }

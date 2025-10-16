@@ -270,43 +270,20 @@ pub fn dump_ast(source: &Source, spec: &DumpSpec) {
     for (i, file) in source.files.iter().enumerate() {
         if matches_file_selection(&spec.files, &file.file, i) {
             println!("File: {}", file.file);
-            println!("{}", "=".repeat(60));
+            println!("{}", "=".repeat(79));
+
+            let max_line_width = calculate_max_line_width_for_file(file);
 
             for line in &file.lines {
-                print!("[{}:{}]", line.location.file, line.location.line);
-
-                match &line.content {
-                    LineContent::Label(_) => {
-                        print!(" ");
-                        dump_line_content_ast(&line.content);
-                    }
-                    _ => {
-                        print!("                ");
-                        dump_line_content_ast(&line.content);
-                    }
-                }
+                let (loc_str, padding) =
+                    format_location_aligned(&line.location, max_line_width);
+                print!("{}{} ", loc_str, padding);
+                dump_line_content_ast(&line.content);
                 println!();
             }
 
             println!();
         }
-    }
-
-    if !source.global_symbols.is_empty() {
-        println!("Global symbols:");
-        println!("{}", "=".repeat(60));
-        for global in &source.global_symbols {
-            println!(
-                "  {} -> {}:{}",
-                global.symbol,
-                source.files[global.definition_pointer.file_index].file,
-                source.files[global.definition_pointer.file_index].lines
-                    [global.definition_pointer.line_index]
-                    .location
-                    .line
-            );
-        }
-        println!();
     }
 }
 
@@ -316,9 +293,11 @@ fn dump_line_content_ast(content: &LineContent) {
             print!("(label \"{}\")", name);
         }
         LineContent::Instruction(inst) => {
+            print!("{:16}", "");
             dump_instruction_ast(inst);
         }
         LineContent::Directive(dir) => {
+            print!("{:16}", "");
             dump_directive_ast(dir);
         }
     }
@@ -584,14 +563,15 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
     for (i, file) in source.files.iter().enumerate() {
         if matches_file_selection(&spec.files, &file.file, i) {
             println!("File: {}", file.file);
-            println!("{}", "=".repeat(60));
+            println!("{}", "=".repeat(79));
+
+            let max_line_width = calculate_max_line_width_for_file(file);
 
             for line in file.lines.iter() {
                 // Format: [file:line] content
-                print!("[{}:{}] ", line.location.file, line.location.line);
-
-                // Print content in a readable format
-                print!("{}", line.content);
+                let (loc_str, padding) =
+                    format_location_aligned(&line.location, max_line_width);
+                print!("{}{} {}", loc_str, padding, line.content);
 
                 // If this line has outgoing references, show them
                 if !line.outgoing_refs.is_empty() {
@@ -604,12 +584,7 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
                             &source.files[ref_item.pointer.file_index];
                         let def_line =
                             &def_file.lines[ref_item.pointer.line_index];
-                        print!(
-                            " {}@{}:{}",
-                            ref_item.symbol,
-                            def_line.location.file,
-                            def_line.location.line
-                        );
+                        print!(" {}@{}", ref_item.symbol, def_line.location);
                     }
                 }
 
@@ -623,7 +598,7 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
     // Show global symbols
     if !source.global_symbols.is_empty() {
         println!("Global Symbols:");
-        println!("{}", "=".repeat(60));
+        println!("{}", "=".repeat(79));
         for global in &source.global_symbols {
             let def_file = &source.files[global.definition_pointer.file_index];
             let def_line =
@@ -634,12 +609,8 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
                 &decl_file.lines[global.declaration_pointer.line_index];
 
             println!(
-                "  {} → defined at {}:{}, declared at {}:{}",
-                global.symbol,
-                def_line.location.file,
-                def_line.location.line,
-                decl_line.location.file,
-                decl_line.location.line
+                "  {} → defined at {}, declared at {}",
+                global.symbol, def_line.location, decl_line.location
             );
         }
         println!();
@@ -667,24 +638,31 @@ pub fn dump_values(
         if is_final { " - FINAL" } else { "" }
     );
 
+    let addr_width = calculate_address_width(eval_context.text_start);
+
     for file in &source.files {
         if !should_include_file(&file.file, &spec.files) {
             continue;
         }
 
         println!("File: {}", file.file);
-        println!("{}", "=".repeat(60));
+        println!("{}", "=".repeat(79));
+
+        let max_line_width = calculate_max_line_width_for_file(file);
 
         for line in &file.lines {
             // Get absolute address
-            let segment_base =
-                get_segment_base(line.segment.clone(), eval_context);
+            let segment_base = get_segment_base(line.segment, eval_context);
             let abs_addr = segment_base + line.offset;
 
-            // Format: [file:line] address: content
+            let (loc_str, padding) =
+                format_location_aligned(&line.location, max_line_width);
             print!(
-                "[{}:{}] {:016x}: {}",
-                line.location.file, line.location.line, abs_addr, line.content
+                "{}{} {}: {}",
+                loc_str,
+                padding,
+                format_address(abs_addr as u64, addr_width, line.segment),
+                line.content
             );
 
             // Collect and show evaluated expression values
@@ -729,63 +707,213 @@ pub fn dump_code(
         if is_final { " - FINAL" } else { "" }
     );
 
+    let addr_width = calculate_address_width(eval_context.text_start);
+
     for file in &source.files {
         if !should_include_file(&file.file, &spec.files) {
             continue;
         }
 
         println!("File: {}", file.file);
-        println!("{}", "=".repeat(60));
+        println!("{}", "=".repeat(79));
+
+        let max_line_width = calculate_max_line_width_for_file(file);
 
         for line in &file.lines {
-            // Get absolute address
-            let segment_base =
-                get_segment_base(line.segment.clone(), eval_context);
+            // Get absolute address and encoded bytes
+            let segment_base = get_segment_base(line.segment, eval_context);
             let abs_addr = segment_base + line.offset;
-
-            // Get segment prefix (t. for text, d. for data, b. for bss)
-            let seg_prefix = match line.segment {
-                Segment::Text => "t",
-                Segment::Data => "d",
-                Segment::Bss => "b",
-            };
-
-            // Get encoded bytes for this line
             let encoded_bytes = get_encoded_bytes(line, text_bytes, data_bytes);
-            let bytes_str = if !encoded_bytes.is_empty() {
-                encoded_bytes
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            } else {
-                String::new()
-            };
 
-            // Format: [file:line] seg.address: bytes    content
-            print!(
-                "[{}:{}] {}.{:08x}: {:20}  {}",
-                line.location.file,
-                line.location.line,
-                seg_prefix,
-                abs_addr,
-                bytes_str,
-                line.content
-            );
+            match &line.content {
+                LineContent::Label(name) => {
+                    // For labels, print with location and address prefix
+                    let formatted_addr = format_address(
+                        abs_addr as u64,
+                        addr_width,
+                        line.segment,
+                    );
+                    let (loc_str, padding) =
+                        format_location_aligned(&line.location, max_line_width);
+                    println!(
+                        "{}{} {}: {}:",
+                        loc_str, padding, formatted_addr, name
+                    );
+                }
+                LineContent::Instruction(inst) => {
+                    // For instructions: print location, address, first 4 bytes, then instruction at column 16
+                    let formatted_addr = format_address(
+                        abs_addr as u64,
+                        addr_width,
+                        line.segment,
+                    );
+                    let (loc_str, padding) =
+                        format_location_aligned(&line.location, max_line_width);
+                    // print 2 spaces to offset bytes from labels
+                    print!("{}{} {}:   ", loc_str, padding, formatted_addr);
 
-            // Collect and show evaluated expression values
-            let expr_values = collect_expression_values(line, eval_context);
-            if !expr_values.is_empty() {
-                print!("  # ");
-                for (i, val_str) in expr_values.iter().enumerate() {
-                    if i > 0 {
-                        print!(", ");
+                    // Print first 4 bytes (or fewer if instruction is shorter)
+                    if !encoded_bytes.is_empty() {
+                        let first_chunk = &encoded_bytes
+                            [..std::cmp::min(4, encoded_bytes.len())];
+                        for b in first_chunk {
+                            print!("{:02x} ", b);
+                        }
                     }
-                    print!("{}", val_str);
+
+                    // Pad to column 16 before printing instruction
+                    let bytes_printed = if encoded_bytes.is_empty() {
+                        2
+                    } else {
+                        2 + std::cmp::min(4, encoded_bytes.len()) * 3 // each byte is "xx " (3 chars)
+                    };
+                    let instruction_padding =
+                        if bytes_printed < 16 { 16 - bytes_printed } else { 1 };
+                    print!("{:<width$}", "", width = instruction_padding);
+                    print!("{}", inst);
+
+                    // If more than 4 bytes, print continuation lines with 4 bytes each
+                    if encoded_bytes.len() > 4 {
+                        println!();
+                        for (i, chunk) in
+                            encoded_bytes[4..].chunks(4).enumerate()
+                        {
+                            let chunk_addr = abs_addr + ((i + 1) as i64 * 4);
+                            let chunk_formatted_addr = format_address(
+                                chunk_addr as u64,
+                                addr_width,
+                                line.segment,
+                            );
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, chunk_formatted_addr
+                            );
+                            for b in chunk {
+                                print!("{:02x} ", b);
+                            }
+                            if i < (encoded_bytes.len() - 4 + 3) / 4 - 1 {
+                                println!();
+                            }
+                        }
+                    }
+                    println!();
+                }
+                LineContent::Directive(_dir) => {
+                    // For directives: print 8 bytes per line with proper alignment
+                    let (loc_str, padding) =
+                        format_location_aligned(&line.location, max_line_width);
+                    if encoded_bytes.is_empty() {
+                        // Directives with no encoded bytes (e.g., .text, .data, .global)
+                        let formatted_addr = format_address(
+                            abs_addr as u64,
+                            addr_width,
+                            line.segment,
+                        );
+                        println!(
+                            "{}{} {}: {}",
+                            loc_str, padding, formatted_addr, line.content
+                        );
+                    } else {
+                        // Directives with bytes: handle alignment
+                        println!(
+                            "{}{} {}: {}",
+                            loc_str,
+                            padding,
+                            format_address(
+                                abs_addr as u64,
+                                addr_width,
+                                line.segment
+                            ),
+                            line.content
+                        );
+
+                        // Calculate alignment: how many bytes to print on first line to reach 8-byte alignment
+                        let alignment_offset = abs_addr & 0x7; // offset within 8-byte boundary
+                        let bytes_to_align = if alignment_offset == 0 {
+                            8
+                        } else {
+                            8 - alignment_offset
+                        };
+
+                        let mut byte_offset = 0;
+
+                        // First line: print bytes until we reach 8-byte alignment or run out
+                        if byte_offset < encoded_bytes.len() {
+                            let first_line_count = std::cmp::min(
+                                bytes_to_align as usize,
+                                encoded_bytes.len(),
+                            );
+                            let first_addr = abs_addr;
+                            let first_formatted_addr = format_address(
+                                first_addr as u64,
+                                addr_width,
+                                line.segment,
+                            );
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, first_formatted_addr
+                            );
+
+                            // Right-flush bytes: print padding spaces first if not 8 bytes
+                            if first_line_count < 8 {
+                                let padding_bytes = 8 - first_line_count;
+                                for _ in 0..padding_bytes {
+                                    print!("   "); // 3 spaces per byte (for "xx ")
+                                }
+                            }
+
+                            for b in &encoded_bytes
+                                [byte_offset..byte_offset + first_line_count]
+                            {
+                                print!("{:02x} ", b);
+                            }
+                            println!();
+                            byte_offset += first_line_count;
+                        }
+
+                        // Middle lines: print 8 bytes per line starting on 8-byte aligned addresses
+                        while byte_offset + 8 <= encoded_bytes.len() {
+                            let line_addr = abs_addr + byte_offset as i64;
+                            let line_formatted_addr = format_address(
+                                line_addr as u64,
+                                addr_width,
+                                line.segment,
+                            );
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, line_formatted_addr
+                            );
+                            for b in
+                                &encoded_bytes[byte_offset..byte_offset + 8]
+                            {
+                                print!("{:02x} ", b);
+                            }
+                            println!();
+                            byte_offset += 8;
+                        }
+
+                        // Last line: print remaining bytes (if any) on next 8-byte aligned address
+                        if byte_offset < encoded_bytes.len() {
+                            // Round up to next 8-byte boundary for the address
+                            let aligned_offset = ((byte_offset + 7) / 8) * 8;
+                            let last_addr = abs_addr + aligned_offset as i64;
+                            let last_formatted_addr = format_address(
+                                last_addr as u64,
+                                addr_width,
+                                line.segment,
+                            );
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, last_formatted_addr
+                            );
+                            for b in &encoded_bytes[byte_offset..] {
+                                print!("{:02x} ", b);
+                            }
+                            println!();
+                        }
+                    }
                 }
             }
-
-            println!();
         }
 
         println!();
@@ -814,7 +942,7 @@ pub fn dump_elf(builder: &ElfBuilder, source: &Source, parts: &ElfDumpParts) {
 
 fn dump_elf_headers(builder: &ElfBuilder) {
     println!("ELF Header:");
-    println!("{}", "-".repeat(60));
+    println!("{}", "-".repeat(79));
 
     let h = &builder.header;
 
@@ -868,7 +996,7 @@ fn dump_elf_headers(builder: &ElfBuilder) {
 
     // Program headers
     println!("Program Headers:");
-    println!("{}", "-".repeat(60));
+    println!("{}", "-".repeat(79));
     println!("  Type           Offset             VirtAddr           PhysAddr");
     println!(
         "                 FileSiz            MemSiz             Flags  Align"
@@ -902,7 +1030,7 @@ fn dump_elf_headers(builder: &ElfBuilder) {
 
 fn dump_elf_sections(builder: &ElfBuilder) {
     println!("Section Headers:");
-    println!("{}", "-".repeat(60));
+    println!("{}", "-".repeat(79));
     println!(
         "  [Nr] Name              Type            Address          Off    Size   Flg Lk"
     );
@@ -965,7 +1093,7 @@ fn dump_elf_sections(builder: &ElfBuilder) {
 
 fn dump_elf_symbols(builder: &ElfBuilder, _source: &Source) {
     println!("Symbol Table:");
-    println!("{}", "-".repeat(60));
+    println!("{}", "-".repeat(79));
     println!("  Num:    Value          Size Type    Bind   Ndx Name");
 
     for (i, sym) in builder.symbol_table.iter().enumerate() {
@@ -1021,6 +1149,72 @@ fn dump_elf_symbols(builder: &ElfBuilder, _source: &Source) {
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/// Calculate the maximum line number width in a single source file for alignment purposes
+fn calculate_max_line_width_for_file(file: &SourceFile) -> usize {
+    let mut max_line_num = 0u32;
+    for line in &file.lines {
+        if line.location.line > max_line_num {
+            max_line_num = line.location.line;
+        }
+    }
+
+    // Count digits in max_line_num
+    if max_line_num == 0 {
+        1
+    } else {
+        ((max_line_num as f64).log10().floor() as usize) + 1
+    }
+}
+
+/// Format location with alignment padding
+/// Returns (formatted_location, padding_spaces) where padding_spaces aligns all locations
+fn format_location_aligned(
+    location: &Location,
+    max_line_width: usize,
+) -> (String, String) {
+    let formatted = format!("[{}:{}]", location.file, location.line);
+    let line_num_str = location.line.to_string();
+    let current_width = line_num_str.len();
+    let padding_needed = if current_width < max_line_width {
+        max_line_width - current_width
+    } else {
+        0
+    };
+    let padding = " ".repeat(padding_needed);
+    (formatted, padding)
+}
+
+/// Calculate the number of hex digits needed to represent an address
+/// Given a base address, determines how many hex digits it needs, then adds 1.
+/// Examples: 0x10000 needs 5 digits, so use 6; 0x1000000 needs 7 digits, so use 8
+fn calculate_address_width(text_start: i64) -> usize {
+    if text_start <= 0 {
+        return 6; // Fallback: 0x0 needs 1 digit, so use 2 as minimum, but we'll use 6 for consistency
+    }
+
+    // Calculate number of hex digits needed to represent text_start
+    let unsigned_addr = text_start.abs() as u64;
+    let bits_needed = 64 - unsigned_addr.leading_zeros() as usize;
+    let hex_digits_for_addr = (bits_needed + 3) / 4; // Round up to nearest hex digit
+
+    // Add 1 to the digit count as per requirements
+    hex_digits_for_addr + 1
+}
+
+/// Format an address with segment suffix
+/// addr_width: number of hex digits to use
+/// addr: the address to format
+/// segment_suffix: ".t", ".d", or ".b"
+fn format_address(addr: u64, addr_width: usize, segment: Segment) -> String {
+    let suffix = match segment {
+        Segment::Text => ".t",
+        Segment::Data => ".d",
+        Segment::Bss => ".b",
+    };
+
+    format!("{:0width$x}{}", addr, suffix, width = addr_width)
+}
 
 fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> i64 {
     match segment {
@@ -1084,12 +1278,7 @@ fn collect_expression_values(
     };
 
     match &line.content {
-        LineContent::Label(_label) => {
-            // Show the address value of this label
-            let addr = line.offset
-                + get_segment_base(line.segment.clone(), eval_context);
-            values.push(format!("0x{:x}", addr));
-        }
+        LineContent::Label(_label) => {}
         LineContent::Directive(dir) => match dir {
             Directive::Equ(_, expr) => {
                 values.push(format_value(expr));

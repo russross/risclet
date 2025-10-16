@@ -91,8 +91,7 @@ pub fn encode_source_with_size_tracking(
         for line_idx in 0..source.files[file_idx].lines.len() {
             // Extract the data we need from the line before encoding
             let old_size = source.files[file_idx].lines[line_idx].size;
-            let segment =
-                source.files[file_idx].lines[line_idx].segment.clone();
+            let segment = source.files[file_idx].lines[line_idx].segment;
 
             // Create encoding context
             let mut context = EncodingContext {

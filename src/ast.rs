@@ -34,7 +34,7 @@ pub struct Location {
 }
 
 /// An enum representing the three segments in the assembler output.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum Segment {
     Text,
     Data,
@@ -652,7 +652,7 @@ pub enum Expression {
 
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}", self.file, self.line)
+        write!(f, "[{}:{}]", self.file, self.line)
     }
 }
 
@@ -664,78 +664,6 @@ impl fmt::Display for Segment {
             Segment::Bss => ".bss",
         };
         write!(f, "{}", s)
-    }
-}
-
-impl fmt::Display for SourceFile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "SourceFile: {} (text: {}, data: {}, bss: {})",
-            self.file, self.text_size, self.data_size, self.bss_size
-        )?;
-        Ok(())
-    }
-}
-
-impl fmt::Display for Source {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
-            f,
-            "Source (text: {}, data: {}, bss: {})",
-            self.text_size, self.data_size, self.bss_size
-        )?;
-        for (file_index, file) in self.files.iter().enumerate() {
-            writeln!(f, "{}", file)?;
-            for (line_index, line) in file.lines.iter().enumerate() {
-                write!(
-                    f,
-                    "  [{}:{}] {}+{}: {}",
-                    file_index,
-                    line_index,
-                    line.segment,
-                    line.offset,
-                    line.content
-                )?;
-                if !line.outgoing_refs.is_empty() {
-                    write!(f, " -> ")?;
-                    for (i, sym_ref) in line.outgoing_refs.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        write!(
-                            f,
-                            "{}@[{}:{}]",
-                            sym_ref.symbol,
-                            sym_ref.pointer.file_index,
-                            sym_ref.pointer.line_index
-                        )?;
-                    }
-                }
-                writeln!(f)?;
-            }
-
-            // Show exported symbols for this file
-            let exported: Vec<_> = self
-                .global_symbols
-                .iter()
-                .filter(|g| g.definition_pointer.file_index == file_index)
-                .collect();
-
-            if !exported.is_empty() {
-                writeln!(f, "  Exported symbols:")?;
-                for global in exported {
-                    writeln!(
-                        f,
-                        "    {} -> [{}:{}]",
-                        global.symbol,
-                        global.definition_pointer.file_index,
-                        global.definition_pointer.line_index
-                    )?;
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -839,16 +767,6 @@ impl fmt::Display for Token {
     }
 }
 
-impl fmt::Display for Line {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}+{}: {} (size {})",
-            self.segment, self.offset, self.content, self.size
-        )
-    }
-}
-
 impl fmt::Display for LineContent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -904,16 +822,16 @@ impl fmt::Display for LoadStoreOp {
 impl fmt::Display for PseudoOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PseudoOp::Li(rd, imm) => write!(f, "{:<8} {}, {}", "li", rd, imm),
-            PseudoOp::La(rd, s) => write!(f, "{:<8} {}, {}", "la", rd, s),
+            PseudoOp::Li(rd, imm) => write!(f, "{:<7} {}, {}", "li", rd, imm),
+            PseudoOp::La(rd, s) => write!(f, "{:<7} {}, {}", "la", rd, s),
             PseudoOp::LoadGlobal(op, rd, expr) => {
-                write!(f, "{:<8} {}, {}", op, rd, expr)
+                write!(f, "{:<7} {}, {}", op.to_string(), rd, expr)
             }
             PseudoOp::StoreGlobal(op, rs, expr, temp) => {
-                write!(f, "{:<8} {}, {}, {}", op, rs, expr, temp)
+                write!(f, "{:<7} {}, {}, {}", op.to_string(), rs, expr, temp)
             }
-            PseudoOp::Call(expr) => write!(f, "{:<8} {}", "call", expr),
-            PseudoOp::Tail(expr) => write!(f, "{:<8} {}", "tail", expr),
+            PseudoOp::Call(expr) => write!(f, "{:<7} {}", "call", expr),
+            PseudoOp::Tail(expr) => write!(f, "{:<7} {}", "tail", expr),
         }
     }
 }
@@ -922,23 +840,23 @@ impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Instruction::RType(op, rd, rs1, rs2) => {
-                write!(f, "{:<8} {}, {}, {}", op, rd, rs1, rs2)
+                write!(f, "{:<7} {}, {}, {}", op.to_string(), rd, rs1, rs2)
             }
             Instruction::IType(op, rd, rs1, imm) => {
-                write!(f, "{:<8} {}, {}, {}", op, rd, rs1, imm)
+                write!(f, "{:<7} {}, {}, {}", op.to_string(), rd, rs1, imm)
             }
             Instruction::BType(op, rs1, rs2, expr) => {
-                write!(f, "{:<8} {}, {}, {}", op, rs1, rs2, expr)
+                write!(f, "{:<7} {}, {}, {}", op.to_string(), rs1, rs2, expr)
             }
             Instruction::UType(op, rd, imm) => {
-                write!(f, "{:<8} {}, {}", op, rd, imm)
+                write!(f, "{:<7} {}, {}", op.to_string(), rd, imm)
             }
             Instruction::JType(op, rd, expr) => {
-                write!(f, "{:<8} {}, {}", op, rd, expr)
+                write!(f, "{:<7} {}, {}", op.to_string(), rd, expr)
             }
             Instruction::Special(op) => write!(f, "{}", op),
             Instruction::LoadStore(op, rd, offset, rs) => {
-                write!(f, "{:<8} {}, {}({})", op, rd, offset, rs)
+                write!(f, "{:<7} {}, {}({})", op.to_string(), rd, offset, rs)
             }
             Instruction::Pseudo(p) => write!(f, "{}", p),
         }
@@ -949,23 +867,23 @@ impl fmt::Display for Directive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Directive::Global(s) => {
-                write!(f, "{:<8} {}", ".global", s.join(" "))
+                write!(f, "{:<7} {}", ".global", s.join(", "))
             }
             Directive::Equ(name, expr) => {
-                write!(f, "{:<8} {}, {}", ".equ", name, expr)
+                write!(f, "{:<7} {}, {}", ".equ", name, expr)
             }
             Directive::Text => write!(f, ".text"),
             Directive::Data => write!(f, ".data"),
             Directive::Bss => write!(f, ".bss"),
-            Directive::Space(expr) => write!(f, "{:<8} {}", ".space", expr),
-            Directive::Balign(expr) => write!(f, "{:<8} {}", ".balign", expr),
+            Directive::Space(expr) => write!(f, "{:<7} {}", ".space", expr),
+            Directive::Balign(expr) => write!(f, "{:<7} {}", ".balign", expr),
             Directive::String(items) => {
                 let formatted = items
                     .iter()
                     .map(|s| format!("{:?}", s))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<8} {}", ".string", formatted)
+                write!(f, "{:<7} {}", ".string", formatted)
             }
             Directive::Asciz(items) => {
                 let formatted = items
@@ -973,7 +891,7 @@ impl fmt::Display for Directive {
                     .map(|s| format!("{:?}", s))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<8} {}", ".asciz", formatted)
+                write!(f, "{:<7} {}", ".asciz", formatted)
             }
             Directive::Byte(items) => {
                 let formatted = items
@@ -981,7 +899,7 @@ impl fmt::Display for Directive {
                     .map(|e| e.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<8} {}", ".byte", formatted)
+                write!(f, "{:<7} {}", ".byte", formatted)
             }
             Directive::TwoByte(items) => {
                 let formatted = items
@@ -989,7 +907,7 @@ impl fmt::Display for Directive {
                     .map(|e| e.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<8} {}", ".2byte", formatted)
+                write!(f, "{:<7} {}", ".2byte", formatted)
             }
             Directive::FourByte(items) => {
                 let formatted = items
@@ -997,7 +915,7 @@ impl fmt::Display for Directive {
                     .map(|e| e.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<8} {}", ".4byte", formatted)
+                write!(f, "{:<7} {}", ".4byte", formatted)
             }
             Directive::EightByte(items) => {
                 let formatted = items
@@ -1005,7 +923,7 @@ impl fmt::Display for Directive {
                     .map(|e| e.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<8} {}", ".8byte", formatted)
+                write!(f, "{:<7} {}", ".8byte", formatted)
             }
         }
     }

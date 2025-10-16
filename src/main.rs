@@ -578,7 +578,7 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
 
                 // Assign segment and set size
                 let mut new_line = parsed_line;
-                new_line.segment = current_segment.clone();
+                new_line.segment = current_segment;
                 new_line.size = assembler::guess_line_size(&new_line.content)
                     .map_err(|e| {
                     error::AssemblerError::from_context(

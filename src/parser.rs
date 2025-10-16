@@ -941,7 +941,6 @@ pub fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::*;
     use crate::tokenizer;
 
     #[test]
