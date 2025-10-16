@@ -57,8 +57,8 @@ impl Default for ElfDumpParts {
 /// Complete dump configuration
 #[derive(Debug, Clone, PartialEq)]
 pub struct DumpConfig {
-    pub dump_ast: bool,
-    pub dump_symbols: bool,
+    pub dump_ast: Option<DumpSpec>,
+    pub dump_symbols: Option<DumpSpec>,
     pub dump_values: Option<DumpSpec>,
     pub dump_code: Option<DumpSpec>,
     pub dump_elf: Option<ElfDumpParts>,
@@ -73,8 +73,8 @@ impl Default for DumpConfig {
 impl DumpConfig {
     pub fn new() -> Self {
         Self {
-            dump_ast: false,
-            dump_symbols: false,
+            dump_ast: None,
+            dump_symbols: None,
             dump_values: None,
             dump_code: None,
             dump_elf: None,
@@ -83,8 +83,8 @@ impl DumpConfig {
 
     /// Returns true if any dump option is enabled
     pub fn has_dumps(&self) -> bool {
-        self.dump_ast
-            || self.dump_symbols
+        self.dump_ast.is_some()
+            || self.dump_symbols.is_some()
             || self.dump_values.is_some()
             || self.dump_code.is_some()
             || self.dump_elf.is_some()
@@ -156,6 +156,14 @@ pub fn parse_file_selection(s: &str) -> FileSelection {
         FileSelection::All
     } else {
         FileSelection::Specific(files)
+    }
+}
+
+/// Check if a file matches the selection criteria
+fn matches_file_selection(selection: &FileSelection, filename: &str, index: usize) -> bool {
+    match selection {
+        FileSelection::All => true,
+        FileSelection::Specific(files) => files.iter().any(|f| f == filename || f == &format!("{}", index)),
     }
 }
 
@@ -244,65 +252,48 @@ pub fn should_include_file(file: &str, selection: &FileSelection) -> bool {
 // AST Dump (S-Expression Format)
 // ============================================================================
 
-pub fn dump_ast(source: &Source) {
-    println!("========== AST DUMP (S-Expression Format) ==========\n");
-    println!("(source");
-    println!("  (text-size {})", source.text_size);
-    println!("  (data-size {})", source.data_size);
-    println!("  (bss-size {})", source.bss_size);
-    println!("  (files");
-    for file in &source.files {
-        dump_file_ast(file, 2);
-    }
-    println!("  )");
-    println!("  (global-symbols");
-    for global in &source.global_symbols {
-        println!("    (global \"{}\" file:{} line:{})",
-            global.symbol,
-            global.definition_pointer.file_index,
-            global.definition_pointer.line_index);
-    }
-    println!("  )");
-    println!(")");
-}
+pub fn dump_ast(source: &Source, spec: &DumpSpec) {
+    println!("AST Dump:\n");
 
-fn dump_file_ast(file: &SourceFile, indent: usize) {
-    let ind = " ".repeat(indent);
-    println!("{}(file", ind);
-    println!("{}  (path \"{}\")", ind, file.file);
-    println!("{}  (text-size {})", ind, file.text_size);
-    println!("{}  (data-size {})", ind, file.data_size);
-    println!("{}  (bss-size {})", ind, file.bss_size);
-    println!("{}  (lines", ind);
-    for line in &file.lines {
-        dump_line_ast(line, indent + 4);
-    }
-    println!("{}  )", ind);
-    println!("{})", ind);
-}
+    for (i, file) in source.files.iter().enumerate() {
+        if matches_file_selection(&spec.files, &file.file, i) {
+            println!("File: {}", file.file);
+            println!("{}", "=".repeat(60));
 
-fn dump_line_ast(line: &Line, indent: usize) {
-    let ind = " ".repeat(indent);
-    println!("{}(line", ind);
-    println!("{}  (location \"{}:{}\")", ind, line.location.file, line.location.line);
-    println!("{}  (segment {})", ind, line.segment);
-    println!("{}  (offset {})", ind, line.offset);
-    println!("{}  (size {})", ind, line.size);
-    print!("{}  (content ", ind);
-    dump_line_content_ast(&line.content);
-    println!(")");
-    if !line.outgoing_refs.is_empty() {
-        println!("{}  (outgoing-refs", ind);
-        for ref_item in &line.outgoing_refs {
-            println!("{}    (ref \"{}\" file:{} line:{})",
-                ind, ref_item.symbol,
-                ref_item.pointer.file_index,
-                ref_item.pointer.line_index);
+            for line in &file.lines {
+                print!("[{}:{}]", line.location.file, line.location.line);
+
+                match &line.content {
+                    LineContent::Label(_) => {
+                        print!(" ");
+                        dump_line_content_ast(&line.content);
+                    }
+                    _ => {
+                        print!("                ");
+                        dump_line_content_ast(&line.content);
+                    }
+                }
+                println!();
+            }
+
+            println!();
         }
-        println!("{}  )", ind);
     }
-    println!("{})", ind);
+
+    if !source.global_symbols.is_empty() {
+        println!("Global symbols:");
+        println!("{}", "=".repeat(60));
+        for global in &source.global_symbols {
+            println!("  {} -> {}:{}",
+                global.symbol,
+                source.files[global.definition_pointer.file_index].file,
+                source.files[global.definition_pointer.file_index].lines[global.definition_pointer.line_index].location.line);
+        }
+        println!();
+    }
 }
+
+
 
 fn dump_line_content_ast(content: &LineContent) {
     match content {
@@ -568,40 +559,42 @@ fn dump_expression_ast(expr: &Expression) {
 // Symbol Resolution Dump
 // ============================================================================
 
-pub fn dump_symbols(source: &Source) {
+pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
-    for file in source.files.iter() {
-        println!("File: {}", file.file);
-        println!("{}", "=".repeat(60));
+    for (i, file) in source.files.iter().enumerate() {
+        if matches_file_selection(&spec.files, &file.file, i) {
+            println!("File: {}", file.file);
+            println!("{}", "=".repeat(60));
 
-        for line in file.lines.iter() {
-            // Format: [file:line] content
-            print!("[{}:{}] ", line.location.file, line.location.line);
+            for line in file.lines.iter() {
+                // Format: [file:line] content
+                print!("[{}:{}] ", line.location.file, line.location.line);
 
-            // Print content in a readable format
-            print!("{}", line.content);
+                // Print content in a readable format
+                print!("{}", line.content);
 
-            // If this line has outgoing references, show them
-            if !line.outgoing_refs.is_empty() {
-                print!("  →");
-                for (i, ref_item) in line.outgoing_refs.iter().enumerate() {
-                    if i > 0 {
-                        print!(",");
+                // If this line has outgoing references, show them
+                if !line.outgoing_refs.is_empty() {
+                    print!("  →");
+                    for (j, ref_item) in line.outgoing_refs.iter().enumerate() {
+                        if j > 0 {
+                            print!(",");
+                        }
+                        let def_file = &source.files[ref_item.pointer.file_index];
+                        let def_line = &def_file.lines[ref_item.pointer.line_index];
+                        print!(" {}@{}:{}",
+                            ref_item.symbol,
+                            def_line.location.file,
+                            def_line.location.line);
                     }
-                    let def_file = &source.files[ref_item.pointer.file_index];
-                    let def_line = &def_file.lines[ref_item.pointer.line_index];
-                    print!(" {}@{}:{}",
-                        ref_item.symbol,
-                        def_line.location.file,
-                        def_line.location.line);
                 }
+
+                println!();
             }
 
             println!();
         }
-
-        println!();
     }
 
     // Show global symbols

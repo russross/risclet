@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::error::AssemblerError;
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -10,6 +11,10 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token], file: String, line: u32) -> Self {
         Parser { tokens, pos: 0, file, line }
+    }
+
+    fn location(&self) -> Location {
+        Location { file: self.file.clone(), line: self.line }
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -26,48 +31,60 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect(&mut self, expected: &Token) -> Result<(), String> {
+    fn expect(&mut self, expected: &Token) -> Result<(), AssemblerError> {
         if let Some(t) = self.peek() {
             if t == expected {
                 self.next();
                 Ok(())
             } else {
-                Err(format!("Expected {:?}, found {:?}", expected, t))
+                Err(AssemblerError::from_context(
+                    format!("Expected {:?}, found {:?}", expected, t),
+                    self.location(),
+                ))
             }
         } else {
-            Err(format!("Expected {:?}, found EOF", expected))
+            Err(AssemblerError::from_context(
+                format!("Expected {:?}, found EOF", expected),
+                self.location(),
+            ))
         }
     }
 
     // Grammar: ident
     // Example: foo
-    fn parse_identifier(&mut self) -> Result<String, String> {
+    fn parse_identifier(&mut self) -> Result<String, AssemblerError> {
         if let Some(Token::Identifier(s)) = self.next() {
             Ok(s)
         } else {
-            Err("Expected identifier".to_string())
+            Err(AssemblerError::from_context(
+                "Expected identifier".to_string(),
+                self.location(),
+            ))
         }
     }
 
     // Grammar: reg
     // Example: a0
-    fn parse_register(&mut self) -> Result<Register, String> {
+    fn parse_register(&mut self) -> Result<Register, AssemblerError> {
         if let Some(Token::Register(r)) = self.next() {
             Ok(r)
         } else {
-            Err("Expected register".to_string())
+            Err(AssemblerError::from_context(
+                "Expected register".to_string(),
+                self.location(),
+            ))
         }
     }
 
     // Grammar: exp (calls parse_bitwise_or) (part of expression grammar)
     // Example: a + b * c
-    fn parse_expression(&mut self) -> Result<Expression, String> {
+    fn parse_expression(&mut self) -> Result<Expression, AssemblerError> {
         self.parse_bitwise_or()
     }
 
     // Grammar: bitwise_or ::= bitwise_xor ( | bitwise_xor )* (part of expression grammar)
     // Example: a | b | c
-    fn parse_bitwise_or(&mut self) -> Result<Expression, String> {
+    fn parse_bitwise_or(&mut self) -> Result<Expression, AssemblerError> {
         let mut left = self.parse_bitwise_xor()?;
         while let Some(op) = self.peek() {
             match op {
@@ -87,7 +104,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: bitwise_xor ::= bitwise_and ( ^ bitwise_and )* (part of expression grammar)
     // Example: a ^ b
-    fn parse_bitwise_xor(&mut self) -> Result<Expression, String> {
+    fn parse_bitwise_xor(&mut self) -> Result<Expression, AssemblerError> {
         let mut left = self.parse_bitwise_and()?;
         while let Some(op) = self.peek() {
             match op {
@@ -107,7 +124,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: bitwise_and ::= shift ( & shift )* (part of expression grammar)
     // Example: a & b & c
-    fn parse_bitwise_and(&mut self) -> Result<Expression, String> {
+    fn parse_bitwise_and(&mut self) -> Result<Expression, AssemblerError> {
         let mut left = self.parse_shift()?;
         while let Some(op) = self.peek() {
             match op {
@@ -127,7 +144,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: shift ::= additive ( << additive | >> additive )* (part of expression grammar)
     // Examples: a << 1, b >> 2, c << 1 >> 2
-    fn parse_shift(&mut self) -> Result<Expression, String> {
+    fn parse_shift(&mut self) -> Result<Expression, AssemblerError> {
         let mut left = self.parse_additive()?;
         while let Some(op) = self.peek() {
             match op {
@@ -155,7 +172,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: additive ::= multiplicative ( + multiplicative | - multiplicative )* (part of expression grammar)
     // Examples: a + b, c - d, e + f - g
-    fn parse_additive(&mut self) -> Result<Expression, String> {
+    fn parse_additive(&mut self) -> Result<Expression, AssemblerError> {
         let mut left = self.parse_multiplicative()?;
         while let Some(op) = self.peek() {
             match op {
@@ -183,7 +200,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: multiplicative ::= unary ( * unary | / unary | % unary )* (part of expression grammar)
     // Examples: a * b, c / d, e % f, g * h / i % j
-    fn parse_multiplicative(&mut self) -> Result<Expression, String> {
+    fn parse_multiplicative(&mut self) -> Result<Expression, AssemblerError> {
         let mut left = self.parse_unary()?;
         while let Some(op) = self.peek() {
             match op {
@@ -219,7 +236,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: unary ::= - unary | ~ unary | operand (part of expression grammar)
     // Examples: -a (negation), ~b (bitwise not), c (no unary op)
-    fn parse_unary(&mut self) -> Result<Expression, String> {
+    fn parse_unary(&mut self) -> Result<Expression, AssemblerError> {
         if let Some(Token::Operator(OperatorOp::Minus)) = self.peek() {
             self.next();
             let expr = self.parse_unary()?;
@@ -237,7 +254,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: operand ::= int | ident | label_ref | ( exp ) (part of expression grammar)
     // Examples: 42 (integer literal), foo (identifier), 1f (numeric label), (a + b) (parenthesized expression)
-    fn parse_operand(&mut self) -> Result<Expression, String> {
+    fn parse_operand(&mut self) -> Result<Expression, AssemblerError> {
         if let Some(t) = self.peek().cloned() {
             match t {
                 Token::Integer(i) => {
@@ -279,16 +296,16 @@ impl<'a> Parser<'a> {
                     self.next();
                     Ok(Expression::CurrentAddress) // .
                 }
-                _ => Err("Expected operand".to_string()),
+                _ => Err(AssemblerError::from_context("Expected operand".to_string(), self.location())),
             }
         } else {
-            Err("Expected operand".to_string())
+            Err(AssemblerError::from_context("Expected operand".to_string(), self.location()))
         }
     }
 
     // Grammar: [ident | int :] [directive | instruction]
     // Examples: loop: add a0, a1, a2 (labeled instruction), .global foo (directive), add a0, a1, a2 (unlabeled instruction)
-    fn parse_line(&mut self) -> Result<Vec<Line>, String> {
+    fn parse_line(&mut self) -> Result<Vec<Line>, AssemblerError> {
         let location = Location { file: self.file.clone(), line: self.line };
         let mut lines = Vec::new();
         // Check for label: [ident | int :] (peekahead and backtrack if no colon)
@@ -346,14 +363,14 @@ impl<'a> Parser<'a> {
             });
         }
         if lines.is_empty() {
-            return Err("Empty line".to_string());
+            return Err(AssemblerError::from_context("Empty line".to_string(), self.location()));
         }
         Ok(lines)
     }
 
     // Grammar: .global ident | .equ ident , exp | .text | .data | .bss | .space exp | .balign exp | .string string [, string]* | .asciz string [, string]* | .byte exp [, exp]* | .2byte exp [, exp]* | .4byte exp [, exp]* | .8byte exp [, exp]*
     // Examples: .global main, .equ SIZE, 100, .text, .data, .bss, .space 4, .balign 8, .string "hello", "world", .asciz "foo", .byte 1, 2, 3, .2byte 10, 20, .4byte 100, .8byte 1000
-    fn parse_directive(&mut self) -> Result<Directive, String> {
+    fn parse_directive(&mut self) -> Result<Directive, AssemblerError> {
         if let Some(Token::Directive(d)) = self.next() {
             match d {
                 DirectiveOp::Global => {
@@ -446,12 +463,12 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            Err("Expected directive".to_string())
+            Err(AssemblerError::from_context("Expected directive".to_string(), self.location()))
         }
     }
 
     // Grammar: opcode-specific (see below for each type)
-    fn parse_instruction(&mut self) -> Result<Instruction, String> {
+    fn parse_instruction(&mut self) -> Result<Instruction, AssemblerError> {
         let opcode = self.parse_identifier()?;
         match opcode.as_str() {
             // R-type
@@ -753,13 +770,13 @@ impl<'a> Parser<'a> {
                     Box::new(Expression::Literal(-1)),
                 ))
             }
-            _ => Err(format!("Unknown instruction {}", opcode)),
+            _ => Err(AssemblerError::from_context(format!("Unknown instruction {}", opcode), self.location())),
         }
     }
 
     // Grammar: reg , reg , reg
     // Example: add a0, a1, a2
-    fn parse_rtype(&mut self, op: RTypeOp) -> Result<Instruction, String> {
+    fn parse_rtype(&mut self, op: RTypeOp) -> Result<Instruction, AssemblerError> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs1 = self.parse_register()?;
@@ -770,7 +787,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , exp
     // Examples: addi a0, a1, 1, addi a0, a1, 'z' - 'a'
-    fn parse_itype(&mut self, op: ITypeOp) -> Result<Instruction, String> {
+    fn parse_itype(&mut self, op: ITypeOp) -> Result<Instruction, AssemblerError> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs1 = self.parse_register()?;
@@ -781,7 +798,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , expression
     // Examples: beq a0, a1, loop (symbolic), beq a0, a1, . + 8 (expression)
-    fn parse_btype(&mut self, op: BTypeOp) -> Result<Instruction, String> {
+    fn parse_btype(&mut self, op: BTypeOp) -> Result<Instruction, AssemblerError> {
         let rs1 = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs2 = self.parse_register()?;
@@ -792,7 +809,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , [exp] ( reg ) | reg , exp (global load, exp not followed by '(')
     // Examples: lb a0, 0(sp) (immediate offset), lb a0, (sp) (zero offset via peekahead), lb a0, label (global load, no parens; parentheses in exp like (label + 4) are part of the expression)
-    fn parse_load(&mut self, op: LoadStoreOp) -> Result<Instruction, String> {
+    fn parse_load(&mut self, op: LoadStoreOp) -> Result<Instruction, AssemblerError> {
         let reg = self.parse_register()?;
         self.expect(&Token::Comma)?;
         // Peekahead for ( reg ) to handle zero offset: reg , ( reg )
@@ -829,7 +846,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , [exp] ( reg ) | reg , exp , reg (global store, exp not followed by '(')
     // Examples: sb a0, 0(sp) (immediate offset), sb a0, (sp) (zero offset via peekahead), sb a0, label, t0 (global store, no parens; parentheses in exp like (label + 4) are part of the expression)
-    fn parse_store(&mut self, op: LoadStoreOp) -> Result<Instruction, String> {
+    fn parse_store(&mut self, op: LoadStoreOp) -> Result<Instruction, AssemblerError> {
         let reg = self.parse_register()?;
         self.expect(&Token::Comma)?;
         // Peekahead for ( reg ) to handle zero offset: reg , ( reg )
@@ -872,8 +889,8 @@ pub fn parse(
     tokens: &[Token],
     file: String,
     line: u32,
-) -> Result<Vec<Line>, String> {
-    let mut parser = Parser::new(tokens, file, line);
+) -> Result<Vec<Line>, AssemblerError> {
+    let mut parser = Parser::new(tokens, file.clone(), line);
     let lines = parser.parse_line()?;
 
     // Check for leftover tokens
@@ -882,10 +899,10 @@ pub fn parse(
             .iter()
             .map(|t| format!("{:?}", t))
             .collect();
-        return Err(format!(
+        return Err(AssemblerError::from_context(format!(
             "Unexpected tokens after parsing: {}",
             remaining.join(" ")
-        ));
+        ), Location { file: file.clone(), line }));
     }
 
     Ok(lines)
@@ -1233,7 +1250,7 @@ mod tests {
         assert!(result.is_err(), "Should fail with leftover tokens");
         let err = result.unwrap_err();
         assert!(
-            err.contains("Unexpected tokens"),
+            err.message.contains("Unexpected tokens"),
             "Error should mention unexpected tokens: {}",
             err
         );

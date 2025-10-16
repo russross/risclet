@@ -3,7 +3,9 @@
 // Core assembly pipeline functions shared between main.rs and tests
 
 use crate::ast::{self, Directive, LineContent, Segment, Source};
+use crate::elf::compute_header_size;
 use crate::encoder::encode_source_with_size_tracking;
+use crate::error;
 use crate::expressions;
 
 /// Compute offsets for all lines in the source
@@ -66,6 +68,12 @@ pub fn compute_offsets(source: &mut Source) {
     source.text_size = global_text_offset;
     source.data_size = global_data_offset;
     source.bss_size = global_bss_offset;
+
+    // Update header size estimate
+    // Segments: .text, .riscv.attributes, and optionally .data/.bss
+    let has_data_or_bss = source.data_size > 0 || source.bss_size > 0;
+    let num_segments = if has_data_or_bss { 3 } else { 2 };
+    source.header_size = compute_header_size(num_segments);
 }
 
 /// Converge line sizes and offsets by iterating until stable
@@ -82,7 +90,7 @@ pub fn compute_offsets(source: &mut Source) {
 pub fn converge_and_encode(
     source: &mut Source,
     text_start: i64,
-) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
+) -> Result<(Vec<u8>, Vec<u8>, i64), error::AssemblerError> {
     const MAX_ITERATIONS: usize = 10;
 
     for _iteration in 0..MAX_ITERATIONS {
@@ -115,17 +123,17 @@ pub fn converge_and_encode(
         // Step 5: Check convergence
         if !any_changed {
             // Converged! Return the encoded result
-            return encode_result.map_err(|e| format!("Encode error: {}", e));
+            return encode_result;
         }
 
         // Sizes changed, discard encoded data and loop again
         // (The encoder already updated source.lines[].size)
     }
 
-    Err(format!(
+    Err(error::AssemblerError::no_context(format!(
         "Failed to converge after {} iterations - possible cyclic size dependencies",
         MAX_ITERATIONS
-    ))
+    )))
 }
 
 /// Initial size guess for a line before convergence

@@ -1,4 +1,5 @@
 use ast::{Line, Segment, Source, SourceFile};
+use error::AssemblerError;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
@@ -22,7 +23,7 @@ struct Config {
     dump: dump::DumpConfig,
 }
 
-fn parse_args() -> Result<Config, String> {
+fn process_cli_args() -> Result<Config, String> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
@@ -41,10 +42,20 @@ fn parse_args() -> Result<Config, String> {
 
         // Handle --dump-* options
         if arg.starts_with("--dump-") {
-            if arg == "--dump-ast" {
-                dump_config.dump_ast = true;
-            } else if arg == "--dump-symbols" {
-                dump_config.dump_symbols = true;
+            if arg.starts_with("--dump-ast") {
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_ast = Some(dump::parse_dump_spec(spec_str)?);
+            } else if arg.starts_with("--dump-symbols") {
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_symbols = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-values") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
@@ -125,8 +136,8 @@ Options:
   -h, --help           Show this help message
 
 Debug Dump Options:
-  --dump-ast                      Dump AST after parsing (s-expression format)
-  --dump-symbols                  Dump after symbol resolution with references
+  --dump-ast[=PASSES[:FILES]]     Dump AST after parsing (s-expression format)
+  --dump-symbols[=PASSES[:FILES]] Dump after symbol resolution with references
   --dump-values[=PASSES[:FILES]]  Dump symbol values for specific passes/files
   --dump-code[=PASSES[:FILES]]    Dump generated code for specific passes/files
   --dump-elf[=PARTS]              Dump detailed ELF info
@@ -171,149 +182,95 @@ fn parse_address(s: &str) -> Result<i64, String> {
 }
 
 fn main() {
-    let config = match parse_args() {
-        Ok(cfg) => cfg,
-        Err(msg) => {
-            eprintln!("{}", msg);
+    let config = match process_cli_args() {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("{}", e);
             std::process::exit(1);
         }
     };
+    if let Err(e) = main_process(config) {
+        eprintln!("{}", e);
+        std::process::exit(1);
+    }
+}
 
+fn main_process(config: Config) -> Result<(), AssemblerError> {
+    drive_assembler(config)
+}
+
+fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
     let files = config.input_files.clone();
 
-    match process_files(files) {
-        Ok(mut source) => {
-            // Dump AST if requested
-            if config.dump.dump_ast {
-                dump::dump_ast(&source);
-                if !config.dump.dump_symbols
-                    && config.dump.dump_values.is_none()
-                    && config.dump.dump_code.is_none()
-                    && config.dump.dump_elf.is_none()
-                {
-                    println!("\n(No output file generated)");
-                    return;
-                }
-                println!();
-            }
+    let mut source = process_files(files)?;
 
-            // Resolve symbols (create symbol table with pointers to definitions)
-            if let Err(e) = symbols::resolve_symbols(&mut source) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
+    // Dump AST if requested
+    if let Some(spec) = &config.dump.dump_ast {
+        dump::dump_ast(&source, spec);
+        if config.dump.dump_symbols.is_none()
+            && config.dump.dump_values.is_none()
+            && config.dump.dump_code.is_none()
+            && config.dump.dump_elf.is_none()
+        {
+            println!("\n(No output file generated)");
+            return Ok(());
+        }
+        println!();
+    }
 
-            // Dump symbol resolution if requested
-            if config.dump.dump_symbols {
-                dump::dump_symbols(&source);
-                if config.dump.dump_values.is_none()
-                    && config.dump.dump_code.is_none()
-                    && config.dump.dump_elf.is_none()
-                {
-                    println!("\n(No output file generated)");
-                    return;
-                }
-                println!();
-            }
+    // Resolve symbols (create symbol table with pointers to definitions)
+    symbols::resolve_symbols(&mut source)?;
 
-            // Converge: repeatedly compute offsets, evaluate expressions, and encode
-            // until line sizes stabilize. Returns the final encoded segments.
-            // If dump options are enabled, pass them to enable per-pass dumping.
-            let (text_bytes, data_bytes, bss_size) = if config.dump.dump_values.is_some() || config.dump.dump_code.is_some() {
-                // Use dump-aware version
-                match converge_and_encode_with_dumps(
-                    &mut source,
-                    config.text_start,
-                    &config.dump,
-                ) {
-                    Ok(result) => result,
-                    Err(e) => {
-                        eprintln!("Error during convergence and encoding: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                // Use standard version (no dump overhead)
-                match assembler::converge_and_encode(&mut source, config.text_start) {
-                    Ok(result) => result,
-                    Err(e) => {
-                        eprintln!("Error during convergence and encoding: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            };
+    // Dump symbol resolution if requested
+    if let Some(spec) = &config.dump.dump_symbols {
+        dump::dump_symbols(&source, spec);
+        if config.dump.dump_values.is_none()
+            && config.dump.dump_code.is_none()
+            && config.dump.dump_elf.is_none()
+        {
+            println!("\n(No output file generated)");
+            return Ok(());
+        }
+        println!();
+    }
 
-            // If dump options were used, we're done (no ELF generation)
-            if config.dump.has_dumps() {
-                // Create evaluation context for final ELF dump if needed
-                if config.dump.dump_elf.is_some() {
-                    let mut eval_context =
-                        expressions::new_evaluation_context(source.clone(), config.text_start);
+    // Converge: repeatedly compute offsets, evaluate expressions, and encode
+    // until line sizes stabilize. Returns the final encoded segments.
+    // If dump options are enabled, pass them to enable per-pass dumping.
+    let (text_bytes, data_bytes, bss_size) = if config.dump.dump_values.is_some() || config.dump.dump_code.is_some() {
+        // Use dump-aware version
+        converge_and_encode_with_dumps(
+            &mut source,
+            config.text_start,
+            &config.dump,
+        )?
+    } else {
+        // Use standard version (no dump overhead)
+        assembler::converge_and_encode(&mut source, config.text_start)?
+    };
 
-                    // Evaluate all line symbols
-                    for file in &source.files {
-                        for line in &file.lines {
-                            let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
-                        }
-                    }
-
-                    // Generate ELF binary (for dumping purposes)
-                    let has_data = !data_bytes.is_empty();
-                    let has_bss = bss_size > 0;
-
-                    let mut elf_builder = elf::ElfBuilder::new(config.text_start as u64);
-                    elf_builder.set_segments(
-                        text_bytes.clone(),
-                        data_bytes.clone(),
-                        bss_size as u64,
-                        eval_context.data_start as u64,
-                        eval_context.bss_start as u64,
-                    );
-
-                    // Build symbol table
-                    elf::build_symbol_table(
-                        &source,
-                        &mut elf_builder,
-                        config.text_start as u64,
-                        eval_context.data_start as u64,
-                        eval_context.bss_start as u64,
-                        has_data,
-                        has_bss,
-                    );
-
-                    // Dump ELF
-                    dump::dump_elf(&elf_builder, &source, config.dump.dump_elf.as_ref().unwrap());
-                }
-
-                println!("\n(No output file generated)");
-                return;
-            }
-
-            // Normal path: generate ELF and write to file
-            // Create evaluation context with final addresses for display
+    // If dump options were used, we're done (no ELF generation)
+    if config.dump.has_dumps() {
+        // Create evaluation context for final ELF dump if needed
+        if config.dump.dump_elf.is_some() {
             let mut eval_context =
                 expressions::new_evaluation_context(source.clone(), config.text_start);
 
-            // Evaluate all line symbols for display
+            // Evaluate all line symbols
             for file in &source.files {
                 for line in &file.lines {
-                    if let Err(e) = expressions::evaluate_line_symbols(
-                        line,
-                        &mut eval_context,
-                    ) {
-                        eprintln!(
-                            "Warning: Failed to evaluate symbols in line: {}",
-                            e
-                        );
-                    }
+                    let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
                 }
             }
 
-            // Generate ELF binary
+            // Generate ELF binary (for dumping purposes)
             let has_data = !data_bytes.is_empty();
             let has_bss = bss_size > 0;
 
-            let mut elf_builder = elf::ElfBuilder::new(config.text_start as u64);
+            let mut elf_builder = elf::ElfBuilder::new(
+                eval_context.text_start as u64,
+                source.header_size as u64,
+            );
             elf_builder.set_segments(
                 text_bytes.clone(),
                 data_bytes.clone(),
@@ -326,64 +283,101 @@ fn main() {
             elf::build_symbol_table(
                 &source,
                 &mut elf_builder,
-                config.text_start as u64,
+                eval_context.text_start as u64,
                 eval_context.data_start as u64,
                 eval_context.bss_start as u64,
                 has_data,
                 has_bss,
             );
 
-            // Find entry point (_start symbol if present, otherwise use text_start)
-            let entry_point = source
-                .global_symbols
-                .iter()
-                .find(|g| g.symbol == "_start")
-                .map(|g| {
-                    let line = &source.files[g.definition_pointer.file_index].lines
-                        [g.definition_pointer.line_index];
-                    config.text_start as u64 + line.offset as u64
-                })
-                .unwrap_or(config.text_start as u64);
-
-            let elf_bytes = elf_builder.build(entry_point);
-
-            // Write ELF binary to output file
-            match File::create(&config.output_file) {
-                Ok(mut file) => {
-                    if let Err(e) = file.write_all(&elf_bytes) {
-                        eprintln!("Error writing {}: {}", config.output_file, e);
-                        std::process::exit(1);
-                    }
-                    // Minimal output by default
-                    if config.verbose {
-                        eprintln!("Generated: {}", config.output_file);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error creating {}: {}", config.output_file, e);
-                    std::process::exit(1);
-                }
-            }
-
-            // Show summary or detailed output
-            if config.verbose {
-                dump_source_with_values(&source, &mut eval_context, &text_bytes, &data_bytes, bss_size);
-            } else {
-                // Just show a one-line summary
-                println!("{}: text={} data={} bss={} total={}",
-                    config.output_file,
-                    source.text_size,
-                    source.data_size,
-                    bss_size,
-                    elf_bytes.len()
-                );
-            }
+            // Dump ELF
+            dump::dump_elf(&elf_builder, &source, config.dump.dump_elf.as_ref().unwrap());
         }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+
+        println!("\n(No output file generated)");
+        return Ok(());
+    }
+
+    // Normal path: generate ELF and write to file
+    // Create evaluation context with final addresses for display
+    let mut eval_context =
+        expressions::new_evaluation_context(source.clone(), config.text_start);
+
+    // Evaluate all line symbols for display
+    for file in &source.files {
+        for line in &file.lines {
+            expressions::evaluate_line_symbols(
+                line,
+                &mut eval_context,
+            )?;
         }
     }
+
+    // Generate ELF binary
+    let has_data = !data_bytes.is_empty();
+    let has_bss = bss_size > 0;
+
+    let mut elf_builder = elf::ElfBuilder::new(
+        eval_context.text_start as u64,
+        source.header_size as u64,
+    );
+    elf_builder.set_segments(
+        text_bytes.clone(),
+        data_bytes.clone(),
+        bss_size as u64,
+        eval_context.data_start as u64,
+        eval_context.bss_start as u64,
+    );
+
+    // Build symbol table
+    elf::build_symbol_table(
+        &source,
+        &mut elf_builder,
+        eval_context.text_start as u64,
+        eval_context.data_start as u64,
+        eval_context.bss_start as u64,
+        has_data,
+        has_bss,
+    );
+
+    // Find entry point (_start symbol is required)
+    let entry_point = {
+        if let Some(g) = source.global_symbols.iter().find(|g| g.symbol == "_start") {
+            let line = &source.files[g.definition_pointer.file_index].lines[g.definition_pointer.line_index];
+            Ok(eval_context.text_start as u64 + line.offset as u64)
+        } else {
+            Err(error::AssemblerError::no_context("_start symbol not defined".to_string()))
+        }
+    }?;
+
+    let elf_bytes = elf_builder.build(entry_point);
+
+    // Write ELF binary to output file
+    let mut file = File::create(&config.output_file)
+        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+    file.write_all(&elf_bytes)
+        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+    
+    // Minimal output by default
+    if config.verbose {
+        eprintln!("Generated: {}", config.output_file);
+    }
+
+    // Show summary or detailed output
+    if config.verbose {
+        dump_source_with_values(&source, &mut eval_context, &text_bytes, &data_bytes, bss_size);
+    } else {
+        // Just show a one-line summary
+        println!("{}: text={} data={} bss={} total={}",
+            config.output_file,
+            source.text_size,
+            source.data_size,
+            bss_size,
+            elf_bytes.len()
+        );
+    }
+
+    Ok(())
 }
 
 // Convergence function with per-pass dump support
@@ -391,7 +385,7 @@ fn converge_and_encode_with_dumps(
     source: &mut Source,
     text_start: i64,
     dump_config: &dump::DumpConfig,
-) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
+) -> Result<(Vec<u8>, Vec<u8>, i64), error::AssemblerError> {
     const MAX_ITERATIONS: usize = 10;
 
     for iteration in 0..MAX_ITERATIONS {
@@ -429,10 +423,7 @@ fn converge_and_encode_with_dumps(
         );
 
         // Get the encoded bytes for code dump
-        let (text_bytes, data_bytes, bss_size) = match encode_result {
-            Ok(result) => result,
-            Err(e) => return Err(format!("Encode error: {}", e)),
-        };
+        let (text_bytes, data_bytes, bss_size) = encode_result?;
 
         // Dump code generation if requested for this pass
         if let Some(ref spec) = dump_config.dump_code {
@@ -462,15 +453,16 @@ fn converge_and_encode_with_dumps(
         // (The encoder already updated source.lines[].size)
     }
 
-    Err(format!(
+    Err(error::AssemblerError::no_context(format!(
         "Failed to converge after {} iterations - possible cyclic size dependencies",
         MAX_ITERATIONS
-    ))
+    )))
 }
 
-fn process_files(files: Vec<String>) -> Result<Source, String> {
+fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
     let mut source = Source {
         files: Vec::new(),
+        header_size: 0,
         text_size: 0,
         data_size: 0,
         bss_size: 0,
@@ -488,9 +480,9 @@ fn process_files(files: Vec<String>) -> Result<Source, String> {
     Ok(source)
 }
 
-fn process_file(file_path: &str) -> Result<SourceFile, String> {
+fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
     let file = File::open(file_path)
-        .map_err(|e| format!("Error opening {}: {}", file_path, e))?;
+        .map_err(|e| error::AssemblerError::no_context(format!("could not open file '{}': {}", file_path, e)))?;
     let reader = io::BufReader::new(file);
 
     let mut current_segment = Segment::Text;
@@ -498,66 +490,40 @@ fn process_file(file_path: &str) -> Result<SourceFile, String> {
 
     for (line_num, line_result) in reader.lines().enumerate() {
         let line = line_result
-            .map_err(|e| format!("Error reading {}: {}", file_path, e))?;
+            .map_err(|e| error::AssemblerError::no_context(format!("could not read file '{}': {}", file_path, e)))?;
         if line.trim().is_empty() {
             continue;
         }
 
-        match tokenizer::tokenize(&line) {
-            Ok(tokens) => {
-                if !tokens.is_empty() {
-                    match parser::parse(
-                        &tokens,
-                        file_path.to_string(),
-                        (line_num + 1) as u32,
-                    ) {
-                        Ok(parsed_lines) => {
-                            for parsed_line in parsed_lines {
-                                // Update segment if directive changes it
-                                if let ast::LineContent::Directive(ref dir) =
-                                    parsed_line.content
-                                {
-                                    match dir {
-                                        ast::Directive::Text => {
-                                            current_segment = Segment::Text
-                                        }
-                                        ast::Directive::Data => {
-                                            current_segment = Segment::Data
-                                        }
-                                        ast::Directive::Bss => {
-                                            current_segment = Segment::Bss
-                                        }
-                                        _ => {}
-                                    }
-                                }
+        let location = ast::Location {
+            file: file_path.to_string(),
+            line: (line_num + 1) as u32,
+        };
 
-                                // Assign segment and set size
-                                let mut new_line = parsed_line;
-                                new_line.segment = current_segment.clone();
-                                new_line.size =
-                                    assembler::guess_line_size(&new_line.content)?;
+        let tokens = tokenizer::tokenize(&line)
+            .map_err(|e| error::AssemblerError::from_context(e, location.clone()))?;
+        
+        if !tokens.is_empty() {
+            let parsed_lines = parser::parse(&tokens, file_path.to_string(), (line_num + 1) as u32)?;
 
-                                lines.push(new_line);
-                            }
-                        }
-                        Err(e) => {
-                            return Err(format!(
-                                "Parse error in {} on line {}: {}",
-                                file_path,
-                                line_num + 1,
-                                e
-                            ));
-                        }
+            for parsed_line in parsed_lines {
+                // Update segment if directive changes it
+                if let ast::LineContent::Directive(ref dir) = parsed_line.content {
+                    match dir {
+                        ast::Directive::Text => current_segment = Segment::Text,
+                        ast::Directive::Data => current_segment = Segment::Data,
+                        ast::Directive::Bss => current_segment = Segment::Bss,
+                        _ => {}
                     }
                 }
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Tokenize error in {} on line {}: {}",
-                    file_path,
-                    line_num + 1,
-                    e
-                ));
+
+                // Assign segment and set size
+                let mut new_line = parsed_line;
+                new_line.segment = current_segment.clone();
+                new_line.size = assembler::guess_line_size(&new_line.content)
+                    .map_err(|e| error::AssemblerError::from_context(e, new_line.location.clone()))?;
+
+                lines.push(new_line);
             }
         }
     }

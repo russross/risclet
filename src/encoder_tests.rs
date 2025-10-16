@@ -66,6 +66,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
             bss_size: 0,
             local_symbols: vec![],
         }],
+        header_size: 0,
         text_size: 0,
         data_size: 0,
         bss_size: 0,
@@ -78,7 +79,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    converge_and_encode(&mut source, 0x10000)
+    converge_and_encode(&mut source, 0x10000).map_err(|e| e.with_source_context())
 }
 
 /// Helper to format bytes as hex for debugging

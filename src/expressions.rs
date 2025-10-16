@@ -136,12 +136,16 @@ pub fn new_evaluation_context(
     source: Source,
     text_start: i64,
 ) -> EvaluationContext {
+    // The first instruction in the text segment is pushed back
+    // by the ELF header + program header table
+    let text_first_instruction = text_start + source.header_size;
+
     // Calculate segment addresses
     let text_size = source.text_size;
     let data_size = source.data_size;
 
     // data_start = next 4K page boundary after (text_start + text_size)
-    let data_start = ((text_start + text_size + 4095) / 4096) * 4096;
+    let data_start = ((text_first_instruction + text_size + 4095) / 4096) * 4096;
 
     // bss_start = immediately after data
     let bss_start = data_start + data_size;
@@ -149,7 +153,7 @@ pub fn new_evaluation_context(
     EvaluationContext {
         source,
         symbol_values: HashMap::new(),
-        text_start,
+        text_start: text_first_instruction,
         data_start,
         bss_start,
     }
@@ -875,6 +879,7 @@ mod tests {
                 bss_size: 0,
                 local_symbols: vec![],
             }],
+            header_size: 0,
             text_size: 0,
             data_size: 0,
             bss_size: 0,
@@ -1536,6 +1541,7 @@ mod tests {
             data_size: 500,
             bss_size: 200,
             global_symbols: vec![],
+            header_size: 0,
         };
 
         let context = new_evaluation_context(source, 0x100e8);
@@ -1557,6 +1563,7 @@ mod tests {
             data_size: 500,
             bss_size: 0,
             global_symbols: vec![],
+            header_size: 0,
         };
 
         let mut context = new_evaluation_context(source, 0x100e8);

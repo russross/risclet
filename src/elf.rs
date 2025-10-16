@@ -180,6 +180,21 @@ impl Elf64ProgramHeader {
     }
 }
 
+/// Computes the expected combined size of the ELF header and program headers.
+///
+/// # Arguments
+/// * `num_segments` - The number of program segments (e.g., 1 for text-only, 2 for text + data/bss).
+///
+/// # Returns
+/// The total size in bytes (ELF header + program headers).
+pub fn compute_header_size(num_segments: i64) -> i64 {
+    const ELF_HEADER_SIZE: i64 = 64;  // From e_ehsize in Elf64Header
+    const PROGRAM_HEADER_SIZE: i64 = 56;  // From e_phentsize in Elf64Header
+
+    ELF_HEADER_SIZE + (num_segments * PROGRAM_HEADER_SIZE)
+}
+
+
 /// ELF-64 Section Header
 #[derive(Debug, Clone)]
 pub struct Elf64SectionHeader {
@@ -400,7 +415,6 @@ pub fn generate_riscv_attributes() -> Vec<u8> {
 // ELF Builder
 // ============================================================================
 
-/// High-level ELF file builder
 pub struct ElfBuilder {
     pub header: Elf64Header,
     pub program_headers: Vec<Elf64ProgramHeader>,
@@ -415,10 +429,11 @@ pub struct ElfBuilder {
     pub text_start: u64,
     pub data_start: u64,
     pub bss_start: u64,
+    estimated_header_size: u64,
 }
 
 impl ElfBuilder {
-    pub fn new(text_start: u64) -> Self {
+    pub fn new(text_start: u64, estimated_header_size: u64) -> Self {
         Self {
             header: Elf64Header::new(),
             program_headers: Vec::new(),
@@ -433,6 +448,7 @@ impl ElfBuilder {
             text_start,
             data_start: 0,
             bss_start: 0,
+            estimated_header_size,
         }
     }
 
@@ -480,24 +496,30 @@ impl ElfBuilder {
         // Reserve space for program headers (will write later after we know offsets)
         self.build_program_headers();
         let phoff = output.len() as u64;
-        let ph_size = self.program_headers.len() * 56;
-        output.resize(output.len() + ph_size, 0);
+        let ph_size = self.program_headers.len() as u64 * 56;
+        let actual_header_size = phoff + ph_size;
 
-        // Align to 4K page for text segment
-        while output.len() < 0x1000 {
-            output.push(0);
-        }
+        // Verification check: ensure the estimated header size matches the actual size.
+        // A mismatch indicates a bug in the program header count estimation.
+        assert_eq!(
+            self.estimated_header_size, actual_header_size,
+            "Mismatch between estimated and actual ELF header size. The number of program headers was likely estimated incorrectly."
+        );
+        output.resize(output.len() + ph_size as usize, 0);
 
-        // Calculate section offsets
+        // --- Section Layout ---
+        let page_size = 0x1000;
+
+        // .text section starts right after the program headers
         let text_offset = output.len() as u64;
         output.extend_from_slice(&self.text_data);
 
-        let data_offset = if !self.data_data.is_empty() {
-            // Align to next 4K page boundary for data segment
-            let current_vaddr = self.text_start + self.text_data.len() as u64;
-            let next_page = current_vaddr.div_ceil(0x1000) * 0x1000;
-            let file_align = next_page - current_vaddr;
-            output.resize(output.len() + file_align as usize, 0);
+        // .data section is page-aligned in the file to support mmap.
+        // Pad the file with zeros to align the data offset.
+        let data_offset = if !self.data_data.is_empty() || self.bss_size > 0 {
+            let current_len = output.len() as u64;
+            let padding = (page_size - (current_len % page_size)) % page_size;
+            output.resize(output.len() + padding as usize, 0);
             Some(output.len() as u64)
         } else {
             None
@@ -544,6 +566,40 @@ impl ElfBuilder {
         let shoff = output.len() as u64;
         for sh in &self.section_headers {
             output.extend_from_slice(&sh.encode());
+        }
+
+        // --- Finalize Program Headers ---
+        // Now that all offsets and sizes are known, update the program headers.
+        let headers_size = phoff + ph_size;
+        // self.text_start is the address of the first instruction (e.g., _start),
+        // which is located after the file headers. The segment's base vaddr is
+        // therefore text_start - headers_size.
+        let base_vaddr = self.text_start.saturating_sub(headers_size);
+
+        // Program Header 0: RISCV_ATTRIBUTES
+        if let Some(ph) = self.program_headers.get_mut(0) {
+            ph.p_offset = riscv_attrs_offset;
+        }
+
+        // Program Header 1: LOAD .text
+        if let Some(ph) = self.program_headers.get_mut(1) {
+            // This segment starts at the base virtual address and includes the
+            // ELF and program headers in its memory mapping.
+            ph.p_vaddr = base_vaddr;
+            ph.p_paddr = base_vaddr;
+            ph.p_offset = 0;
+            ph.p_filesz = text_offset + self.text_data.len() as u64;
+            ph.p_memsz = ph.p_filesz;
+        }
+
+        // Program Header 2: LOAD .data/.bss
+        #[allow(clippy::collapsible_if)]
+        if self.program_headers.len() > 2 {
+            if let Some(ph) = self.program_headers.get_mut(2) {
+                ph.p_offset = data_offset.unwrap_or(0);
+                // The vaddr for data is already correctly calculated in expressions.rs
+                // and set during the initial program header creation.
+            }
         }
 
         // Update ELF header
@@ -738,19 +794,7 @@ impl ElfBuilder {
             sh_entsize: 0,
         });
 
-        // Update program header offsets now that we know them
-        if let Some(ph) = self.program_headers.get_mut(0) {
-            // RISCV_ATTRIBUTES
-            ph.p_offset = riscv_attrs_offset;
-        }
-        if let Some(ph) = self.program_headers.get_mut(1) {
-            // LOAD .text
-            ph.p_offset = text_offset;
-        }
-        if let Some(ph) = self.program_headers.get_mut(2) {
-            // LOAD .data/.bss
-            ph.p_offset = data_offset.unwrap_or(0);
-        }
+
     }
 }
 

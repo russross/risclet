@@ -56,6 +56,7 @@ pub struct SourceFile {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Source {
     pub files: Vec<SourceFile>,
+    pub header_size: i64,
     pub text_size: i64,
     pub data_size: i64,
     pub bss_size: i64,
