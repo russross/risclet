@@ -3,6 +3,7 @@ use error::AssemblerError;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
+use std::os::unix::fs::PermissionsExt;
 
 mod assembler;
 mod ast;
@@ -132,8 +133,13 @@ fn print_help(program_name: &str) -> String {
 Options:
   -o <file>            Write output to <file> (default: a.out)
   -t <address>         Set text start address (default: 0x10000)
-  -v, --verbose        Show detailed assembly output
+  -v, --verbose        Show input statistics and convergence progress
   -h, --help           Show this help message
+
+Output Behavior:
+  By default, successful assembly produces no output (Unix style).
+  Use -v to see input statistics and convergence progress during assembly.
+  Use --dump-* options for detailed inspections (AST, symbols, code, ELF) - disables output file.
 
 Debug Dump Options:
   --dump-ast[=PASSES[:FILES]]     Dump AST after parsing (s-expression format)
@@ -163,9 +169,11 @@ Debug Dump Options:
     (comma-separated for multiple, e.g., headers,symbols)
 
 Examples:
-  --dump-values=1-              Dump values for all passes, all files
-  --dump-code=2:prog.s          Dump code for pass 2, prog.s only
-  --dump-elf=headers,symbols    Dump ELF headers and symbol table
+  ./assembler program.s                        # Silent on success
+  ./assembler -v program.s                     # Show input stats and convergence progress
+  ./assembler --dump-code program.s            # Dump generated code (no stats)
+  ./assembler -v --dump-code program.s         # Show stats AND code dump
+  ./assembler --dump-elf=headers,symbols prog.s # Dump ELF metadata
 
 Note: When any --dump-* option is used, no output file is generated.",
         program_name)
@@ -195,125 +203,160 @@ fn main() {
     }
 }
 
+// Assembly phases - each phase has a checkpoint where we can dump and optionally exit
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Parse,           // After parsing source files into AST
+    SymbolResolution, // After resolving all symbols
+    Convergence,     // During/after code generation convergence
+    Elf,             // After ELF generation
+}
+
+// Callback for convergence dumps - implements assembler::ConvergenceCallback
+struct DumpCallback<'a> {
+    dump_config: &'a dump::DumpConfig,
+}
+
+impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
+    fn on_values_computed(
+        &self,
+        pass: usize,
+        is_final: bool,
+        source: &Source,
+        eval_context: &mut expressions::EvaluationContext,
+    ) {
+        if let Some(ref spec) = self.dump_config.dump_values {
+            dump::dump_values(pass, is_final, source, eval_context, spec);
+        }
+    }
+
+    fn on_code_generated(
+        &self,
+        pass: usize,
+        is_final: bool,
+        source: &Source,
+        eval_context: &mut expressions::EvaluationContext,
+        text_bytes: &[u8],
+        data_bytes: &[u8],
+    ) {
+        if let Some(ref spec) = self.dump_config.dump_code {
+            dump::dump_code(pass, is_final, source, eval_context, text_bytes, data_bytes, spec);
+        }
+    }
+}
+
 fn main_process(config: Config) -> Result<(), AssemblerError> {
     drive_assembler(config)
 }
 
+// Helper: Check if we should dump at this phase
+fn should_dump_phase(config: &Config, phase: Phase) -> bool {
+    match phase {
+        Phase::Parse => config.dump.dump_ast.is_some(),
+        Phase::SymbolResolution => config.dump.dump_symbols.is_some(),
+        Phase::Convergence => config.dump.dump_values.is_some() || config.dump.dump_code.is_some(),
+        Phase::Elf => config.dump.dump_elf.is_some(),
+    }
+}
+
+// Helper: Check if this is the last phase we need to execute (early exit after dump)
+fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
+    // If this phase has a dump option, check if any later phases also have dump options
+    if !should_dump_phase(config, phase) {
+        return false;
+    }
+
+    match phase {
+        Phase::Parse => {
+            !should_dump_phase(config, Phase::SymbolResolution)
+                && !should_dump_phase(config, Phase::Convergence)
+                && !should_dump_phase(config, Phase::Elf)
+        }
+        Phase::SymbolResolution => {
+            !should_dump_phase(config, Phase::Convergence)
+                && !should_dump_phase(config, Phase::Elf)
+        }
+        Phase::Convergence => {
+            !should_dump_phase(config, Phase::Elf)
+        }
+        Phase::Elf => {
+            // ELF is always terminal if we're dumping it
+            true
+        }
+    }
+}
+
+// Main assembly driver - unified flow with checkpoints
 fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
-    let files = config.input_files.clone();
+    // ========================================================================
+    // Phase 1: Parse source files into AST
+    // ========================================================================
+    let mut source = process_files(config.input_files.clone())?;
 
-    let mut source = process_files(files)?;
-
-    // Dump AST if requested
-    if let Some(spec) = &config.dump.dump_ast {
-        dump::dump_ast(&source, spec);
-        if config.dump.dump_symbols.is_none()
-            && config.dump.dump_values.is_none()
-            && config.dump.dump_code.is_none()
-            && config.dump.dump_elf.is_none()
-        {
+    // Checkpoint: dump AST if requested
+    if should_dump_phase(&config, Phase::Parse) {
+        dump::dump_ast(&source, config.dump.dump_ast.as_ref().unwrap());
+        if is_terminal_phase(&config, Phase::Parse) {
             println!("\n(No output file generated)");
             return Ok(());
         }
-        println!();
+        println!(); // Separator between phase dumps
     }
 
-    // Resolve symbols (create symbol table with pointers to definitions)
+    // ========================================================================
+    // Phase 2: Resolve symbols (create references from uses to definitions)
+    // ========================================================================
     symbols::resolve_symbols(&mut source)?;
 
-    // Dump symbol resolution if requested
-    if let Some(spec) = &config.dump.dump_symbols {
-        dump::dump_symbols(&source, spec);
-        if config.dump.dump_values.is_none()
-            && config.dump.dump_code.is_none()
-            && config.dump.dump_elf.is_none()
-        {
+    // Checkpoint: dump symbol resolution if requested
+    if should_dump_phase(&config, Phase::SymbolResolution) {
+        dump::dump_symbols(&source, config.dump.dump_symbols.as_ref().unwrap());
+        if is_terminal_phase(&config, Phase::SymbolResolution) {
             println!("\n(No output file generated)");
             return Ok(());
         }
-        println!();
+        println!(); // Separator between phase dumps
     }
 
-    // Converge: repeatedly compute offsets, evaluate expressions, and encode
-    // until line sizes stabilize. Returns the final encoded segments.
-    // If dump options are enabled, pass them to enable per-pass dumping.
-    let (text_bytes, data_bytes, bss_size) = if config.dump.dump_values.is_some() || config.dump.dump_code.is_some() {
-        // Use dump-aware version
-        converge_and_encode_with_dumps(
-            &mut source,
-            config.text_start,
-            &config.dump,
-        )?
+    // ========================================================================
+    // Phase 3: Convergence - iteratively compute offsets and encode until stable
+    // ========================================================================
+
+    // Show input statistics before convergence if verbose
+    if config.verbose {
+        print_input_statistics(&source);
+    }
+
+    let (text_bytes, data_bytes, bss_size) = if should_dump_phase(&config, Phase::Convergence) {
+        // Use callback-based convergence with dump support
+        let dump_callback = DumpCallback { dump_config: &config.dump };
+        assembler::converge_and_encode(&mut source, config.text_start, &dump_callback, config.verbose)?
     } else {
-        // Use standard version (no dump overhead)
-        assembler::converge_and_encode(&mut source, config.text_start)?
+        // Use standard convergence with verbose stats if requested
+        assembler::converge_and_encode(&mut source, config.text_start, &assembler::NoOpCallback, config.verbose)?
     };
 
-    // If dump options were used, we're done (no ELF generation)
-    if config.dump.has_dumps() {
-        // Create evaluation context for final ELF dump if needed
-        if config.dump.dump_elf.is_some() {
-            let mut eval_context =
-                expressions::new_evaluation_context(source.clone(), config.text_start);
-
-            // Evaluate all line symbols
-            for file in &source.files {
-                for line in &file.lines {
-                    let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
-                }
-            }
-
-            // Generate ELF binary (for dumping purposes)
-            let has_data = !data_bytes.is_empty();
-            let has_bss = bss_size > 0;
-
-            let mut elf_builder = elf::ElfBuilder::new(
-                eval_context.text_start as u64,
-                source.header_size as u64,
-            );
-            elf_builder.set_segments(
-                text_bytes.clone(),
-                data_bytes.clone(),
-                bss_size as u64,
-                eval_context.data_start as u64,
-                eval_context.bss_start as u64,
-            );
-
-            // Build symbol table
-            elf::build_symbol_table(
-                &source,
-                &mut elf_builder,
-                eval_context.text_start as u64,
-                eval_context.data_start as u64,
-                eval_context.bss_start as u64,
-                has_data,
-                has_bss,
-            );
-
-            // Dump ELF
-            dump::dump_elf(&elf_builder, &source, config.dump.dump_elf.as_ref().unwrap());
-        }
-
+    // Checkpoint: after convergence, check if we should exit before ELF generation
+    if should_dump_phase(&config, Phase::Convergence) && is_terminal_phase(&config, Phase::Convergence) {
         println!("\n(No output file generated)");
         return Ok(());
     }
 
-    // Normal path: generate ELF and write to file
-    // Create evaluation context with final addresses for display
-    let mut eval_context =
-        expressions::new_evaluation_context(source.clone(), config.text_start);
+    // ========================================================================
+    // Phase 4: Generate ELF binary
+    // ========================================================================
 
-    // Evaluate all line symbols for display
+    // Create evaluation context for symbol values and ELF generation
+    let mut eval_context = expressions::new_evaluation_context(source.clone(), config.text_start);
+
+    // Evaluate all symbols to populate the context
     for file in &source.files {
         for line in &file.lines {
-            expressions::evaluate_line_symbols(
-                line,
-                &mut eval_context,
-            )?;
+            let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
         }
     }
 
-    // Generate ELF binary
+    // Build ELF binary
     let has_data = !data_bytes.is_empty();
     let has_bss = bss_size > 0;
 
@@ -340,7 +383,27 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
         has_bss,
     );
 
-    // Find entry point (_start symbol is required)
+    // Checkpoint: dump ELF if requested
+    if should_dump_phase(&config, Phase::Elf) {
+        dump::dump_elf(&elf_builder, &source, config.dump.dump_elf.as_ref().unwrap());
+        if is_terminal_phase(&config, Phase::Elf) {
+            println!("\n(No output file generated)");
+            return Ok(());
+        }
+        println!(); // Separator (though this won't be reached for ELF dumps currently)
+    }
+
+    // ========================================================================
+    // Output: Write ELF binary to file and display summary
+    // ========================================================================
+
+    // If any dump options were used, we skip writing the output file
+    if config.dump.has_dumps() {
+        println!("\n(No output file generated)");
+        return Ok(());
+    }
+
+    // Find entry point (_start symbol is required for executables)
     let entry_point = {
         if let Some(g) = source.global_symbols.iter().find(|g| g.symbol == "_start") {
             let line = &source.files[g.definition_pointer.file_index].lines[g.definition_pointer.line_index];
@@ -352,111 +415,55 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
 
     let elf_bytes = elf_builder.build(entry_point);
 
-    // Write ELF binary to output file
+    // Write to output file
     let mut file = File::create(&config.output_file)
         .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
     file.write_all(&elf_bytes)
         .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
-    
-    // Minimal output by default
-    if config.verbose {
-        eprintln!("Generated: {}", config.output_file);
-    }
 
-    // Show summary or detailed output
-    if config.verbose {
-        dump_source_with_values(&source, &mut eval_context, &text_bytes, &data_bytes, bss_size);
-    } else {
-        // Just show a one-line summary
-        println!("{}: text={} data={} bss={} total={}",
-            config.output_file,
-            source.text_size,
-            source.data_size,
-            bss_size,
-            elf_bytes.len()
-        );
-    }
+    // Set executable permissions (0755)
+    let metadata = file.metadata()
+        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&config.output_file, permissions)
+        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+
+    // Default: silent on success (Unix style)
+    // Verbose mode only shows stats/progress during convergence, not detailed listing
 
     Ok(())
 }
 
-// Convergence function with per-pass dump support
-fn converge_and_encode_with_dumps(
-    source: &mut Source,
-    text_start: i64,
-    dump_config: &dump::DumpConfig,
-) -> Result<(Vec<u8>, Vec<u8>, i64), error::AssemblerError> {
-    const MAX_ITERATIONS: usize = 10;
+fn print_input_statistics(source: &Source) {
+    let mut total_lines = 0;
+    let mut total_labels = 0;
+    let mut total_instructions = 0;
+    let mut total_directives = 0;
 
-    for iteration in 0..MAX_ITERATIONS {
-        let pass_number = iteration + 1;
-
-        // Step 1: Calculate addresses based on current size guesses
-        assembler::compute_offsets(source);
-
-        // Step 2 & 3: Calculate symbol values and evaluate expressions
-        let mut eval_context = expressions::new_evaluation_context(source.clone(), text_start);
-
-        // Evaluate all line symbols to populate the expression evaluation context
-        for file in &source.files {
-            for line in &file.lines {
-                // Ignore errors - some expressions may not be evaluable yet
-                let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
+    for file in &source.files {
+        for line in &file.lines {
+            total_lines += 1;
+            match &line.content {
+                ast::LineContent::Label(_) => total_labels += 1,
+                ast::LineContent::Instruction(_) => total_instructions += 1,
+                ast::LineContent::Directive(_) => total_directives += 1,
             }
         }
-
-        // Dump symbol values if requested for this pass
-        if let Some(ref spec) = dump_config.dump_values {
-            let is_final = false; // We don't know yet if this will be the final pass
-            dump::dump_values(pass_number, is_final, source, &mut eval_context, spec);
-        }
-
-        // Step 4: Encode everything and update line sizes
-        // Track if any size changed
-        let mut any_changed = false;
-
-        // Encode and collect results
-        let encode_result = encoder::encode_source_with_size_tracking(
-            source,
-            &mut eval_context,
-            &mut any_changed,
-        );
-
-        // Get the encoded bytes for code dump
-        let (text_bytes, data_bytes, bss_size) = encode_result?;
-
-        // Dump code generation if requested for this pass
-        if let Some(ref spec) = dump_config.dump_code {
-            let is_final = !any_changed; // If nothing changed, this will be the final pass
-            dump::dump_code(
-                pass_number,
-                is_final,
-                source,
-                &mut eval_context,
-                &text_bytes,
-                &data_bytes,
-                spec,
-            );
-        }
-
-        // Step 5: Check convergence
-        if !any_changed {
-            // Converged! Dump final pass if requested
-            if let Some(ref spec) = dump_config.dump_values {
-                dump::dump_values(pass_number, true, source, &mut eval_context, spec);
-            }
-
-            return Ok((text_bytes, data_bytes, bss_size));
-        }
-
-        // Sizes changed, discard encoded data and loop again
-        // (The encoder already updated source.lines[].size)
     }
 
-    Err(error::AssemblerError::no_context(format!(
-        "Failed to converge after {} iterations - possible cyclic size dependencies",
-        MAX_ITERATIONS
-    )))
+    let num_globals = source.global_symbols.len();
+
+    eprintln!("Input:");
+    eprintln!("  Files:        {}", source.files.len());
+    eprintln!("  Lines:        {}", total_lines);
+    eprintln!("  Labels:       {}", total_labels);
+    eprintln!("  Instructions: {}", total_instructions);
+    eprintln!("  Directives:   {}", total_directives);
+    if num_globals > 0 {
+        eprintln!("  Globals:      {}", num_globals);
+    }
+    eprintln!();
 }
 
 fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
@@ -536,219 +543,4 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
         bss_size: 0,
         local_symbols: Vec::new(),
     })
-}
-
-
-fn get_encoded_bytes(line: &Line, text_bytes: &[u8], data_bytes: &[u8]) -> Vec<u8> {
-    if line.size == 0 {
-        return Vec::new();
-    }
-
-    let offset = line.offset as usize;
-    let size = line.size as usize;
-
-    match line.segment {
-        Segment::Text => {
-            if offset + size <= text_bytes.len() {
-                text_bytes[offset..offset + size].to_vec()
-            } else {
-                Vec::new()
-            }
-        }
-        Segment::Data => {
-            if offset + size <= data_bytes.len() {
-                data_bytes[offset..offset + size].to_vec()
-            } else {
-                Vec::new()
-            }
-        }
-        Segment::Bss => {
-            // BSS segment has no encoded bytes (zero-initialized)
-            Vec::new()
-        }
-    }
-}
-
-fn dump_source_with_values(
-    source: &Source,
-    eval_context: &mut expressions::EvaluationContext,
-    text_bytes: &[u8],
-    data_bytes: &[u8],
-    bss_size: i64,
-) {
-    println!(
-        "Source (text: {}, data: {}, bss: {})",
-        source.text_size, source.data_size, bss_size
-    );
-
-    for (file_index, file) in source.files.iter().enumerate() {
-        println!(
-            "SourceFile: {} (text: {}, data: {}, bss: {})",
-            file.file, file.text_size, file.data_size, file.bss_size
-        );
-
-        for line in file.lines.iter() {
-            // Calculate absolute address
-            let abs_addr = line.offset + get_segment_base(line.segment.clone(), eval_context);
-
-            // Get encoded bytes for this line
-            let encoded_bytes = get_encoded_bytes(line, text_bytes, data_bytes);
-            let bytes_str = if !encoded_bytes.is_empty() {
-                encoded_bytes
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            } else {
-                String::new()
-            };
-
-            // Format with absolute address and encoded bytes
-            if !bytes_str.is_empty() {
-                print!("  {:08x}: {:20} {}", abs_addr, bytes_str, line.content);
-            } else {
-                print!("  {:08x}: {:20} {}", abs_addr, "", line.content);
-            }
-
-            // Collect and show evaluated expression values inline
-            let expr_values = collect_expression_values(line, eval_context);
-            if !expr_values.is_empty() {
-                print!("  # ");
-                for (i, val_str) in expr_values.iter().enumerate() {
-                    if i > 0 {
-                        print!(", ");
-                    }
-                    print!("{}", val_str);
-                }
-            }
-
-            println!();
-        }
-
-        // Show exported symbols for this file
-        let exported: Vec<_> = source
-            .global_symbols
-            .iter()
-            .filter(|g| g.definition_pointer.file_index == file_index)
-            .collect();
-
-        if !exported.is_empty() {
-            println!("  Exported symbols:");
-            for global in exported {
-                println!(
-                    "    {} -> [{}:{}]",
-                    global.symbol,
-                    global.definition_pointer.file_index,
-                    global.definition_pointer.line_index
-                );
-            }
-        }
-    }
-}
-
-fn collect_expression_values(
-    line: &ast::Line,
-    eval_context: &mut expressions::EvaluationContext,
-) -> Vec<String> {
-    let mut values = Vec::new();
-
-    // Helper to format an evaluated expression value
-    let mut format_value = |expr: &ast::Expression| -> String {
-        match expressions::eval_expr(expr, line, eval_context) {
-            Ok(value) => match value.value_type {
-                expressions::ValueType::Integer => format!("{}", value.value),
-                expressions::ValueType::Address => {
-                    format!("{:#x}", value.value)
-                }
-            },
-            Err(_) => "ERROR".to_string(),
-        }
-    };
-
-    match &line.content {
-        ast::LineContent::Label(_label) => {
-            // Show the address value of this label
-            let addr = line.offset
-                + get_segment_base(line.segment.clone(), eval_context);
-            values.push(format!("{:#x}", addr));
-        }
-        ast::LineContent::Directive(dir) => match dir {
-            ast::Directive::Equ(_, expr) => {
-                values.push(format_value(expr));
-            }
-            ast::Directive::Byte(exprs)
-            | ast::Directive::TwoByte(exprs)
-            | ast::Directive::FourByte(exprs)
-            | ast::Directive::EightByte(exprs) => {
-                for expr in exprs.iter() {
-                    values.push(format_value(expr));
-                }
-            }
-            ast::Directive::Space(expr) => {
-                values.push(format_value(expr));
-            }
-            ast::Directive::Balign(expr) => {
-                values.push(format_value(expr));
-            }
-            _ => {}
-        },
-        ast::LineContent::Instruction(inst) => {
-            // Show expressions in instruction operands
-            let exprs = extract_instruction_expressions(inst);
-            for expr in exprs.iter() {
-                values.push(format_value(expr));
-            }
-        }
-    }
-
-    values
-}
-
-fn get_segment_base(
-    segment: ast::Segment,
-    eval_context: &expressions::EvaluationContext,
-) -> i64 {
-    match segment {
-        ast::Segment::Text => eval_context.text_start,
-        ast::Segment::Data => eval_context.data_start,
-        ast::Segment::Bss => eval_context.bss_start,
-    }
-}
-
-fn extract_instruction_expressions(
-    inst: &ast::Instruction,
-) -> Vec<&ast::Expression> {
-    let mut exprs = Vec::new();
-
-    match inst {
-        ast::Instruction::RType(..) => {}
-        ast::Instruction::IType(_, _, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        ast::Instruction::BType(_, _, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        ast::Instruction::UType(_, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        ast::Instruction::JType(_, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        ast::Instruction::LoadStore(_, _, expr, _) => {
-            exprs.push(expr.as_ref());
-        }
-        ast::Instruction::Special(_) => {}
-        ast::Instruction::Pseudo(pseudo) => match pseudo {
-            ast::PseudoOp::La(_, expr)
-            | ast::PseudoOp::LoadGlobal(_, _, expr)
-            | ast::PseudoOp::StoreGlobal(_, _, expr, _)
-            | ast::PseudoOp::Li(_, expr)
-            | ast::PseudoOp::Call(expr)
-            | ast::PseudoOp::Tail(expr) => {
-                exprs.push(expr.as_ref());
-            }
-        },
-    }
-
-    exprs
 }

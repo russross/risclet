@@ -3,7 +3,7 @@
 // Unit tests for the RISC-V instruction encoder
 // These tests compare our encoder output against GNU assembler output
 
-use crate::assembler::converge_and_encode;
+use crate::assembler::{converge_and_encode, NoOpCallback};
 use crate::ast::{Source, SourceFile};
 use crate::parser::parse;
 use crate::symbols::resolve_symbols;
@@ -79,7 +79,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    converge_and_encode(&mut source, 0x10000).map_err(|e| e.with_source_context())
+    converge_and_encode(&mut source, 0x10000, &NoOpCallback, false).map_err(|e| e.with_source_context())
 }
 
 /// Helper to format bytes as hex for debugging

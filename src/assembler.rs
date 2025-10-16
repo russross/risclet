@@ -76,6 +76,40 @@ pub fn compute_offsets(source: &mut Source) {
     source.header_size = compute_header_size(num_segments);
 }
 
+/// Callback trait for per-iteration convergence dumps
+///
+/// Allows main.rs to inject debug dump logic into the convergence loop
+/// without coupling this module to dump implementation details.
+pub trait ConvergenceCallback {
+    /// Called after symbol evaluation, before encoding
+    fn on_values_computed(
+        &self,
+        pass: usize,
+        is_final: bool,
+        source: &Source,
+        eval_context: &mut expressions::EvaluationContext,
+    );
+
+    /// Called after encoding
+    fn on_code_generated(
+        &self,
+        pass: usize,
+        is_final: bool,
+        source: &Source,
+        eval_context: &mut expressions::EvaluationContext,
+        text_bytes: &[u8],
+        data_bytes: &[u8],
+    );
+}
+
+/// No-op callback for production use (no debug dumps)
+pub struct NoOpCallback;
+
+impl ConvergenceCallback for NoOpCallback {
+    fn on_values_computed(&self, _: usize, _: bool, _: &Source, _: &mut expressions::EvaluationContext) {}
+    fn on_code_generated(&self, _: usize, _: bool, _: &Source, _: &mut expressions::EvaluationContext, _: &[u8], _: &[u8]) {}
+}
+
 /// Converge line sizes and offsets by iterating until stable
 ///
 /// This function repeatedly:
@@ -87,15 +121,37 @@ pub fn compute_offsets(source: &mut Source) {
 ///
 /// Loops until convergence (no size changes) or max iterations reached.
 /// Returns Ok((text, data, bss_size)) on convergence with the final encoding.
-pub fn converge_and_encode(
+///
+/// The optional `callback` parameter allows injection of debug dump logic
+/// at specific points in the convergence loop.
+///
+/// If `show_progress` is true, prints convergence progress to stderr.
+pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
     text_start: i64,
+    callback: &C,
+    show_progress: bool,
 ) -> Result<(Vec<u8>, Vec<u8>, i64), error::AssemblerError> {
     const MAX_ITERATIONS: usize = 10;
 
-    for _iteration in 0..MAX_ITERATIONS {
+    if show_progress {
+        eprintln!("Convergence:");
+        eprintln!("  Pass   Text    Data     BSS");
+        eprintln!("  ----  -----  ------  ------");
+    }
+
+    for iteration in 0..MAX_ITERATIONS {
+        let pass_number = iteration + 1;
+
         // Step 1: Calculate addresses based on current size guesses
         compute_offsets(source);
+
+        if show_progress {
+            eprintln!(
+                "  {:4}  {:5}  {:6}  {:6}",
+                pass_number, source.text_size, source.data_size, source.bss_size
+            );
+        }
 
         // Step 2 & 3: Calculate symbol values and evaluate expressions
         let mut eval_context =
@@ -109,6 +165,9 @@ pub fn converge_and_encode(
             }
         }
 
+        // Callback: after symbol values computed
+        callback.on_values_computed(pass_number, false, source, &mut eval_context);
+
         // Step 4: Encode everything and update line sizes
         // Track if any size changed
         let mut any_changed = false;
@@ -120,10 +179,26 @@ pub fn converge_and_encode(
             &mut any_changed,
         );
 
+        let (text_bytes, data_bytes, bss_size) = encode_result?;
+
+        // Callback: after code generated
+        callback.on_code_generated(
+            pass_number,
+            !any_changed, // is_final if no changes
+            source,
+            &mut eval_context,
+            &text_bytes,
+            &data_bytes,
+        );
+
         // Step 5: Check convergence
         if !any_changed {
-            // Converged! Return the encoded result
-            return encode_result;
+            // Converged! Call final value callback
+            callback.on_values_computed(pass_number, true, source, &mut eval_context);
+            if show_progress {
+                eprintln!("  Converged after {} pass{}", pass_number, if pass_number == 1 { "" } else { "es" });
+            }
+            return Ok((text_bytes, data_bytes, bss_size));
         }
 
         // Sizes changed, discard encoded data and loop again
