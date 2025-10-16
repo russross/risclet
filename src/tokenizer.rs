@@ -129,7 +129,9 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     let ident = parse_identifier(&mut chars)?;
                     let dir = match ident.as_str() {
                         "global" => DirectiveOp::Global,
+                        "globl" => DirectiveOp::Global,
                         "equ" => DirectiveOp::Equ,
+                        "set" => DirectiveOp::Equ,
                         "text" => DirectiveOp::Text,
                         "data" => DirectiveOp::Data,
                         "bss" => DirectiveOp::Bss,
@@ -208,6 +210,10 @@ fn parse_number(
             Some('o') | Some('O') => {
                 s.push('o');
                 chars.next();
+                base = 8;
+            }
+            Some(&ch) if ch.is_ascii_digit() => {
+                // Leading 0 followed by digits -> octal (traditional C-style)
                 base = 8;
             }
             _ => {}
@@ -338,6 +344,49 @@ mod tests {
         let line = "li a0, 0x10";
         let tokens = tokenize(line).unwrap();
         assert_eq!(tokens[3], Token::Integer(16));
+    }
+
+    #[test]
+    fn test_tokenize_hex_uppercase() {
+        let line = "li a0, 0XFF";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(255));
+    }
+
+    #[test]
+    fn test_tokenize_binary() {
+        let line = "li a0, 0b1010";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(10));
+    }
+
+    #[test]
+    fn test_tokenize_binary_uppercase() {
+        let line = "li a0, 0B11111111";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(255));
+    }
+
+    #[test]
+    fn test_tokenize_octal_prefix() {
+        let line = "li a0, 0o77";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(63));
+    }
+
+    #[test]
+    fn test_tokenize_octal_uppercase_prefix() {
+        let line = "li a0, 0O755";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(493));
+    }
+
+    #[test]
+    fn test_tokenize_octal_leading_zero() {
+        // Leading 0 without o/O suffix treated as octal in traditional assembly
+        let line = "li a0, 0777";
+        let tokens = tokenize(line).unwrap();
+        assert_eq!(tokens[3], Token::Integer(511));
     }
 
     #[test]

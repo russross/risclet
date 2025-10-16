@@ -791,7 +791,7 @@ pub fn dump_code(
                             for b in chunk {
                                 print!("{:02x} ", b);
                             }
-                            if i < (encoded_bytes.len() - 4 + 3) / 4 - 1 {
+                            if i < (encoded_bytes.len() - 4).div_ceil(4) - 1 {
                                 println!();
                             }
                         }
@@ -895,7 +895,7 @@ pub fn dump_code(
                         // Last line: print remaining bytes (if any) on next 8-byte aligned address
                         if byte_offset < encoded_bytes.len() {
                             // Round up to next 8-byte boundary for the address
-                            let aligned_offset = ((byte_offset + 7) / 8) * 8;
+                            let aligned_offset = byte_offset.div_ceil(8) * 8;
                             let last_addr = abs_addr + aligned_offset as i64;
                             let last_formatted_addr = format_address(
                                 last_addr as u64,
@@ -1176,11 +1176,7 @@ fn format_location_aligned(
     let formatted = format!("[{}:{}]", location.file, location.line);
     let line_num_str = location.line.to_string();
     let current_width = line_num_str.len();
-    let padding_needed = if current_width < max_line_width {
-        max_line_width - current_width
-    } else {
-        0
-    };
+    let padding_needed = max_line_width.saturating_sub(current_width);
     let padding = " ".repeat(padding_needed);
     (formatted, padding)
 }
@@ -1194,9 +1190,9 @@ fn calculate_address_width(text_start: i64) -> usize {
     }
 
     // Calculate number of hex digits needed to represent text_start
-    let unsigned_addr = text_start.abs() as u64;
+    let unsigned_addr = text_start.unsigned_abs();
     let bits_needed = 64 - unsigned_addr.leading_zeros() as usize;
-    let hex_digits_for_addr = (bits_needed + 3) / 4; // Round up to nearest hex digit
+    let hex_digits_for_addr = bits_needed.div_ceil(4); // Round up to nearest hex digit
 
     // Add 1 to the digit count as per requirements
     hex_digits_for_addr + 1

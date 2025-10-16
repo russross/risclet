@@ -143,7 +143,7 @@ Options:
   -h, --help           Show this help message
 
 Output Behavior:
-  By default, successful assembly produces no output (Unix style).
+  By default, successful assembly produces no output
   Use -v to see input statistics and convergence progress during assembly.
   Use --dump-* options for detailed inspections (AST, symbols, code, ELF) - disables output file.
 
