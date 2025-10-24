@@ -87,167 +87,97 @@ fn sign_extend(value: i32, width: u32) -> i64 {
     ((value << shift) >> shift) as i64
 }
 
-// C.LWSP immediate decoder
-fn get_c_lwsp_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 6) & 0x1) << 4;
-    imm |= ((inst >> 5) & 0x1) << 3;
-    imm |= ((inst >> 4) & 0x1) << 2;
-    imm |= ((inst >> 3) & 0x1) << 7;
-    imm |= ((inst >> 2) & 0x1) << 6;
-
-    imm as i64 // unsigned
+macro_rules! define_immediate_decoders {
+    (
+        $($name:ident {
+            mappings: [$(($src:expr, $dst:expr)),* $(,)?],
+            signed: $signed:expr,
+            width: $width:expr $(,)?
+        }),* $(,)?
+    ) => {
+        $(
+            fn $name(inst: i32) -> i64 {
+                let mut imm = 0i32;
+                $(imm |= ((inst >> $src) & 1) << $dst;)*
+                if $signed {
+                    sign_extend(imm, $width)
+                } else {
+                    imm as i64
+                }
+            }
+        )*
+    };
 }
 
-// C.LDSP immediate decoder
-fn get_c_ldsp_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 6) & 0x1) << 4;
-    imm |= ((inst >> 5) & 0x1) << 3;
-    imm |= ((inst >> 4) & 0x1) << 8;
-    imm |= ((inst >> 3) & 0x1) << 7;
-    imm |= ((inst >> 2) & 0x1) << 6;
-
-    imm as i64 // unsigned
-}
-
-// C.SWSP immediate decoder
-fn get_c_swsp_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 3;
-    imm |= ((inst >> 9) & 0x1) << 2;
-    imm |= ((inst >> 8) & 0x1) << 7;
-    imm |= ((inst >> 7) & 0x1) << 6;
-
-    imm as i64 // unsigned
-}
-
-// C.SDSP immediate decoder
-fn get_c_sdsp_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 3;
-    imm |= ((inst >> 9) & 0x1) << 8;
-    imm |= ((inst >> 8) & 0x1) << 7;
-    imm |= ((inst >> 7) & 0x1) << 6;
-
-    imm as i64 // unsigned
-}
-
-// C.LW, C.SW immediate decoder
-fn get_c_lw_sw_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 3;
-    imm |= ((inst >> 6) & 0x1) << 2;
-    imm |= ((inst >> 5) & 0x1) << 6;
-
-    imm as i64 // unsigned
-}
-
-// C.LD, C.SD immediate decoder
-fn get_c_ld_sd_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 3;
-    imm |= ((inst >> 6) & 0x1) << 7;
-    imm |= ((inst >> 5) & 0x1) << 6;
-
-    imm as i64 // unsigned
-}
-
-// C.J, C.JAL immediate decoder
-fn get_c_j_jal_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 11;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 9;
-    imm |= ((inst >> 9) & 0x1) << 8;
-    imm |= ((inst >> 8) & 0x1) << 10;
-    imm |= ((inst >> 7) & 0x1) << 6;
-    imm |= ((inst >> 6) & 0x1) << 7;
-    imm |= ((inst >> 5) & 0x1) << 3;
-    imm |= ((inst >> 4) & 0x1) << 2;
-    imm |= ((inst >> 3) & 0x1) << 1;
-    imm |= ((inst >> 2) & 0x1) << 5;
-
-    sign_extend(imm, 12)
-}
-
-// C.BEQZ, C.BNEZ immediate decoder
-fn get_c_beqz_bnez_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 8;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 3;
-    imm |= ((inst >> 6) & 0x1) << 7;
-    imm |= ((inst >> 5) & 0x1) << 6;
-    imm |= ((inst >> 4) & 0x1) << 2;
-    imm |= ((inst >> 3) & 0x1) << 1;
-    imm |= ((inst >> 2) & 0x1) << 5;
-
-    sign_extend(imm, 9)
-}
-
-// C.LI, C.ADDI, C.ADDIW, C.ANDI immediate decoder
-fn get_c_li_addi_addiw_andi_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 6) & 0x1) << 4;
-    imm |= ((inst >> 5) & 0x1) << 3;
-    imm |= ((inst >> 4) & 0x1) << 2;
-    imm |= ((inst >> 3) & 0x1) << 1;
-    imm |= (inst >> 2) & 0x1;
-
-    sign_extend(imm, 6)
-}
-
-// C.LUI immediate decoder
-fn get_c_lui_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 17;
-    imm |= ((inst >> 6) & 0x1) << 16;
-    imm |= ((inst >> 5) & 0x1) << 15;
-    imm |= ((inst >> 4) & 0x1) << 14;
-    imm |= ((inst >> 3) & 0x1) << 13;
-    imm |= ((inst >> 2) & 0x1) << 12;
-
-    sign_extend(imm, 18)
-}
-
-// C.ADDI16SP immediate decoder
-fn get_c_addi16sp_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 9;
-    imm |= ((inst >> 6) & 0x1) << 4;
-    imm |= ((inst >> 5) & 0x1) << 6;
-    imm |= ((inst >> 4) & 0x1) << 8;
-    imm |= ((inst >> 3) & 0x1) << 7;
-    imm |= ((inst >> 2) & 0x1) << 5;
-
-    sign_extend(imm, 10)
-}
-
-// C.ADDI4SPN immediate decoder
-fn get_c_addi4spn_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 11) & 0x1) << 4;
-    imm |= ((inst >> 10) & 0x1) << 9;
-    imm |= ((inst >> 9) & 0x1) << 8;
-    imm |= ((inst >> 8) & 0x1) << 7;
-    imm |= ((inst >> 7) & 0x1) << 6;
-    imm |= ((inst >> 6) & 0x1) << 2;
-    imm |= ((inst >> 5) & 0x1) << 3;
-
-    imm as i64 // unsigned
-}
-
-// C.SLLI immediate decoder
-fn get_c_slli_srli_srai_imm(inst: i32) -> i64 {
-    let mut imm = ((inst >> 12) & 0x1) << 5;
-    imm |= ((inst >> 6) & 0x1) << 4;
-    imm |= ((inst >> 5) & 0x1) << 3;
-    imm |= ((inst >> 4) & 0x1) << 2;
-    imm |= ((inst >> 3) & 0x1) << 1;
-    imm |= (inst >> 2) & 0x1;
-
-    imm as i64 // unsigned
+define_immediate_decoders! {
+    get_c_lwsp_imm {
+        mappings: [(12, 5), (6, 4), (5, 3), (4, 2), (3, 7), (2, 6)],
+        signed: false,
+        width: 7
+    },
+    get_c_ldsp_imm {
+        mappings: [(12, 5), (6, 4), (5, 3), (4, 8), (3, 7), (2, 6)],
+        signed: false,
+        width: 7
+    },
+    get_c_swsp_imm {
+        mappings: [(12, 5), (11, 4), (10, 3), (9, 2), (8, 7), (7, 6)],
+        signed: false,
+        width: 7
+    },
+    get_c_sdsp_imm {
+        mappings: [(12, 5), (11, 4), (10, 3), (9, 8), (8, 7), (7, 6)],
+        signed: false,
+        width: 7
+    },
+    get_c_lw_sw_imm {
+        mappings: [(12, 5), (11, 4), (10, 3), (6, 2), (5, 6)],
+        signed: false,
+        width: 5
+    },
+    get_c_ld_sd_imm {
+        mappings: [(12, 5), (11, 4), (10, 3), (6, 7), (5, 6)],
+        signed: false,
+        width: 5
+    },
+    get_c_j_jal_imm {
+        mappings: [
+            (12, 11), (11, 4), (10, 9), (9, 8), (8, 10),
+            (7, 6), (6, 7), (5, 3), (4, 2), (3, 1), (2, 5)
+        ],
+        signed: true,
+        width: 12
+    },
+    get_c_beqz_bnez_imm {
+        mappings: [(12, 8), (11, 4), (10, 3), (6, 7), (5, 6), (4, 2), (3, 1), (2, 5)],
+        signed: true,
+        width: 9
+    },
+    get_c_li_addi_addiw_andi_imm {
+        mappings: [(12, 5), (6, 4), (5, 3), (4, 2), (3, 1), (2, 0)],
+        signed: true,
+        width: 6
+    },
+    get_c_lui_imm {
+        mappings: [(12, 17), (6, 16), (5, 15), (4, 14), (3, 13), (2, 12)],
+        signed: true,
+        width: 18
+    },
+    get_c_addi16sp_imm {
+        mappings: [(12, 9), (6, 4), (5, 6), (4, 8), (3, 7), (2, 5)],
+        signed: true,
+        width: 10
+    },
+    get_c_addi4spn_imm {
+        mappings: [(12, 5), (11, 4), (10, 9), (9, 8), (8, 7), (7, 6), (6, 2), (5, 3)],
+        signed: false,
+        width: 8
+    },
+    get_c_slli_srli_srai_imm {
+        mappings: [(12, 5), (6, 4), (5, 3), (4, 2), (3, 1), (2, 0)],
+        signed: false,
+        width: 6
+    }
 }
 
 pub const R: [&str; 32] = [
