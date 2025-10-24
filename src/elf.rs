@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::{Machine, Segment};
+use crate::{Machine, memory::Segment};
 
 pub fn load_elf(filename: &str) -> Result<Machine, String> {
     let raw = std::fs::read(filename).map_err(|e| format!("loading {}: {}", filename, e))?;

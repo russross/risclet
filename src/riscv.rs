@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Read;
 
 fn get_funct3(inst: i32) -> i32 {
     (inst >> 12) & 0x07
@@ -910,43 +911,43 @@ impl Op {
             // branch
             Op::Beq { rs1, rs2, offset } => {
                 if m.get(*rs1) == m.get(*rs2) {
-                    m.set_pc(m.pc + *offset)?;
+                    m.set_pc(m.pc() + *offset)?;
                 }
             }
             Op::Bne { rs1, rs2, offset } => {
                 if m.get(*rs1) != m.get(*rs2) {
-                    m.set_pc(m.pc + *offset)?;
+                    m.set_pc(m.pc() + *offset)?;
                 }
             }
             Op::Blt { rs1, rs2, offset } => {
                 if m.get(*rs1) < m.get(*rs2) {
-                    m.set_pc(m.pc + *offset)?;
+                    m.set_pc(m.pc() + *offset)?;
                 }
             }
             Op::Bge { rs1, rs2, offset } => {
                 if m.get(*rs1) >= m.get(*rs2) {
-                    m.set_pc(m.pc + *offset)?;
+                    m.set_pc(m.pc() + *offset)?;
                 }
             }
             Op::Bltu { rs1, rs2, offset } => {
                 if (m.get(*rs1) as u64) < (m.get(*rs2) as u64) {
-                    m.set_pc(m.pc + *offset)?;
+                    m.set_pc(m.pc() + *offset)?;
                 }
             }
             Op::Bgeu { rs1, rs2, offset } => {
                 if (m.get(*rs1) as u64) >= (m.get(*rs2) as u64) {
-                    m.set_pc(m.pc + *offset)?;
+                    m.set_pc(m.pc() + *offset)?;
                 }
             }
 
             // jump
             Op::Jal { rd, offset } => {
-                m.set(*rd, m.pc + length);
-                m.set_pc(m.pc + *offset)?;
+                m.set(*rd, m.pc() + length);
+                m.set_pc(m.pc() + *offset)?;
             }
             Op::Jalr { rd, rs1, offset } => {
                 let rs1_val = m.get(*rs1);
-                m.set(*rd, m.pc + length);
+                m.set(*rd, m.pc() + length);
                 m.set_pc((rs1_val + *offset) & !1)?;
             }
 
@@ -1014,7 +1015,7 @@ impl Op {
                 m.set(*rd, *imm);
             }
             Op::Auipc { rd, imm } => {
-                m.set(*rd, m.pc + *imm);
+                m.set(*rd, m.pc() + *imm);
             }
 
             // misc
@@ -1024,53 +1025,53 @@ impl Op {
             Op::Ecall => {
                 match m.get(17) {
                     63 => {
-                        // read system call
-                        m.effects.as_mut().unwrap().other_message =
-                            Some(format!("read({}, 0x{:x}, {})", m.get(10), m.get(11), m.get(12)));
-                        let fd = m.get(A0);
-                        let buf_addr = m.get(A1);
-                        let count = m.get(A2);
+                         // read system call
+                         m.current_effect_mut().unwrap().other_message =
+                             Some(format!("read({}, 0x{:x}, {})", m.get(10), m.get(11), m.get(12)));
+                         let fd = m.get(A0);
+                         let buf_addr = m.get(A1);
+                         let count = m.get(A2);
 
-                        if fd != 0 {
-                            return Err(format!("read syscall: only stdin (fd 0) supported, not {fd}"));
-                        }
-                        if count < 0 {
-                            return Err(format!("read syscall: invalid buffer size: {count}"));
-                        }
+                         if fd != 0 {
+                             return Err(format!("read syscall: only stdin (fd 0) supported, not {fd}"));
+                         }
+                         if count < 0 {
+                             return Err(format!("read syscall: invalid buffer size: {count}"));
+                         }
 
-                        // make a buffer and read from stdin
-                        let mut read_buffer = vec![0; count as usize];
-                        let mut handle = io::stdin().lock();
-                        match handle.read(&mut read_buffer) {
-                            Ok(n) => read_buffer.truncate(n),
-                            Err(e) => return Err(format!("read syscall error: {}", e)),
-                        }
+                         // make a buffer and read from stdin
+                         let mut read_buffer = vec![0; count as usize];
+                         let mut handle = io::stdin().lock();
+                         match handle.read(&mut read_buffer) {
+                             Ok(n) => read_buffer.truncate(n),
+                             Err(e) => return Err(format!("read syscall error: {}", e)),
+                         }
 
-                        m.store(buf_addr, &read_buffer)?;
-                        m.set(A0, read_buffer.len() as i64);
-                        m.stdin.extend_from_slice(&read_buffer);
-                        m.effects.as_mut().unwrap().stdin = Some(read_buffer);
-                    }
+                         m.store(buf_addr, &read_buffer)?;
+                         m.set(A0, read_buffer.len() as i64);
+                         m.stdin_mut().extend_from_slice(&read_buffer);
+                         m.current_effect_mut().unwrap().stdin = Some(read_buffer);
+                     }
                     64 => {
-                        // write system call
-                        m.effects.as_mut().unwrap().other_message =
-                            Some(format!("write({}, 0x{:x}, {})", m.get(A0), m.get(A1), m.get(A2)));
-                        let fd = m.get(A0);
-                        let buf_addr = m.get(11);
-                        let count = m.get(12);
+                         // write system call
+                         m.current_effect_mut().unwrap().other_message =
+                             Some(format!("write({}, 0x{:x}, {})", m.get(A0), m.get(A1), m.get(A2)));
+                         let fd = m.get(A0);
+                         let buf_addr = m.get(11);
+                         let count = m.get(12);
 
-                        if fd != 1 {
-                            return Err(format!("write syscall: only stdout (fd 1) supported, not {fd}"));
-                        }
-                        if count < 0 {
-                            return Err(format!("write syscall: invalid buffer size: {count}"));
-                        }
+                         if fd != 1 {
+                             return Err(format!("write syscall: only stdout (fd 1) supported, not {fd}"));
+                         }
+                         if count < 0 {
+                             return Err(format!("write syscall: invalid buffer size: {count}"));
+                         }
 
-                        let write_buffer = m.load(buf_addr, count)?;
-                        m.set(A0, write_buffer.len() as i64);
-                        m.stdout.extend_from_slice(&write_buffer);
-                        m.effects.as_mut().unwrap().stdout = Some(write_buffer);
-                    }
+                         let write_buffer = m.load(buf_addr, count)?;
+                         m.set(A0, write_buffer.len() as i64);
+                         m.stdout_mut().extend_from_slice(&write_buffer);
+                         m.current_effect_mut().unwrap().stdout = Some(write_buffer);
+                     }
                     93 => {
                         // exit system call
                         let status = m.get(A0) & 0xff;

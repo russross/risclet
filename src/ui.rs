@@ -2,6 +2,8 @@ use super::riscv::*;
 use super::*;
 use std::mem::take;
 use std::rc::Rc;
+use std::io::{self, Write as IoWrite};
+use std::fmt::Write;
 
 use crossterm::{
     cursor::MoveTo,
@@ -345,15 +347,15 @@ impl Tui {
         let mut source = Pane::new(out, self.normal_color, 0, 0, size_x, size_y, true);
 
         // an 80-column terminal gets source and memory views, narrower does not
-        let (stack, data, out) = if size_x >= 80 && (self.show_stack || self.show_data && self.machine.data_start > 0) {
+        let (stack, data, out) = if size_x >= 80 && (self.show_stack || self.show_data && self.machine.data_start() > 0) {
             let mut mem = source.split_right(39, false, &mut corners);
-            if mem.height >= 22 && self.show_stack && self.show_data && self.machine.data_start > 0 {
+            if mem.height >= 22 && self.show_stack && self.show_data && self.machine.data_start() > 0 {
                 let mut data = mem.split_bottom(mem.height * 2 / 3, false, &mut corners);
                 let out = take(&mut data.out);
                 (Some(mem), Some(data), out)
-            } else if self.show_stack
-                && (self.machine.most_recent_memory >= self.machine.stack_start || !self.show_data)
-            {
+             } else if self.show_stack
+                 && (self.machine.most_recent_memory() >= self.machine.stack_start() || !self.show_data)
+             {
                 let out = take(&mut mem.out);
                 (Some(mem), None, out)
             } else {
@@ -364,9 +366,9 @@ impl Tui {
             (None, None, take(&mut source.out))
         };
 
-        let output_lines = if self.show_output && !self.machine.stdout.is_empty() {
+        let output_lines = if self.show_output && !self.machine.stdout().is_empty() {
             // count the output lines (a single trailing newline is ignored)
-            self.machine.stdout.iter().rev().skip(1).fold(1, |a, &elt| if elt == b'\n' { a + 1 } else { a })
+            self.machine.stdout().iter().rev().skip(1).fold(1, |a, &elt| if elt == b'\n' { a + 1 } else { a })
         } else {
             0
         };
@@ -374,7 +376,7 @@ impl Tui {
         // a 24-line terminal gets source, registers, and output, shorter does not
         source.out = out;
         let (registers, output, mut out) =
-            if source.height >= 22 && self.show_registers && self.show_output && !self.machine.stdout.is_empty() {
+            if source.height >= 22 && self.show_registers && self.show_output && !self.machine.stdout().is_empty() {
                 // output gets at least 4 lines and registers gets exactly 4
                 // they sit at their minimums up to a 24-line terminal, then
                 // additional lines are split 2/3 source and 1/3 output pane
@@ -616,7 +618,7 @@ impl Tui {
             let sp = self.machine.get(SP);
             let mut found_sp = false;
             let mut i = 0;
-            for &frame in &self.machine.stack_frames {
+            for &frame in self.machine.stack_frames() {
                 if frame == sp {
                     found_sp = true;
                 }
@@ -629,36 +631,34 @@ impl Tui {
             stack_colors.push((0, self.inactive_stack_color));
             stack_colors = stack_colors.iter().rev().copied().collect();
 
+            let (mr_start, mr_size) = self.machine.most_recent_stack();
             let (start, _end) = calc_range(
-                ((self.machine.stack_end - self.machine.stack_start) / 8) as usize,
-                ((self.machine.most_recent_stack.0 - self.machine.stack_start) / 8) as usize,
+                ((self.machine.stack_end() - self.machine.stack_start()) / 8) as usize,
+                ((mr_start - self.machine.stack_start()) / 8) as usize,
                 pane.height,
             );
-
-            let (mr_start, mr_size) = self.machine.most_recent_stack;
             (
                 &stack_colors,
                 start,
-                self.machine.stack_start,
-                self.machine.stack_end,
+                self.machine.stack_start(),
+                self.machine.stack_end(),
                 mr_start,
                 mr_start + mr_size as i64,
             )
-        } else {
-            pane.label("Data");
+         } else {
+             pane.label("Data");
 
-            let (start, _end) = calc_range(
-                ((self.machine.data_end - self.machine.data_start) / 8) as usize,
-                ((self.machine.most_recent_data.0 - self.machine.data_start) / 8) as usize,
-                pane.height,
-            );
-
-            let (mr_start, mr_size) = self.machine.most_recent_data;
+             let (mr_start, mr_size) = self.machine.most_recent_data();
+             let (start, _end) = calc_range(
+                 ((self.machine.data_end() - self.machine.data_start()) / 8) as usize,
+                 ((mr_start - self.machine.data_start()) / 8) as usize,
+                 pane.height,
+             );
             (
                 &self.data_colors,
                 start,
-                self.machine.data_start,
-                self.machine.data_end,
+                self.machine.data_start(),
+                self.machine.data_end(),
                 mr_start,
                 mr_start + mr_size as i64,
             )
@@ -758,7 +758,7 @@ impl Tui {
     fn render_output(&mut self, pane: &mut Pane) {
         pane.label("Output");
 
-        for line in get_last_n_lines(&self.machine.stdout, pane.height as usize) {
+        for line in get_last_n_lines(self.machine.stdout(), pane.height as usize) {
             writeln!(pane, "{}", line).unwrap();
         }
     }
