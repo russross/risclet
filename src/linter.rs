@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::{Machine, Instruction, Effects, MemoryValue, RegisterValue, Op, R, RA, ZERO, SP, T_REGS, A_REGS, S_REGS};
+use crate::execution::{Machine, Instruction};
+use crate::trace::{MemoryValue, RegisterValue, Effects};
+use crate::riscv::{Op, R, RA, ZERO, SP, T_REGS, A_REGS, S_REGS};
 
 struct FunctionRegisters {
     at_entry: [Option<usize>; 32],
@@ -105,7 +107,7 @@ impl Linter {
             }
 
             // sp must be aligned on 16-byte address
-            if x == 2 && m.x[x] & 0xf != 0 {
+            if x == 2 && m.get_reg(x) & 0xf != 0 {
                 return Err("sp must always be a multiple of 16".to_string());
             }
         }
@@ -137,10 +139,10 @@ impl Linter {
                 });
 
                 // update context for callee
-                self.at_entry_sp = m.x[SP];
+                self.at_entry_sp = m.get_reg(SP);
 
                 // capture the stack start in the Effect for the tui
-                effects.function_start = Some(m.x[SP]);
+                effects.function_start = Some(m.get_reg(SP));
 
                 // invalidate t registers
                 for &x in &T_REGS {
@@ -203,12 +205,12 @@ impl Linter {
                 }
 
                 // sp must have the same address, but not necessarily the same value number
-                if m.x[2] != self.at_entry_sp {
+                if m.get_reg(2) != self.at_entry_sp {
                     return Err("sp is not same value as when function called".to_string());
                 }
 
                 // record sp at function exit in Effects for the tui
-                effects.function_end = Some(m.x[2]);
+                effects.function_end = Some(m.get_reg(2));
 
                 // pop previous function context
                 if let Some(FunctionRegisters { at_entry, valid, save_only, at_entry_sp }) = self.stack.pop() {
