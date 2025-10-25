@@ -22,7 +22,7 @@ macro_rules! serr {
 pub struct Tui {
     machine: Machine,
     instructions: Vec<Rc<Instruction>>,
-    addresses: HashMap<i64, usize>,
+    addresses: HashMap<u32, usize>,
     pseudo_addresses: HashMap<usize, usize>,
     sequence: Vec<Effects>,
     sequence_index: usize,
@@ -32,7 +32,7 @@ pub struct Tui {
     inactive_stack_color: Colors,
     current_pc_color: Colors,
     cursor_color: Colors,
-    data_colors: Vec<(i64, Colors)>,
+    data_colors: Vec<(u32, Colors)>,
     pastels: Vec<Colors>,
 
     hex_mode: bool,
@@ -49,7 +49,7 @@ impl Tui {
     pub fn new(
         machine: Machine,
         instructions: Vec<Rc<Instruction>>,
-        addresses: HashMap<i64, usize>,
+        addresses: HashMap<u32, usize>,
         pseudo_addresses: HashMap<usize, usize>,
         sequence: Vec<Effects>,
     ) -> Result<Self, String> {
@@ -88,7 +88,7 @@ impl Tui {
 
         // create cycling color pairs for address symbols
         let mut data_colors = Vec::new();
-        let mut address_symbols: Vec<i64> = machine.address_symbols.keys().copied().collect();
+        let mut address_symbols: Vec<u32> = machine.address_symbols.keys().copied().collect();
         address_symbols.sort_unstable();
         for (i, &address) in address_symbols.iter().enumerate() {
             let color = pastels[i % pastels.len()];
@@ -496,15 +496,15 @@ impl Tui {
         pane.label(&label);
 
         // are we drawing a branch arrow?
-        let (arrow_top_addr, arrow_bottom_addr) = if effects.instruction.op.branch_target(pc).is_some() {
+        let arrow_range = if effects.instruction.op.branch_target(pc).is_some() {
             let (old, new) = effects.pc;
             if new != old && (pc_i + 1 >= self.instructions.len() || new != self.instructions[pc_i + 1].address) {
-                (old.min(new), old.max(new))
+                Some((old.min(new), old.max(new)))
             } else {
-                (-1, -1)
+                None
             }
         } else {
-            (-1, -1)
+            None
         };
 
         let (length, pc_index, cursor_index) = if self.verbose {
@@ -534,12 +534,16 @@ impl Tui {
             let addr = inst.address;
 
             // arrow?
-            let arrow = if addr == arrow_top_addr {
-                Some("┌──")
-            } else if addr == arrow_bottom_addr {
-                Some("└──")
-            } else if addr > arrow_top_addr && addr < arrow_bottom_addr {
-                Some("│  ")
+            let arrow = if let Some((top, bottom)) = arrow_range {
+                if addr == top {
+                    Some("┌──")
+                } else if addr == bottom {
+                    Some("└──")
+                } else if addr > top && addr < bottom {
+                    Some("│  ")
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -615,7 +619,7 @@ impl Tui {
             // make a color list for stack frame boundaries
             // start at high-numbered addresses so colors are consistent
             // as the number of frames changes
-            let sp = self.machine.get(SP);
+            let sp = self.machine.get(SP) as u32;
             let mut found_sp = false;
             let mut i = 0;
             for &frame in self.machine.stack_frames() {
@@ -643,31 +647,31 @@ impl Tui {
                 self.machine.stack_start(),
                 self.machine.stack_end(),
                 mr_start,
-                mr_start + mr_size as i64,
+                mr_start + mr_size as u32,
             )
          } else {
-             pane.label("Data");
+              pane.label("Data");
 
-             let (mr_start, mr_size) = self.machine.most_recent_data();
-             let (start, _end) = calc_range(
-                 ((self.machine.data_end() - self.machine.data_start()) / 8) as usize,
-                 ((mr_start - self.machine.data_start()) / 8) as usize,
-                 pane.height,
-             );
-            (
-                &self.data_colors,
-                start,
-                self.machine.data_start(),
-                self.machine.data_end(),
-                mr_start,
-                mr_start + mr_size as i64,
-            )
-        };
+              let (mr_start, mr_size) = self.machine.most_recent_data();
+              let (start, _end) = calc_range(
+                  ((self.machine.data_end() - self.machine.data_start()) / 8) as usize,
+                  ((mr_start - self.machine.data_start()) / 8) as usize,
+                  pane.height,
+              );
+             (
+                 &self.data_colors,
+                 start,
+                 self.machine.data_start(),
+                 self.machine.data_end(),
+                 mr_start,
+                 mr_start + mr_size as u32,
+             )
+         };
 
         // render each memory line
         let mut current_region = 0;
-        for i in 0..pane.height as i64 {
-            let addr = mem_start + (start + i) * 8;
+        for i in 0..pane.height as u32 {
+            let addr = mem_start + (start as u32 + i) * 8;
 
             // gather the bytes and colors to print
             let mut addr_to_print = None;
@@ -1002,10 +1006,10 @@ fn calc_range(length: usize, cursor: usize, window_size: u16) -> (i64, i64) {
 }
 
 fn find_function_bounds(
-    symbols: &HashMap<i64, String>,
+    symbols: &HashMap<u32, String>,
     instructions: &[Rc<Instruction>],
     current: usize,
-) -> (i64, i64) {
+) -> (u32, u32) {
     let (mut start_pc, mut end_pc) = (instructions[0].address, instructions.last().unwrap().address);
     for instruction in instructions[0..=current].iter().rev() {
         if let Some(label) = symbols.get(&instruction.address) {

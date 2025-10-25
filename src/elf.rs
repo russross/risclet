@@ -21,7 +21,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
         return Err(format!("{filename} is not an executable, RISC-V, ELF version 1 file"));
     }
 
-    let e_entry = i64::from_le_bytes(raw[0x18..0x20].try_into().unwrap());
+    let e_entry = i64::from_le_bytes(raw[0x18..0x20].try_into().unwrap()) as u32;
     let e_phoff = u64::from_le_bytes(raw[0x20..0x28].try_into().unwrap()) as usize;
     let e_shoff = u64::from_le_bytes(raw[0x28..0x30].try_into().unwrap()) as usize;
 
@@ -38,7 +38,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     }
 
     // get the loadable segments
-    let mut chunks = Vec::new();
+    let mut chunks: Vec<(u32, Vec<u8>)> = Vec::new();
     for i in 0..e_phnum {
         // unpack the program header
         let start = e_phoff + e_phentsize * i;
@@ -64,7 +64,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
         if (p_offset + p_filesz) as usize > raw.len() {
             return Err(format!("{filename} program segment {i} out of range"));
         }
-        let chunk = (p_vaddr, raw[p_offset as usize..(p_offset + p_filesz) as usize].to_vec());
+        let chunk = (p_vaddr as u32, raw[p_offset as usize..(p_offset + p_filesz) as usize].to_vec());
         chunks.push(chunk);
     }
 
@@ -115,7 +115,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
         let sh_name = u32::from_le_bytes(header[0x00..0x04].try_into().unwrap()) as usize;
         let sh_type = u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
         let sh_flags = u64::from_le_bytes(header[0x08..0x10].try_into().unwrap());
-        let sh_addr = i64::from_le_bytes(header[0x10..0x18].try_into().unwrap());
+        let sh_addr = i64::from_le_bytes(header[0x10..0x18].try_into().unwrap()) as u32;
         let sh_offset = u64::from_le_bytes(header[0x18..0x20].try_into().unwrap()) as usize;
         let sh_size = u64::from_le_bytes(header[0x20..0x28].try_into().unwrap()) as usize;
         //let sh_link = u32::from_le_bytes(header[0x28..0x2C].try_into().unwrap());
@@ -141,7 +141,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
             // in-memory section; see if we have loadable data
             let mut init = Vec::new();
             for &(p_vaddr, ref seg_raw) in &chunks {
-                if p_vaddr <= sh_addr && sh_addr < p_vaddr + seg_raw.len() as i64 {
+                if p_vaddr <= sh_addr && sh_addr < p_vaddr + seg_raw.len() as u32 {
                     let start_idx = (sh_addr - p_vaddr) as usize;
                     let end_idx = start_idx + sh_size;
                     init = seg_raw[start_idx..end_idx].to_vec();
@@ -149,7 +149,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
             }
             segments.push(Segment::new(
                 sh_addr,
-                sh_addr + sh_size as i64,
+                sh_addr + sh_size as u32,
                 (sh_flags & 0x1) != 0,
                 (sh_flags & 0x4) != 0,
                 init,
@@ -175,9 +175,9 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     }
 
     // parse the symbol table
-    let mut address_symbols = HashMap::new();
-    let mut other_symbols = HashMap::new();
-    let mut global_pointer = 0;
+    let mut address_symbols: HashMap<u32, String> = HashMap::new();
+    let mut other_symbols: HashMap<String, u32> = HashMap::new();
+    let mut global_pointer: u32 = 0;
     const SYMBOL_SIZE: usize = 24;
 
     for start in (0..syms_raw.len()).step_by(SYMBOL_SIZE) {
@@ -189,7 +189,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
         let st_info = symbol[0x04];
         //let st_other = symbol[0x05];
         let st_shndx = u16::from_le_bytes(symbol[0x06..0x08].try_into().unwrap());
-        let st_value = i64::from_le_bytes(symbol[0x08..0x10].try_into().unwrap());
+        let st_value = i64::from_le_bytes(symbol[0x08..0x10].try_into().unwrap()) as u32;
         //let st_size = u64::from_le_bytes(symbol[0x10..0x18].try_into().unwrap());
 
         let mut end = st_name;
