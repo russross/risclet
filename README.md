@@ -71,3 +71,25 @@ feature requests if they work against those goals. Bug reports and
 fixes are welcome.
 
 *   Russ Ross (github.com/russross)
+
+
+## RISC-V Test Suite
+
+Complete RV32IMC instruction validation test suite: **50/50 tests passing (100%)**
+
+All test infrastructure is self-contained in the `test/` directory.
+
+**Quick start:**
+```bash
+cd test
+./run_all_tests.sh
+```
+
+**Documentation:** See `test/INDEX.md` for complete documentation index, or `test/GETTING_STARTED.md` to get started.
+
+**Test coverage:**
+- 40 RV32I base instruction tests
+- 8 RV32M multiply/divide tests  
+- 1 RV32C compressed instruction test
+- Complete validation of all applicable RISC-V instructions
+

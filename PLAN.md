@@ -1,542 +1,367 @@
-# Testability Refactoring Plan
-
-This document outlines a structured plan to refactor risclet to improve testability through dependency injection, clearer module boundaries, and better separation of concerns. The focus is on making unit tests easier to write without breaking existing functionality.
-
-## Guiding Principles
-
-1. **Incremental changes**: Each refactoring step should be independently testable
-2. **Preserve behavior**: No functional changes during restructuring
-3. **Minimize scope**: Focus on high-value improvements for testability
-4. **Keep it simple**: Avoid over-engineering; this is an educational tool
-
-## Current Architecture Issues
-
-### Tight Coupling
-- `Machine` directly owns and mutates `MemoryManager` and `CpuState`
-- `Op::execute()` takes `&mut Machine`, creating a large surface area
-- `Linter` requires a full `Machine` to check instructions
-- ELF loading directly constructs a `Machine`
-- I/O operations are hardcoded into syscall execution
-
-### Hidden Dependencies
-- System I/O (`stdin`/`stdout`) is accessed directly in `Op::execute()`
-- `trace()` function couples execution with linting, I/O, and trace collection
-- UI state is managed within the execution loop
-- No clear separation between simulation state and execution history
+# RISC-V Test Suite Integration Plan
 
-### Monolithic Responsibilities
-- `Machine` handles execution, tracing, memory management, and I/O
-- `trace()` function does execution, linting, I/O echoing, and history management
-- `Op::execute()` mixes instruction semantics with side effects
+## Overview
 
-## Proposed Refactoring Steps
+This document describes the process for converting the RISC-V ISA test suite from riscv-tests into embedded unit tests for the risclet emulator. Each test is converted into a standalone binary that exits with code 0 for success and code 1 for failure, then the binary is embedded as a byte array in a Rust unit test.
 
-### Phase 1: Extract and Abstract I/O (High Priority)
+## Background
 
-**Goal**: Make I/O testable by injecting a trait-based abstraction
+The riscv-tests repository contains comprehensive tests for RISC-V ISA instructions. We are converting tests from three specific suites:
 
-**Current Problem**: Syscalls directly call `io::stdin()` and `io::stdout()`, making them impossible to test without actual terminal I/O.
+- `riscv-tests/isa/rv32ui` - RV32I base integer instruction set (43 tests)
+- `riscv-tests/isa/rv32um` - RV32M multiply/divide extension (8 tests)  
+- `riscv-tests/isa/rv32uc` - RV32C compressed instruction extension (2 tests)
 
-**Steps**:
+Total: **53 tests** to convert
 
-1. **Define I/O trait** in a new `src/io_abstraction.rs`:
-   ```rust
-   pub trait IoProvider {
-       fn read_stdin(&mut self, buffer: &mut [u8]) -> Result<usize, String>;
-       fn write_stdout(&mut self, data: &[u8]) -> Result<usize, String>;
-   }
-   
-   pub struct SystemIo;
-   impl IoProvider for SystemIo { /* delegates to real I/O */ }
-   
-   pub struct TestIo {
-       pub stdin_data: Vec<u8>,
-       pub stdout_buffer: Vec<u8>,
-   }
-   impl IoProvider for TestIo { /* uses in-memory buffers */ }
-   ```
-
-2. **Add `io_provider` field to `Machine`**:
-   - Change `Machine` to hold `Box<dyn IoProvider>`
-   - Update constructor to accept I/O provider
-   - Pass to syscall handlers in `Op::execute()`
+## Test Structure Analysis
 
-3. **Update syscall implementation**:
-   - Replace direct `io::stdin()` calls with `io_provider.read_stdin()`
-   - Replace direct `io::stdout()` calls with `io_provider.write_stdout()`
+### Original Test Format
 
-**Value**: Enables testing of syscall behavior with predictable input/output
+Tests use macros from `riscv-tests/isa/macros/scalar/test_macros.h`:
+- `TEST_IMM_OP` - Tests immediate operand instructions
+- `TEST_RR_OP` - Tests register-register operations
+- `TEST_LD_OP` / `TEST_ST_OP` - Tests load/store operations
+- `TEST_BR2_OP_TAKEN` / `TEST_BR2_OP_NOTTAKEN` - Tests branch instructions
+- `TEST_PASSFAIL` - Defines pass/fail logic
 
-**Risk**: Low - purely additive change with default implementation
+Tests track the current test number in register x30 (TESTNUM) and branch to `fail:` on mismatch.
 
----
+## Complete Conversion Process
 
-### Phase 2: Separate Instruction Execution from Side Effect Collection (High Priority)
+### Step 1: Macro Expansion and Standalone Assembly Creation (Automated)
 
-**Goal**: Make `Op::execute()` independently testable without requiring full `Machine` state
 
-**Current Problem**: `Op::execute()` both performs the operation AND tracks effects through mutable `Machine` state, making it hard to test individual instructions in isolation.
 
-**Steps**:
+This step is automated by the `generate_standalone.py` script.
 
-1. **Define minimal execution context trait**:
-   ```rust
-   pub trait ExecutionContext {
-       fn read_register(&mut self, reg: usize) -> i32;
-       fn write_register(&mut self, reg: usize, value: i32);
-       fn read_memory(&mut self, addr: u32, size: u32) -> Result<Vec<u8>, String>;
-       fn write_memory(&mut self, addr: u32, data: &[u8]) -> Result<(), String>;
-       fn read_pc(&self) -> u32;
-       fn write_pc(&mut self, pc: u32) -> Result<(), String>;
-       fn io_provider(&mut self) -> &mut dyn IoProvider;
-       fn current_effects(&mut self) -> Option<&mut Effects>;
-   }
-   ```
 
-2. **Implement `ExecutionContext` for `Machine`**:
-   - Wrapper implementation that delegates to existing methods
-   - No behavioral changes to `Machine` itself
 
-3. **Create minimal test context**:
-   ```rust
-   pub struct TestExecutionContext {
-       pub registers: [i32; 32],
-       pub memory: HashMap<u32, u8>,
-       pub pc: u32,
-       pub io: TestIo,
-   }
-   impl ExecutionContext for TestExecutionContext { /* minimal impl */ }
-   ```
+For each test file (e.g., `addi.S`):
 
-4. **Update `Op::execute()` signature**:
-   - Change from `fn execute(&self, m: &mut Machine, ...)` 
-   - To `fn execute(&self, ctx: &mut dyn ExecutionContext, ...)`
 
-**Value**: Enables unit testing of individual instructions without full machine setup
 
-**Risk**: Medium - requires signature changes throughout, but behavior unchanged
+1.  **Run `generate_standalone.py`**:
 
----
+    ```bash
 
-### Phase 3: Extract Memory Management Interface (Medium Priority)
+    python3 generate_standalone.py <test_name> <suite> [march]
 
-**Goal**: Define clear boundaries for memory operations and enable memory subsystem testing
+    ```
 
-**Current Problem**: `MemoryManager` is tightly coupled to `Machine`; segment lookup logic cannot be tested independently.
+    - `<test_name>`: The name of the test file (e.g., `addi`).
 
-**Steps**:
+    - `<suite>`: The RISC-V ISA suite (e.g., `rv32ui`, `rv32um`, `rv32uc`).
 
-1. **Define memory interface trait**:
-   ```rust
-   pub trait MemoryInterface {
-       fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>, String>;
-       fn store(&mut self, addr: u32, data: &[u8]) -> Result<(), String>;
-       fn load_instruction(&self, addr: u32) -> Result<(i32, u32), String>;
-       fn reset(&mut self);
-   }
-   ```
+    - `[march]`: Optional. The RISC-V architecture string (e.g., `rv32im`, `rv32imc`). Defaults to `rv32im`.
 
-2. **Implement trait for `MemoryManager`**:
-   - Existing methods already match this interface
-   - Just add trait implementation
 
-3. **Create test memory implementation**:
-   ```rust
-   pub struct FlatMemory {
-       data: Vec<u8>,
-       base: u32,
-   }
-   impl MemoryInterface for FlatMemory { /* simple flat memory for testing */ }
-   ```
 
-4. **Update `Machine` to use trait**:
-   - Change field from `memory: MemoryManager` to `memory: Box<dyn MemoryInterface>`
-   - Update construction and usage
+    This script will:
 
-**Value**: Enables testing of memory edge cases (alignment, segfaults, etc.) in isolation
+    - Locate the appropriate test file within `riscv-tests/isa/`.
 
-**Risk**: Low - existing code barely changes, mostly adds abstraction layer
+    - Expand all `TEST_IMM_OP`, `TEST_RR_OP`, and related macros into raw RISC-V assembly.
 
----
+    - Add the `_start` entry point and `pass`/`fail` exit handlers.
 
-### Phase 4: Decouple Linter from Full Machine State (Medium Priority)
+    - Save the resulting standalone assembly to `/home/russ/risclet/<test_name>_standalone.S`.
 
-**Goal**: Make linter testable with minimal state rather than full `Machine`
 
-**Current Problem**: `Linter::check_instruction()` requires `&Machine`, but only uses a small subset of its state.
-
-**Steps**:
-
-1. **Define linter context trait**:
-   ```rust
-   pub trait LintContext {
-       fn get_register(&self, reg: usize) -> i32;
-       fn get_symbol_for_address(&self, addr: u32) -> Option<&String>;
-       fn get_symbol_value(&self, name: &str) -> Option<u32>;
-   }
-   ```
-
-2. **Implement `LintContext` for `Machine`**:
-   - Simple delegation to existing methods
-
-3. **Create minimal test lint context**:
-   ```rust
-   pub struct TestLintContext {
-       pub registers: [i32; 32],
-       pub symbols: HashMap<u32, String>,
-   }
-   impl LintContext for TestLintContext { /* minimal impl */ }
-   ```
-
-4. **Update `Linter::check_instruction()` signature**:
-   - Change from `fn check_instruction(&mut self, m: &Machine, ...)`
-   - To `fn check_instruction(&mut self, ctx: &dyn LintContext, ...)`
-
-**Value**: Enables testing of linting rules independently from execution
-
-**Risk**: Low - purely interface change, no logic modification
-
----
-
-### Phase 5: Extract Instruction Decoding (Low-Medium Priority)
-
-**Goal**: Make decoder testable independently from execution
-
-**Current Problem**: `Op::new()` is coupled to the `Op` enum, making it hard to test decoding edge cases.
-
-**Steps**:
-
-1. **Create decoder module** (`src/decoder.rs`):
-   ```rust
-   pub struct InstructionDecoder;
-   
-   impl InstructionDecoder {
-       pub fn decode(inst: i32) -> Op {
-           // Move logic from Op::new() here
-       }
-       
-       pub fn decode_compressed(inst: i32) -> Op {
-           // Move from Op::decode_compressed()
-       }
-   }
-   ```
-
-2. **Update `Op::new()` to delegate**:
-   ```rust
-   pub fn new(inst: i32) -> Self {
-       InstructionDecoder::decode(inst)
-   }
-   ```
-
-3. **Add comprehensive decoder tests**:
-   - Test each instruction format
-   - Test immediate extraction
-   - Test edge cases (all zeros, all ones, etc.)
-
-**Value**: Enables systematic testing of instruction decoding
-
-**Risk**: Low - pure refactoring, behavior unchanged
-
----
-
-### Phase 6: Separate Trace Collection from Execution (Low Priority)
-
-**Goal**: Make execution loop testable without trace collection
-
-**Current Problem**: The `trace()` function couples execution with trace collection, linting, and I/O.
-
-**Steps**:
-
-1. **Extract execution loop**:
-   ```rust
-   pub struct Executor<'a> {
-       machine: &'a mut Machine,
-       instructions: &'a [Rc<Instruction>],
-       addresses: &'a HashMap<u32, usize>,
-   }
-   
-   impl<'a> Executor<'a> {
-       pub fn step(&mut self) -> Result<Effects, String> {
-           // Execute single instruction, return effects
-       }
-       
-       pub fn run_until(&mut self, predicate: impl Fn(&Effects) -> bool) 
-           -> Vec<Effects> {
-           // Run until predicate is true
-       }
-   }
-   ```
-
-2. **Add middleware/observer pattern**:
-   ```rust
-   pub trait ExecutionObserver {
-       fn before_instruction(&mut self, m: &Machine, inst: &Instruction);
-       fn after_instruction(&mut self, m: &Machine, effects: &Effects);
-   }
-   
-   pub struct LintingObserver { linter: Linter }
-   pub struct TraceObserver { trace: Vec<Effects> }
-   pub struct IoEchoObserver { echo: bool }
-   ```
-
-3. **Rewrite `trace()` to compose observers**:
-   ```rust
-   pub fn trace(...) -> Vec<Effects> {
-       let mut executor = Executor::new(machine, instructions, addresses);
-       let mut observers = vec![
-           Box::new(TraceObserver::new()),
-           Box::new(LintingObserver::new(linter)),
-           Box::new(IoEchoObserver::new(echo)),
-       ];
-       executor.run_with_observers(&mut observers, max_steps)
-   }
-   ```
-
-**Value**: Enables testing of execution without side effects, and testing observers independently
-
-**Risk**: Medium-High - significant refactoring, but cleaner architecture
-
----
-
-### Phase 7: Split Machine Construction from ELF Loading (Low Priority)
-
-**Goal**: Enable testing of `Machine` without ELF file dependencies
-
-**Current Problem**: `load_elf()` directly constructs `Machine`, making it hard to create test machines programmatically.
-
-**Steps**:
-
-1. **Create builder pattern for `Machine`**:
-   ```rust
-   pub struct MachineBuilder {
-       segments: Vec<Segment>,
-       pc_start: u32,
-       global_pointer: u32,
-       // ...
-   }
-   
-   impl MachineBuilder {
-       pub fn new() -> Self { /* defaults */ }
-       pub fn with_segment(mut self, seg: Segment) -> Self { /* ... */ }
-       pub fn with_flat_memory(mut self, size: u32) -> Self { /* ... */ }
-       pub fn build(self) -> Machine { /* ... */ }
-   }
-   ```
-
-2. **Add convenience constructors**:
-   ```rust
-   impl Machine {
-       pub fn for_testing() -> Self {
-           MachineBuilder::new()
-               .with_flat_memory(1024 * 1024)
-               .build()
-       }
-       
-       pub fn with_program(instructions: &[i32]) -> Self {
-           MachineBuilder::new()
-               .with_text_segment(instructions)
-               .build()
-       }
-   }
-   ```
-
-3. **Update `load_elf()` to use builder**:
-   ```rust
-   pub fn load_elf(filename: &str) -> Result<Machine, String> {
-       // Parse ELF...
-       MachineBuilder::new()
-           .with_segments(segments)
-           .with_entry_point(e_entry)
-           .with_symbols(address_symbols, other_symbols)
-           .build()
-   }
-   ```
-
-**Value**: Dramatically simplifies test setup for integration tests
-
-**Risk**: Low - additive change that doesn't affect existing behavior
-
----
-
-### Phase 8: Improve Register File Testability (Low Priority)
-
-**Goal**: Make register operations testable in isolation
-
-**Current Problem**: Register state is buried in `CpuState` which is inside `Machine`.
-
-**Steps**:
-
-1. **Add builder and query methods to `RegisterFile`**:
-   ```rust
-   impl RegisterFile {
-       pub fn from_array(values: [i32; 32]) -> Self { /* ... */ }
-       pub fn to_array(&self) -> [i32; 32] { /* ... */ }
-       pub fn set_multiple(&mut self, values: &[(usize, i32)]) { /* ... */ }
-   }
-   ```
-
-2. **Add assertion helpers**:
-   ```rust
-   impl RegisterFile {
-       pub fn assert_eq(&self, reg: usize, value: i32) {
-           assert_eq!(self.get(reg), value, 
-               "Register {} was {}, expected {}", 
-               riscv::R[reg], self.get(reg), value);
-       }
-   }
-   ```
-
-**Value**: Makes register-heavy tests more readable and easier to write
-
-**Risk**: Very Low - purely additive convenience methods
-
----
-
-## Additional Improvements for Testing
-
-### Test Utilities Module
-
-Create `src/test_utils.rs` (behind `#[cfg(test)]`) with:
-
-```rust
-pub fn make_test_machine() -> Machine { /* ... */ }
-
-pub fn make_test_instruction(opcode: &str, operands: &[i32]) -> Instruction { /* ... */ }
-
-pub fn assert_register_eq(m: &Machine, reg: usize, value: i32) { /* ... */ }
-
-pub fn assert_memory_eq(m: &Machine, addr: u32, expected: &[u8]) { /* ... */ }
-
-pub struct InstructionBuilder {
-    // Fluent API for building test instructions
-}
+
+    **Example**:
+
+    ```bash
+
+    python3 generate_standalone.py addi rv32ui
+
+    ```
+
+    This will create `/home/russ/risclet/addi_standalone.S`.
+
+### Step 2: Assembly and Linking
+
+Use the RISC-V GNU toolchain to assemble and link the generated standalone assembly file.
+
+**Example for `addi` (rv32ui suite)**:
+
+```bash
+riscv64-unknown-elf-as -march=rv32im -mabi=ilp32 -mno-relax addi_standalone.S -o addi_standalone.o
+riscv64-unknown-elf-ld -m elf32lriscv -Ttext=0x80000000 --no-relax addi_standalone.o -o addi_standalone.elf
 ```
 
-### Example Test Structure
+**General Commands**:
 
-After these refactorings, tests would look like:
+```bash
+# For rv32ui and rv32um tests (use rv32im, NOT rv32imc):
+riscv64-unknown-elf-as -march=rv32im -mabi=ilp32 -mno-relax <testname>_standalone.S -o <testname>_standalone.o
 
-```rust
-#[test]
-fn test_add_instruction() {
-    let mut ctx = TestExecutionContext::new();
-    ctx.write_register(1, 10);
-    ctx.write_register(2, 20);
-    
-    let op = Op::Add { rd: 3, rs1: 1, rs2: 2 };
-    op.execute(&mut ctx, 4).unwrap();
-    
-    assert_eq!(ctx.read_register(3), 30);
-}
+# For rv32uc tests (compressed instructions):
+riscv64-unknown-elf-as -march=rv32imc -mabi=ilp32 -mno-relax <testname>_standalone.S -o <testname>_standalone.o
 
-#[test]
-fn test_syscall_write() {
-    let mut ctx = TestExecutionContext::new();
-    ctx.write_register(17, 64); // write syscall
-    ctx.write_register(10, 1);  // stdout
-    ctx.write_register(11, 0x1000);
-    ctx.write_register(12, 5);
-    ctx.write_memory(0x1000, b"hello").unwrap();
-    
-    let op = Op::Ecall;
-    op.execute(&mut ctx, 4).unwrap();
-    
-    assert_eq!(ctx.io.stdout_buffer, b"hello");
-}
-
-#[test]
-fn test_memory_alignment_error() {
-    let mut ctx = TestExecutionContext::new();
-    let mut linter = Linter::new(0x2000);
-    
-    ctx.write_register(1, 0x1001); // unaligned address
-    ctx.write_register(2, 42);
-    
-    let instruction = make_test_instruction(Op::Sw { rs1: 1, rs2: 2, offset: 0 });
-    let mut effects = Effects::new(&instruction);
-    
-    let result = linter.check_instruction(&ctx, &instruction, &mut effects);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("unaligned"));
-}
+# Link (same for all):
+riscv64-unknown-elf-ld -m elf32lriscv -Ttext=0x80000000 --no-relax <testname>_standalone.o -o <testname>_standalone.elf
 ```
 
-## Implementation Priority
+**Critical flags**:
+- `-march=rv32im` - Prevents use of compressed instructions in rv32ui/rv32um suites
+- `-march=rv32imc` - Allows compressed instructions for rv32uc suite
+- `-mno-relax` - Prevents assembler from optimizing/relaxing instructions
+- `--no-relax` - Prevents linker relaxation (e.g., gp-relative addressing)
+- `-Ttext=0x80000000` - Sets code to start at address 0x80000000 (BASE_ADDR)
 
-### High Priority (Do First)
-1. **Phase 1: Extract I/O** - Unblocks syscall testing
-2. **Phase 2: Execution Context** - Enables instruction-level testing
-3. **Phase 7: Machine Builder** - Simplifies all other tests
+### Step 3: Extract Binary
 
-### Medium Priority (Do Second)
-4. **Phase 3: Memory Interface** - Enables memory subsystem testing
-5. **Phase 4: Linter Decoupling** - Enables linter rule testing
+Extract the raw binary from the ELF file and convert it to a hex format suitable for embedding in Rust.
 
-### Low Priority (Nice to Have)
-6. **Phase 5: Decoder Extraction** - Decode testing already possible
-7. **Phase 6: Trace Separation** - Most complex, least critical
-8. **Phase 8: Register Utilities** - Pure convenience
+**Example for `addi`**:
 
-## Testing Strategy
+```bash
+riscv64-unknown-elf-objcopy -O binary addi_standalone.elf addi_standalone.bin
+hexdump -v -e '4/1 "0x%02x, "' -e '"\n"' addi_standalone.bin > addi_hex.txt
+```
 
-For each phase:
+**General Commands**:
 
-1. **Before refactoring**: Write characterization tests for existing behavior
-2. **During refactoring**: Ensure all existing tests pass
-3. **After refactoring**: Add new unit tests enabled by the refactoring
-4. **Integration**: Add end-to-end tests to verify combined behavior
+```bash
+# Extract binary
+riscv64-unknown-elf-objcopy -O binary <testname>_standalone.elf <testname>_standalone.bin
 
-## Success Metrics
+# Convert to hex format (4 bytes per line for easy formatting)
+hexdump -v -e '4/1 "0x%02x, "' -e '"\n"' <testname>_standalone.bin > <testname>_hex.txt
+```
 
-After completing these refactorings, we should be able to:
+Optional: Disassemble to verify correctness:
+```bash
+riscv64-unknown-elf-objdump -d -M numeric <testname>_standalone.elf > <testname>_disasm.txt
+```
 
-- [ ] Test individual instructions without creating a full `Machine`
-- [ ] Test syscalls with predictable I/O (no terminal required)
-- [ ] Test linter rules in isolation from execution
-- [ ] Test memory operations independently
-- [ ] Create test machines with minimal boilerplate
-- [ ] Test execution without trace collection
-- [ ] Test instruction decoding systematically
+### Step 4: Add to Rust Test File
 
-## Notes and Caveats
 
-### What This Plan Does NOT Include
 
-Following the guidance in FUTURE.md, this plan explicitly avoids:
+Add the generated binary to `/home/russ/risclet/src/riscv_tests.rs`.
 
-- **Type system improvements** (newtype wrappers, instruction length enums)
-- **Module restructuring** (src/isa/, src/machine/, etc.) - current flat structure is fine
-- **Performance optimizations** (memory lookup, SIMD, etc.)
-- **Feature additions** (floating point, CSRs, etc.)
-- **Error type hierarchy** - String errors are fine for educational tool
 
-### Why These Boundaries
 
-The goal is **testability**, not perfection. The project is explicitly designed to be simple and minimal. Adding type safety or restructuring modules would:
-- Increase cognitive load for contributors
-- Add complexity without improving testability
-- Risk breaking existing functionality
-- Violate the "educational tool" mission
+**For `addi` test**: This test is already integrated as a reference example.
 
-### Alignment with FUTURE.md
 
-This plan is inspired by but intentionally diverges from FUTURE.md ideas:
 
-- **Takes**: The need for better testing (section 11)
-- **Adapts**: The separation of concerns ideas (section 19) but keeps them minimal
-- **Ignores**: Type safety improvements (sections 1-3) as orthogonal to testability
-- **Simplifies**: Module restructuring (section 10) - not needed for current codebase size
+**General Steps**:
 
-## Next Steps
 
-Before implementing:
 
-1. Review this plan with maintainers
-2. Prioritize phases based on actual testing needs
-3. Consider implementing Phase 1 + Phase 7 as MVP to unblock testing
-4. Create tracking issues for each phase
-5. Implement incrementally with tests at each step
+1.  **Read the hex bytes** from `<testname>_hex.txt`.
+
+
+
+2.  **Add a constant for the binary** (below existing constants, before the test declarations):
+
+    ```rust
+
+    #[rustfmt::skip]
+
+    const <TESTNAME_UPPER>_BINARY: &[u8] = &[
+
+        // Paste hex bytes from <testname>_hex.txt, ensuring proper Rust array formatting
+
+        0x13, 0x0f, 0x00, 0x00, 0x13, 0x0f, 0x20, 0x00, // ...
+
+        // ... all bytes ...
+
+    ];
+
+    ```
+
+
+
+3.  **Add the test using the macro**:
+
+    ```rust
+
+    riscv_test!(test_rv32ui_<testname>, <TESTNAME_UPPER>_BINARY);
+
+    ```
+
+### Step 5: Run and Verify
+
+Run the Rust unit test to verify the converted test.
+
+**Example for `addi`**:
+
+```bash
+cargo test test_rv32ui_addi
+```
+
+The test should compile and pass. If it fails:
+- Check the exit code in the error message
+- Review the disassembly to identify which test case failed (look at x30 value)
+- Verify macro expansion was correct
+- Check that the appropriate -march was used
+
+## Helper Infrastructure
+
+The test file `src/riscv_tests.rs` provides:
+
+### Constants
+```rust
+const BASE_ADDR: u32 = 0x80000000;  // Entry point address
+const MAX_STEPS: usize = 100000;     // Maximum execution steps
+```
+
+### Helper Function
+```rust
+fn run_test_binary(binary: &[u8]) -> Result<i32, String>
+```
+- Creates a Machine with the binary loaded at BASE_ADDR
+- Executes instructions until ecall is reached
+- Returns the exit code (register a0)
+
+### Macro
+```rust
+riscv_test!($test_name:ident, $binary:expr)
+```
+- Generates a `#[test]` function
+- Calls `run_test_binary`
+- Asserts exit code == 0
+
+## Test Suite Inventory
+
+### rv32ui Tests (43 tests)
+Located in `riscv-tests/isa/rv32ui/`, use `-march=rv32im`:
+
+**Arithmetic/Logical Immediate**:
+- addi, andi, ori, xori, slti, sltiu
+
+**Arithmetic/Logical Register**:
+- add, sub, and, or, xor, slt, sltu, sll, srl, sra
+
+**Load Instructions**:
+- lb, lbu, lh, lhu, lw
+
+**Store Instructions**:
+- sb, sh, sw
+
+**Branch Instructions**:
+- beq, bne, blt, bltu, bge, bgeu
+
+**Jump Instructions**:
+- jal, jalr
+
+**Upper Immediate**:
+- lui, auipc
+
+**Special**:
+- simple (basic test)
+- fence_i (instruction fence)
+- ma_data (misaligned data access)
+
+### rv32um Tests (8 tests)
+Located in `riscv-tests/isa/rv32um/`, use `-march=rv32im`:
+
+- mul, mulh, mulhsu, mulhu
+- div, divu, rem, remu
+
+### rv32uc Tests (2 tests)
+Located in `riscv-tests/isa/rv32uc/`, use `-march=rv32imc`:
+
+- rvc (comprehensive compressed instruction test)
+- (possible others - check directory)
+
+## Example: Complete Conversion of ADDI
+
+The ADDI test has been fully converted as a reference example. See:
+- Source assembly: `/home/russ/risclet/addi_standalone.S`
+- Binary: `/home/russ/risclet/addi_standalone.bin`
+- Test: `test_rv32ui_addi` in `/home/russ/risclet/src/riscv_tests.rs`
+
+This test validates 25 different addi operations including:
+- Basic arithmetic (0+0, 1+1, 3+7)
+- Sign extension of immediates
+- Overflow behavior
+- Zero source/destination registers
+- Pipeline bypass conditions
+
+## Important Notes
+
+### Architecture Selection
+- **rv32ui and rv32um**: Use `-march=rv32im` (NO compressed instructions)
+- **rv32uc**: Use `-march=rv32imc` (WITH compressed instructions)
+
+Using the wrong architecture will either:
+- Allow compressed instructions where they shouldn't be (making tests invalid)
+- Fail to assemble compressed instruction tests
+
+### Relaxation Must Be Disabled
+Both `-mno-relax` (assembler) and `--no-relax` (linker) are critical:
+- Without these, the toolchain may substitute different instructions
+- Example: `la` (load address) may become gp-relative addressing
+- This would make the tests not match the original test intent
+
+### Test Numbers
+Tests use register x30 to track which test case is currently executing. If a test fails:
+1. The fail handler sets exit code 1
+2. Register x30 contains the test number that failed
+3. You can disassemble the binary and search for `li x30, <num>` to find the failing test
+
+### Binary Size
+Tests vary in size:
+- Simple tests: ~100-300 bytes
+- Complex tests with loops: ~500-1000 bytes
+- Comprehensive tests (like `rvc`): may be >1KB
+
+### Compressed Instructions (rv32uc)
+The RV32C extension tests require special handling:
+- Must use `-march=rv32imc` to allow C extension
+- Tests validate that compressed encodings work correctly
+- The test itself may contain both compressed and uncompressed instructions
+
+## Validation Checklist
+
+For each converted test:
+
+- [ ] Standalone assembly file created with proper entry point
+- [ ] Assembled with correct `-march` flag
+- [ ] Linked with `--no-relax` flag  
+- [ ] Binary extracted and converted to hex
+- [ ] Constant added to `src/riscv_tests.rs`
+- [ ] Test macro invocation added
+- [ ] `cargo test test_rv32ui_<name>` passes
+- [ ] Test name follows naming convention: `test_rv32ui_<inst>`, `test_rv32um_<inst>`, or `test_rv32uc_<name>`
+
+## Troubleshooting
+
+### Test Fails with Exit Code 1
+- Check which test number failed (would need enhanced error reporting)
+- Disassemble the binary and find the failing test case
+- Verify macro expansion matches expected behavior
+- Check immediate value encoding (sign extension)
+
+### Assembler Errors
+- Verify `-march` flag is correct for the suite
+- Check that macro expansions use valid RISC-V syntax
+- Ensure immediate values are in valid ranges (-2048 to 2047 for I-type)
+
+### Linker Errors
+- Verify you're using `elf32lriscv` target
+- Check that entry point is defined with `.globl _start`
+
+### Infinite Loop / Timeout
+- Test exceeded MAX_STEPS (100,000)
+- Likely caused by incorrect branch target or missing exit handler
+- Verify pass: and fail: labels are present and reachable
+
+## Future Enhancements
+
+Possible improvements to the test infrastructure:
+
+1. **Enhanced Error Reporting**: Capture and report the test number (x30) on failure
+2. **Automated Conversion**: Script to automate steps 1-4 for all tests
+3. **Macro Preprocessor**: Tool to mechanically expand test macros
+4. **Test Discovery**: Auto-generate test list from riscv-tests directory
+5. **Parallel Execution**: Run tests in parallel for faster CI
 
 ## Conclusion
 
-This refactoring plan focuses on high-value, low-risk changes that enable comprehensive unit testing while preserving the project's simplicity. By introducing minimal abstractions at key boundaries (I/O, execution context, memory, linting), we can make the codebase dramatically more testable without sacrificing its educational mission or introducing unnecessary complexity.
+This plan provides a complete, step-by-step process for converting all 53 RISC-V ISA tests into embedded unit tests. The process is mechanical and can be performed by following the steps exactly. The converted tests will validate the correctness of the risclet emulator's instruction implementations against the official RISC-V test suite.

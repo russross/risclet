@@ -8,8 +8,8 @@
 # Helper macros
 #-----------------------------------------------------------------------
 
-#define MASK_XLEN(x) ((x) & ((1 << (__riscv_xlen - 1) << 1) - 1))
-#define TESTNUM x30
+#define MASK_XLEN(x) ((x) & 0xffffffff)
+#define TESTNUM x28
 
 #define TEST_CASE( testnum, testreg, correctval, code... ) \
 test_ ## testnum: \
@@ -750,5 +750,80 @@ pass: \
 #-----------------------------------------------------------------------
 
 #define TEST_DATA
+
+#-----------------------------------------------------------------------
+# Additional macros for load/store pointer operations
+#-----------------------------------------------------------------------
+
+#if __riscv_xlen == 64
+#define LOAD_PTR ld
+#define STORE_PTR sd
+#else
+#define LOAD_PTR lw
+#define STORE_PTR sw
+#endif
+
+#-----------------------------------------------------------------------
+# Test load-store bypass macros
+#-----------------------------------------------------------------------
+
+#define TEST_LD_ST_BYPASS(testnum, load_inst, store_inst, result, offset, base) \
+test_ ## testnum: \
+    li  TESTNUM, testnum; \
+    la  x2, base;        \
+    li x1, result; \
+    store_inst x1, offset(x2); \
+    load_inst x14, offset(x2);  \
+    store_inst x14, offset(x2); \
+    load_inst x2, offset(x2);  \
+    li  x7, result; \
+    bne x2, x7, fail;  \
+    la  x2, base;        \
+    STORE_PTR x2,8(x2); \
+    LOAD_PTR x4,8(x2); \
+    store_inst x1, offset(x4); \
+    bne x4, x2, fail;  \
+    load_inst x14, offset(x4);  \
+    bne x14, x7, fail;
+
+#define TEST_ST_LD_BYPASS(testnum, load_inst, store_inst, result, offset, base) \
+test_ ## testnum: \
+    li  TESTNUM, testnum;            \
+    la  x2, base;                    \
+    li  x1, result;                  \
+    store_inst x1, offset(x2);       \
+    load_inst x14, offset(x2);       \
+    li  x7, result;                  \
+    bne x14, x7, fail;
+
+#-----------------------------------------------------------------------
+# Misaligned access test macros
+#-----------------------------------------------------------------------
+
+#define SEXT(x, n) ((-((x) >> ((n)-1)) << (n)) | ((x) & ((1 << (n))-1)))
+
+#define MISALIGNED_LOAD_TEST(testnum, insn, base, offset, res) \
+  li TESTNUM, testnum; \
+  li t1, res; \
+  insn t2, offset(base); \
+  bne t1, t2, fail; \
+1:
+
+#define MISALIGNED_STORE_TEST(testnum, st_insn, ld_insn, base, offset, st_data) \
+  li TESTNUM, testnum; \
+  li t1, st_data; \
+  st_insn t1, offset(base); \
+  ld_insn t2, offset(base); \
+  bne t1, t2, fail; \
+1:
+
+#define MISMATCHED_STORE_TEST(testnum, st_insn, ld_insn, base, st_offset, ld_offset, st_data, ld_data) \
+  li TESTNUM, testnum; \
+  li t1, st_data; \
+  li t2, ld_data; \
+  st_insn t1, st_offset(base); \
+  ld_insn t3, ld_offset(base); \
+  bne t2, t3, fail; \
+1:
 
 #endif
