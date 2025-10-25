@@ -2,6 +2,9 @@ use crate::memory::{MemoryManager, CpuState, Segment};
 use crate::riscv::{Op, Field};
 use crate::linter::Linter;
 use crate::trace::{ExecutionTrace, Effects, MemoryValue, RegisterValue};
+use crate::io_abstraction::{IoProvider, SystemIo};
+use crate::execution_context::ExecutionContext;
+use crate::linter_context::LintContext;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::rc::Rc;
@@ -16,6 +19,7 @@ pub struct Machine {
     pub address_symbols: HashMap<u32, String>,
     pub other_symbols: HashMap<String, u32>,
     current_effect: Option<Effects>,
+    io_provider: Box<dyn IoProvider>,
 }
 
 impl Machine {
@@ -25,6 +29,24 @@ impl Machine {
         global_pointer: u32,
         address_symbols: HashMap<u32, String>,
         other_symbols: HashMap<String, u32>,
+    ) -> Self {
+        Self::with_io_provider(
+            segments,
+            pc_start,
+            global_pointer,
+            address_symbols,
+            other_symbols,
+            Box::new(SystemIo),
+        )
+    }
+
+    pub fn with_io_provider(
+        segments: Vec<Segment>,
+        pc_start: u32,
+        global_pointer: u32,
+        address_symbols: HashMap<u32, String>,
+        other_symbols: HashMap<String, u32>,
+        io_provider: Box<dyn IoProvider>,
     ) -> Self {
         let mut memory = MemoryManager::new(segments);
         memory.reset();
@@ -43,9 +65,20 @@ impl Machine {
             address_symbols,
             other_symbols,
             current_effect: None,
+            io_provider,
         };
 
         machine
+    }
+
+    pub fn builder() -> MachineBuilder {
+        MachineBuilder::new()
+    }
+
+    pub fn for_testing() -> Self {
+        MachineBuilder::new()
+            .with_flat_memory(1024 * 1024)
+            .build()
     }
 
     pub fn reset(&mut self) {
@@ -294,6 +327,134 @@ impl Machine {
 
     pub fn current_effect_mut(&mut self) -> Option<&mut Effects> {
         self.current_effect.as_mut()
+    }
+
+    pub fn io_provider_mut(&mut self) -> &mut dyn IoProvider {
+        &mut *self.io_provider
+    }
+}
+
+pub struct MachineBuilder {
+    segments: Vec<Segment>,
+    pc_start: u32,
+    global_pointer: u32,
+    address_symbols: HashMap<u32, String>,
+    other_symbols: HashMap<String, u32>,
+    io_provider: Option<Box<dyn IoProvider>>,
+}
+
+impl MachineBuilder {
+    pub fn new() -> Self {
+        Self {
+            segments: Vec::new(),
+            pc_start: 0x1000,
+            global_pointer: 0,
+            address_symbols: HashMap::new(),
+            other_symbols: HashMap::new(),
+            io_provider: None,
+        }
+    }
+
+    pub fn with_segments(mut self, segments: Vec<Segment>) -> Self {
+        self.segments = segments;
+        self
+    }
+
+    pub fn with_entry_point(mut self, pc_start: u32) -> Self {
+        self.pc_start = pc_start;
+        self
+    }
+
+    pub fn with_global_pointer(mut self, gp: u32) -> Self {
+        self.global_pointer = gp;
+        self
+    }
+
+    pub fn with_address_symbols(mut self, symbols: HashMap<u32, String>) -> Self {
+        self.address_symbols = symbols;
+        self
+    }
+
+    pub fn with_other_symbols(mut self, symbols: HashMap<String, u32>) -> Self {
+        self.other_symbols = symbols;
+        self
+    }
+
+    pub fn with_io_provider(mut self, provider: Box<dyn IoProvider>) -> Self {
+        self.io_provider = Some(provider);
+        self
+    }
+
+    pub fn with_flat_memory(mut self, size: u32) -> Self {
+        self.segments = vec![Segment::new(0x1000, 0x1000 + size, true, true, Vec::new())];
+        self.pc_start = 0x1000;
+        self
+    }
+
+    pub fn build(self) -> Machine {
+        let io_provider = self.io_provider.unwrap_or_else(|| Box::new(SystemIo));
+        Machine::with_io_provider(
+            self.segments,
+            self.pc_start,
+            self.global_pointer,
+            self.address_symbols,
+            self.other_symbols,
+            io_provider,
+        )
+    }
+}
+
+impl Default for MachineBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExecutionContext for Machine {
+    fn read_register(&mut self, reg: usize) -> i32 {
+        self.get(reg)
+    }
+
+    fn write_register(&mut self, reg: usize, value: i32) {
+        self.set(reg, value);
+    }
+
+    fn read_memory(&mut self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
+        self.load(addr, size)
+    }
+
+    fn write_memory(&mut self, addr: u32, data: &[u8]) -> Result<(), String> {
+        self.store(addr, data)
+    }
+
+    fn read_pc(&self) -> u32 {
+        self.pc()
+    }
+
+    fn write_pc(&mut self, pc: u32) -> Result<(), String> {
+        self.set_pc(pc)
+    }
+
+    fn io_provider(&mut self) -> &mut dyn IoProvider {
+        self.io_provider_mut()
+    }
+
+    fn current_effects(&mut self) -> Option<&mut Effects> {
+        self.current_effect_mut()
+    }
+}
+
+impl LintContext for Machine {
+    fn get_register(&self, reg: usize) -> i32 {
+        self.get_reg(reg)
+    }
+
+    fn get_symbol_for_address(&self, addr: u32) -> Option<&String> {
+        self.address_symbols.get(&addr)
+    }
+
+    fn get_symbol_value(&self, name: &str) -> Option<u32> {
+        self.other_symbols.get(name).copied()
     }
 }
 

@@ -5,6 +5,12 @@ pub mod elf;
 pub mod linter;
 pub mod trace;
 pub mod execution;
+pub mod io_abstraction;
+pub mod execution_context;
+pub mod memory_interface;
+pub mod linter_context;
+pub mod decoder;
+pub mod test_utils;
 
 use self::execution::{Machine, Instruction, add_local_labels, trace};
 use self::trace::Effects;
