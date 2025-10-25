@@ -334,7 +334,7 @@ pub fn trace(
     max_steps: usize,
     mode: &str,
 ) -> Vec<Effects> {
-    let mut linter = Linter::new(m.get_reg(2));
+    let mut linter = Linter::new(m.get_reg(2) as u32);
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
     let echo_in = [/* "run", */ "debug"].contains(&mode) && !io::stdin().is_tty();

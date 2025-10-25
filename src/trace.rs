@@ -3,21 +3,21 @@ use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct MemoryValue {
-    pub address: i64,
+    pub address: u32,
     pub value: Vec<u8>,
 }
 
 #[derive(Clone)]
 pub struct RegisterValue {
     pub register: usize,
-    pub value: i64,
+    pub value: i32,
 }
 
 #[derive(Clone)]
 pub struct Effects {
     pub instruction: Rc<crate::Instruction>,
 
-    pub pc: (i64, i64),
+    pub pc: (u32, u32),
     pub reg_reads: Vec<RegisterValue>,
     pub reg_write: Option<(RegisterValue, RegisterValue)>,
     pub mem_read: Option<MemoryValue>,
@@ -26,8 +26,8 @@ pub struct Effects {
     pub stdout: Option<Vec<u8>>,
     pub other_message: Option<String>,
     pub terminate: bool,
-    pub function_start: Option<i64>,
-    pub function_end: Option<i64>,
+    pub function_start: Option<u32>,
+    pub function_end: Option<u32>,
 }
 
 impl Effects {
@@ -119,10 +119,10 @@ impl ExecutionTrace {
         self.effects.clear();
     }
 
-    pub fn set_most_recent_memory(&self) -> (i64, (i64, usize), (i64, usize)) {
-        let mut most_recent_memory = if self.layout.data_start > 0 { self.layout.data_start } else { self.layout.stack_end - 8 };
+    pub fn set_most_recent_memory(&self) -> (u32, (u32, usize), (u32, usize)) {
+        let mut most_recent_memory = if self.layout.data_start > 0 { self.layout.data_start } else { self.layout.stack_end.saturating_sub(8) };
         let mut most_recent_data = (self.layout.data_start, 0);
-        let mut most_recent_stack = (self.layout.stack_end - 8, 0);
+        let mut most_recent_stack = (self.layout.stack_end.saturating_sub(8), 0);
 
         let mut stack = false;
         let mut data = false;

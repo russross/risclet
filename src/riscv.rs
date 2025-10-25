@@ -752,7 +752,7 @@ impl Op {
                 m.set(*rd, val);
             }
             Op::Srli { rd, rs1, shamt } => {
-                let val = ((m.get(*rs1) as u64) >> *shamt) as i64;
+                let val = ((m.get(*rs1) as u32) >> *shamt) as i32;
                 m.set(*rd, val);
             }
             Op::Srai { rd, rs1, shamt } => {
@@ -1104,7 +1104,6 @@ impl Op {
             Op::Blt { rs1: ZERO, rs2, offset } => {
                 vec![Field::Opcode("bgtz"), Field::Reg(rs2), Field::PCRelAddr(offset)]
             }
-            Op::Subw { rd, rs1: ZERO, rs2 } => vec![Field::Opcode("negw"), Field::Reg(rd), Field::Reg(rs2)],
             Op::Sub { rd, rs1: ZERO, rs2 } => vec![Field::Opcode("neg"), Field::Reg(rd), Field::Reg(rs2)],
             Op::Slt { rd, rs1: ZERO, rs2 } => vec![Field::Opcode("sgtz"), Field::Reg(rd), Field::Reg(rs2)],
             Op::Slt { rd, rs1, rs2: ZERO } => vec![Field::Opcode("sltz"), Field::Reg(rd), Field::Reg(rs1)],

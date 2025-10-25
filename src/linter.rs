@@ -8,7 +8,7 @@ struct FunctionRegisters {
     at_entry: [Option<usize>; 32],
     valid: [bool; 32],
     save_only: [bool; 32],
-    at_entry_sp: i64,
+    at_entry_sp: u32,
 }
 
 struct ValueInMemory {
@@ -17,11 +17,11 @@ struct ValueInMemory {
 }
 
 pub struct Linter {
-    memory: HashMap<i64, ValueInMemory>,
+    memory: HashMap<u32, ValueInMemory>,
 
     stack: Vec<FunctionRegisters>,
     at_entry: [Option<usize>; 32],
-    at_entry_sp: i64,
+    at_entry_sp: u32,
 
     registers: [Option<usize>; 32],
     valid: [bool; 32],
@@ -30,7 +30,7 @@ pub struct Linter {
 }
 
 impl Linter {
-    pub fn new(at_entry_sp: i64) -> Self {
+    pub fn new(at_entry_sp: u32) -> Self {
         let mut at_entry = [None; 32];
         for (n, elt) in at_entry.iter_mut().enumerate() {
             *elt = Some(n);
@@ -139,10 +139,10 @@ impl Linter {
                 });
 
                 // update context for callee
-                self.at_entry_sp = m.get_reg(SP);
+                self.at_entry_sp = m.get_reg(SP) as u32;
 
                 // capture the stack start in the Effect for the tui
-                effects.function_start = Some(m.get_reg(SP));
+                effects.function_start = Some(m.get_reg(SP) as u32);
 
                 // invalidate t registers
                 for &x in &T_REGS {
@@ -205,12 +205,12 @@ impl Linter {
                 }
 
                 // sp must have the same address, but not necessarily the same value number
-                if m.get_reg(2) != self.at_entry_sp {
+                if m.get_reg(2) as u32 != self.at_entry_sp {
                     return Err("sp is not same value as when function called".to_string());
                 }
 
                 // record sp at function exit in Effects for the tui
-                effects.function_end = Some(m.get_reg(2));
+                effects.function_end = Some(m.get_reg(2) as u32);
 
                 // pop previous function context
                 if let Some(FunctionRegisters { at_entry, valid, save_only, at_entry_sp }) = self.stack.pop() {
@@ -234,7 +234,7 @@ impl Linter {
             }
 
             // stores
-            Op::Sb { .. } | Op::Sh { .. } | Op::Sw { .. } | Op::Sd { .. } => {
+            Op::Sb { .. } | Op::Sh { .. } | Op::Sw { .. } => {
                 let Some((_, write)) = &effects.mem_write else {
                     return Err("store instruction with no memory write".to_string());
                 };
@@ -249,7 +249,6 @@ impl Linter {
                     Op::Sb { .. } => (0, self.new_n()),
                     Op::Sh { .. } => (1, self.new_n()),
                     Op::Sw { .. } => (3, self.new_n()),
-                    Op::Sd { rs2, .. } => (7, self.registers[rs2].unwrap()),
                     _ => unreachable!(),
                 };
 
@@ -258,7 +257,7 @@ impl Linter {
                 }
 
                 // record the memory write
-                for address in addr..addr + size as i64 {
+                for address in addr..addr + (size as u32) {
                     self.memory.insert(address, ValueInMemory { n, size });
                 }
             }
@@ -267,10 +266,8 @@ impl Linter {
             Op::Lb { rd, .. }
             | Op::Lh { rd, .. }
             | Op::Lw { rd, .. }
-            | Op::Ld { rd, .. }
             | Op::Lbu { rd, .. }
-            | Op::Lhu { rd, .. }
-            | Op::Lwu { rd, .. } => {
+            | Op::Lhu { rd, .. } => {
                 let Some(read) = &effects.mem_read else {
                     return Err("load instruction with no memory read".to_string());
                 };
@@ -284,8 +281,7 @@ impl Linter {
                 let alignment = match instruction.op {
                     Op::Lb { .. } | Op::Lbu { .. } => 0,
                     Op::Lh { .. } | Op::Lhu { .. } => 1,
-                    Op::Lw { .. } | Op::Lwu { .. } => 3,
-                    Op::Ld { .. } => 7,
+                    Op::Lw { .. } => 3,
                     _ => unreachable!(),
                 };
                 if addr & alignment != 0 {
@@ -298,7 +294,7 @@ impl Linter {
                 let n = if let Some(mem_val) = self.memory.get(&addr) {
                     let n = mem_val.n;
 
-                    for address in addr..addr + size as i64 {
+                    for address in addr..addr + (size as u32) {
                         match self.memory.get(&address) {
                             None => return Err("reading data that was only partially written".to_string()),
                             Some(ValueInMemory { n: mem_n, size: mem_size }) => {
@@ -316,7 +312,7 @@ impl Linter {
                     // record this value in memory as we verify that no bytes
                     // already have a value number
                     let n = self.new_n();
-                    for address in addr..addr + size as i64 {
+                    for address in addr..addr + (size as u32) {
                         if self.memory.contains_key(&address) {
                             return Err("reading data that is only partially from a previous write".to_string());
                         }
@@ -336,7 +332,7 @@ impl Linter {
                     let size = read.value.len();
 
                     // only allow byte values from memory
-                    for address in addr..addr + size as i64 {
+                    for address in addr..addr + (size as u32) {
                         if let Some(val) = self.memory.get(&address) {
                             if val.size != 1 {
                                 return Err("write syscall on non-byte data".to_string());
@@ -350,7 +346,7 @@ impl Linter {
                     let addr = write.address;
                     let size = write.value.len();
 
-                    for address in addr..addr + size as i64 {
+                    for address in addr..addr + (size as u32) {
                         // do not allow overwrite of non-byte data
                         if let Some(val) = self.memory.get(&address) {
                             if val.size != 1 {
