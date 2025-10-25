@@ -1,33 +1,34 @@
 use super::*;
-use std::io::Read;
+use crate::decoder::InstructionDecoder;
+use crate::execution_context::ExecutionContext;
 
-fn get_funct3(inst: i32) -> i32 {
+pub fn get_funct3(inst: i32) -> i32 {
     (inst >> 12) & 0x07
 }
 
-fn get_rd(inst: i32) -> usize {
+pub fn get_rd(inst: i32) -> usize {
     ((inst >> 7) & 0x1f) as usize
 }
 
-fn get_rs1(inst: i32) -> usize {
+pub fn get_rs1(inst: i32) -> usize {
     ((inst >> 15) & 0x1f) as usize
 }
 
-fn get_rs2(inst: i32) -> usize {
+pub fn get_rs2(inst: i32) -> usize {
     ((inst >> 20) & 0x1f) as usize
 }
 
-fn get_imm_i(inst: i32) -> i32 {
+pub fn get_imm_i(inst: i32) -> i32 {
     inst >> 20
 }
 
-fn get_imm_s(inst: i32) -> i32 {
+pub fn get_imm_s(inst: i32) -> i32 {
     let mut imm = (inst >> 20) & !0x0000001f;
     imm |= (inst >> 7) & 0x0000001f;
     imm
 }
 
-fn get_imm_b(inst: i32) -> i32 {
+pub fn get_imm_b(inst: i32) -> i32 {
     let mut imm = (inst >> 20) & !0x00000fff;
     imm |= (inst << 4) & 0x00000800;
     imm |= (inst >> 20) & 0x000007e0;
@@ -35,11 +36,11 @@ fn get_imm_b(inst: i32) -> i32 {
     imm
 }
 
-fn get_imm_u(inst: i32) -> i32 {
+pub fn get_imm_u(inst: i32) -> i32 {
     inst & !0x00000fff
 }
 
-fn get_imm_j(inst: i32) -> i32 {
+pub fn get_imm_j(inst: i32) -> i32 {
     let mut imm = (inst >> 11) & !0x000fffff;
     imm |= inst & 0x000ff000;
     imm |= (inst >> 9) & 0x00000800;
@@ -48,42 +49,42 @@ fn get_imm_j(inst: i32) -> i32 {
     imm
 }
 
-fn get_funct7(inst: i32) -> i32 {
+pub fn get_funct7(inst: i32) -> i32 {
     inst >> 25
 }
 
 // Extract the opcode (lowest 2 bits) from a compressed instruction
-fn get_c_op(inst: i32) -> i32 {
+pub fn get_c_op(inst: i32) -> i32 {
     inst & 0x3
 }
 
 // Extract the funct3 field (bits 15-13) from a compressed instruction
-fn get_c_funct3(inst: i32) -> i32 {
+pub fn get_c_funct3(inst: i32) -> i32 {
     (inst >> 13) & 0x7
 }
 
 // Extract the rd'/rs1' field (bits 9-7) from a compressed instruction (x8-x15)
-fn get_c_rs1_prime(inst: i32) -> usize {
+pub fn get_c_rs1_prime(inst: i32) -> usize {
     (((inst >> 7) & 0x7) + 8) as usize
 }
 
 // Extract the rs2' field (bits 4-2) from a compressed instruction (x8-x15)
-fn get_c_rs2_prime(inst: i32) -> usize {
+pub fn get_c_rs2_prime(inst: i32) -> usize {
     (((inst >> 2) & 0x7) + 8) as usize
 }
 
 // Extract the 5-bit rd/rs1 field (bits 11-7) from a compressed instruction
-fn get_c_rd_rs1(inst: i32) -> usize {
+pub fn get_c_rd_rs1(inst: i32) -> usize {
     ((inst >> 7) & 0x1f) as usize
 }
 
 // Extract the 5-bit rs2 field (bits 6-2) from a compressed instruction
-fn get_c_rs2(inst: i32) -> usize {
+pub fn get_c_rs2(inst: i32) -> usize {
     ((inst >> 2) & 0x1f) as usize
 }
 
 // Helper for sign extension from a specific bit position (width) within an i32
-fn sign_extend(value: i32, width: u32) -> i32 {
+pub fn sign_extend(value: i32, width: u32) -> i32 {
     let shift = 32 - width;
     (value << shift) >> shift
 }
@@ -97,7 +98,7 @@ macro_rules! define_immediate_decoders {
         }),* $(,)?
     ) => {
         $(
-            fn $name(inst: i32) -> i32 {
+            pub fn $name(inst: i32) -> i32 {
                 let mut imm = 0i32;
                 $(imm |= ((inst >> $src) & 1) << $dst;)*
                 if $signed {
@@ -270,58 +271,7 @@ pub enum Op {
 
 impl Op {
     pub fn new(inst: i32) -> Self {
-        // 16-bit compressed instruction?
-        // (bottom two bits not equal to 0b11)
-        if (inst & 0x3) != 0x3 {
-            return Self::decode_compressed(inst);
-        }
-
-        // 32-bit instruction
-
-        // get the opcode
-        let opcode = inst & 0x7f;
-
-        match opcode {
-            // r-type (including m extension)
-            0x33 => Self::decode_r_type(inst),
-
-            // i-type
-            0x13 => Self::decode_i_type(inst),
-
-            // branch
-            0x63 => Self::decode_branches(inst),
-
-            // jump
-            0x6f => Op::Jal { rd: get_rd(inst), offset: get_imm_j(inst) },
-            0x67 => {
-                let funct3 = get_funct3(inst);
-                if funct3 == 0 {
-                    Op::Jalr { rd: get_rd(inst), rs1: get_rs1(inst), offset: get_imm_i(inst) }
-                } else {
-                    Op::Unimplemented { inst, note: format!("jalr with unknown funct3 value of {}", funct3) }
-                }
-            }
-
-            // load
-            0x03 => Self::decode_load(inst),
-
-            // store
-            0x23 => Self::decode_store(inst),
-
-            // u type
-            0x37 => Op::Lui { rd: get_rd(inst), imm: get_imm_u(inst) },
-            0x17 => Op::Auipc { rd: get_rd(inst), imm: get_imm_u(inst) },
-
-            // misc
-            0x0f => Self::Fence,
-            0x73 if inst == 0x00000073 => Self::Ecall,
-            0x73 if inst == 0x00100073 => Self::Ebreak,
-
-            _ => Op::Unimplemented {
-                inst,
-                note: format!("disassembler found unknown instruction opcode 0x{:x}", opcode),
-            },
-        }
+        InstructionDecoder::decode(inst)
     }
 
     fn decode_branches(inst: i32) -> Self {
@@ -881,11 +831,8 @@ impl Op {
 
                           // make a buffer and read from stdin
                           let mut read_buffer = vec![0; count as usize];
-                          let mut handle = io::stdin().lock();
-                          match handle.read(&mut read_buffer) {
-                              Ok(n) => read_buffer.truncate(n),
-                              Err(e) => return Err(format!("read syscall error: {}", e)),
-                          }
+                          let n = m.io_provider_mut().read_stdin(&mut read_buffer)?;
+                          read_buffer.truncate(n);
 
                           m.store(buf_addr, &read_buffer)?;
                           m.set(A0, read_buffer.len() as i32);
@@ -908,6 +855,7 @@ impl Op {
                           }
 
                           let write_buffer = m.load(buf_addr, count as u32)?;
+                          m.io_provider_mut().write_stdout(&write_buffer)?;
                           m.set(A0, write_buffer.len() as i32);
                           m.stdout_mut().extend_from_slice(&write_buffer);
                           m.current_effect_mut().unwrap().stdout = Some(write_buffer);
@@ -960,6 +908,249 @@ impl Op {
                 let rs2_val = m.get(*rs2) as u32;
                 let val = if rs2_val == 0 { m.get(*rs1) } else { ((m.get(*rs1) as u32).wrapping_rem(rs2_val)) as i32 };
                 m.set(*rd, val);
+            }
+
+            Op::Unimplemented { inst, note } => {
+                return Err(format!("inst: 0x{:x} note: {}", inst, note));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn execute_with_context(&self, ctx: &mut dyn ExecutionContext, length: u32) -> Result<(), String> {
+        match self {
+            // r-type
+            Op::Add { rd, rs1, rs2 } => {
+                let val = ctx.read_register(*rs1).wrapping_add(ctx.read_register(*rs2));
+                ctx.write_register(*rd, val);
+            }
+            Op::Sub { rd, rs1, rs2 } => {
+                let val = ctx.read_register(*rs1).wrapping_sub(ctx.read_register(*rs2));
+                ctx.write_register(*rd, val);
+            }
+            Op::Sll { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2) & 0x1f;
+                let val = ctx.read_register(*rs1) << rs2_val;
+                ctx.write_register(*rd, val);
+            }
+            Op::Slt { rd, rs1, rs2 } => {
+                let val = if ctx.read_register(*rs1) < ctx.read_register(*rs2) { 1 } else { 0 };
+                ctx.write_register(*rd, val);
+            }
+            Op::Sltu { rd, rs1, rs2 } => {
+                let val = if (ctx.read_register(*rs1) as u32) < (ctx.read_register(*rs2) as u32) { 1 } else { 0 };
+                ctx.write_register(*rd, val);
+            }
+            Op::Xor { rd, rs1, rs2 } => {
+                let val = ctx.read_register(*rs1) ^ ctx.read_register(*rs2);
+                ctx.write_register(*rd, val);
+            }
+            Op::Srl { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2) & 0x1f;
+                let val = ((ctx.read_register(*rs1) as u32) >> rs2_val) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Sra { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2) & 0x1f;
+                let val = ctx.read_register(*rs1) >> rs2_val;
+                ctx.write_register(*rd, val);
+            }
+            Op::Or { rd, rs1, rs2 } => {
+                let val = ctx.read_register(*rs1) | ctx.read_register(*rs2);
+                ctx.write_register(*rd, val);
+            }
+            Op::And { rd, rs1, rs2 } => {
+                let val = ctx.read_register(*rs1) & ctx.read_register(*rs2);
+                ctx.write_register(*rd, val);
+            }
+
+            // i-type
+            Op::Addi { rd, rs1, imm } => {
+                let val = ctx.read_register(*rs1).wrapping_add(*imm);
+                ctx.write_register(*rd, val);
+            }
+            Op::Slti { rd, rs1, imm } => {
+                let val = if ctx.read_register(*rs1) < *imm { 1 } else { 0 };
+                ctx.write_register(*rd, val);
+            }
+            Op::Sltiu { rd, rs1, imm } => {
+                let val = if (ctx.read_register(*rs1) as u32) < (*imm as u32) { 1 } else { 0 };
+                ctx.write_register(*rd, val);
+            }
+            Op::Xori { rd, rs1, imm } => {
+                let val = ctx.read_register(*rs1) ^ *imm;
+                ctx.write_register(*rd, val);
+            }
+            Op::Ori { rd, rs1, imm } => {
+                let val = ctx.read_register(*rs1) | *imm;
+                ctx.write_register(*rd, val);
+            }
+            Op::Andi { rd, rs1, imm } => {
+                let val = ctx.read_register(*rs1) & *imm;
+                ctx.write_register(*rd, val);
+            }
+            Op::Slli { rd, rs1, shamt } => {
+                let val = ctx.read_register(*rs1) << *shamt;
+                ctx.write_register(*rd, val);
+            }
+            Op::Srli { rd, rs1, shamt } => {
+                let val = ((ctx.read_register(*rs1) as u32) >> *shamt) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Srai { rd, rs1, shamt } => {
+                let val = ctx.read_register(*rs1) >> *shamt;
+                ctx.write_register(*rd, val);
+            }
+
+            // branch
+            Op::Beq { rs1, rs2, offset } => {
+                if ctx.read_register(*rs1) == ctx.read_register(*rs2) {
+                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                }
+            }
+            Op::Bne { rs1, rs2, offset } => {
+                if ctx.read_register(*rs1) != ctx.read_register(*rs2) {
+                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                }
+            }
+            Op::Blt { rs1, rs2, offset } => {
+                if ctx.read_register(*rs1) < ctx.read_register(*rs2) {
+                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                }
+            }
+            Op::Bge { rs1, rs2, offset } => {
+                if ctx.read_register(*rs1) >= ctx.read_register(*rs2) {
+                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                }
+            }
+            Op::Bltu { rs1, rs2, offset } => {
+                if (ctx.read_register(*rs1) as u32) < (ctx.read_register(*rs2) as u32) {
+                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                }
+            }
+            Op::Bgeu { rs1, rs2, offset } => {
+                if (ctx.read_register(*rs1) as u32) >= (ctx.read_register(*rs2) as u32) {
+                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                }
+            }
+
+            // jump
+            Op::Jal { rd, offset } => {
+                let return_addr = ctx.read_pc().wrapping_add(length);
+                ctx.write_register(*rd, return_addr as i32);
+                ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+            }
+            Op::Jalr { rd, rs1, offset } => {
+                let rs1_val = ctx.read_register(*rs1);
+                let return_addr = ctx.read_pc().wrapping_add(length);
+                ctx.write_register(*rd, return_addr as i32);
+                ctx.write_pc(((rs1_val as u32).wrapping_add(*offset as u32)) & !1)?;
+            }
+
+            // load
+            Op::Lb { rd, rs1, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let bytes = ctx.read_memory(effective_address, 1)?;
+                let val = i8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Lh { rd, rs1, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let bytes = ctx.read_memory(effective_address, 2)?;
+                let val = i16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Lw { rd, rs1, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let bytes = ctx.read_memory(effective_address, 4)?;
+                let val = i32::from_le_bytes(bytes[..4].try_into().unwrap());
+                ctx.write_register(*rd, val);
+            }
+            Op::Lbu { rd, rs1, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let bytes = ctx.read_memory(effective_address, 1)?;
+                let val = u8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Lhu { rd, rs1, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let bytes = ctx.read_memory(effective_address, 2)?;
+                let val = u16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32;
+                ctx.write_register(*rd, val);
+            }
+
+            // store
+            Op::Sb { rs1, rs2, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let raw = (ctx.read_register(*rs2) as u8).to_le_bytes();
+                ctx.write_memory(effective_address, &raw)?;
+            }
+            Op::Sh { rs1, rs2, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let raw = (ctx.read_register(*rs2) as u16).to_le_bytes();
+                ctx.write_memory(effective_address, &raw)?;
+            }
+            Op::Sw { rs1, rs2, offset } => {
+                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let raw = (ctx.read_register(*rs2) as u32).to_le_bytes();
+                ctx.write_memory(effective_address, &raw)?;
+            }
+
+            // u-type
+            Op::Lui { rd, imm } => {
+                ctx.write_register(*rd, *imm);
+            }
+            Op::Auipc { rd, imm } => {
+                let result = (ctx.read_pc() as i32).wrapping_add(*imm);
+                ctx.write_register(*rd, result);
+            }
+
+            // misc
+            Op::Fence => {
+            }
+            Op::Ecall => {
+                return Err(format!("ecall execution via ExecutionContext not yet implemented"));
+            }
+            Op::Ebreak => {
+                return Err(String::from("ebreak"));
+            }
+
+            // m extension
+            Op::Mul { rd, rs1, rs2 } => {
+                let val = ctx.read_register(*rs1).wrapping_mul(ctx.read_register(*rs2));
+                ctx.write_register(*rd, val);
+            }
+            Op::Mulh { rd, rs1, rs2 } => {
+                let val = ((ctx.read_register(*rs1) as i64 * ctx.read_register(*rs2) as i64) >> 32) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Mulhsu { rd, rs1, rs2 } => {
+                let val = ((ctx.read_register(*rs1) as i64 * (ctx.read_register(*rs2) as u32 as i64)) >> 32) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Mulhu { rd, rs1, rs2 } => {
+                let val = (((ctx.read_register(*rs1) as u32 as u64) * (ctx.read_register(*rs2) as u32 as u64)) >> 32) as i32;
+                ctx.write_register(*rd, val);
+            }
+            Op::Div { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2);
+                let val = if rs2_val == 0 { -1 } else { ctx.read_register(*rs1).wrapping_div(rs2_val) };
+                ctx.write_register(*rd, val);
+            }
+            Op::Divu { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2) as u32;
+                let val = if rs2_val == 0 { -1 } else { ((ctx.read_register(*rs1) as u32).wrapping_div(rs2_val)) as i32 };
+                ctx.write_register(*rd, val);
+            }
+            Op::Rem { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2);
+                let val = if rs2_val == 0 { ctx.read_register(*rs1) } else { ctx.read_register(*rs1).wrapping_rem(rs2_val) };
+                ctx.write_register(*rd, val);
+            }
+            Op::Remu { rd, rs1, rs2 } => {
+                let rs2_val = ctx.read_register(*rs2) as u32;
+                let val = if rs2_val == 0 { ctx.read_register(*rs1) } else { ((ctx.read_register(*rs1) as u32).wrapping_rem(rs2_val)) as i32 };
+                ctx.write_register(*rd, val);
             }
 
             Op::Unimplemented { inst, note } => {
