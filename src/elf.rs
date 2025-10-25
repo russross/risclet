@@ -188,7 +188,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
         let symbol = &syms_raw[start..start + SYMBOL_SIZE];
         let st_name = u32::from_le_bytes(symbol[0x00..0x04].try_into().unwrap()) as usize;
         let st_value = u32::from_le_bytes(symbol[0x04..0x08].try_into().unwrap());
-        let st_size = u32::from_le_bytes(symbol[0x08..0x0c].try_into().unwrap());
+        let _st_size = u32::from_le_bytes(symbol[0x08..0x0c].try_into().unwrap());
         let st_info = symbol[0x0c];
         //let st_other = symbol[0x0d];
         let st_shndx = u16::from_le_bytes(symbol[0x0e..0x10].try_into().unwrap());

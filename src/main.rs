@@ -191,12 +191,11 @@ fn main() -> Result<(), String> {
     }
 
     if let Some(effects) = sequence.last() {
-        if let (Op::Ecall, Some(msg)) = (&effects.instruction.op, &effects.other_message) {
-            if msg.starts_with("exit(") && msg.ends_with(")") {
+        if let (Op::Ecall, Some(msg)) = (&effects.instruction.op, &effects.other_message)
+            && msg.starts_with("exit(") && msg.ends_with(")") {
                 let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
                 std::process::exit(n);
             }
-        }
 
         if let Some(msg) = &effects.other_message {
             eprintln!("{}", msg);

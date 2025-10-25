@@ -135,11 +135,10 @@ impl Tui {
         loop {
             // Draw the current state
             let source_height = self.draw()?;
-            if let Event::Key(key_event) = serr!(event::read())? {
-                if self.handle_key(key_event, source_height)? {
+            if let Event::Key(key_event) = serr!(event::read())?
+                && self.handle_key(key_event, source_height)? {
                     break;
                 }
-            }
         }
         Ok(())
     }
@@ -242,11 +241,10 @@ impl Tui {
                 while self.sequence_index < self.sequence.len() - 1 {
                     let effects = &self.sequence[self.sequence_index];
                     let pc = effects.instruction.address;
-                    if let Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } = effects.instruction.op {
-                        if func_start_pc <= pc && pc < func_end_pc {
+                    if let Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } = effects.instruction.op
+                        && func_start_pc <= pc && pc < func_end_pc {
                             break;
-                        }
-                    };
+                        };
                     self.machine.apply(effects, true);
                     self.sequence_index += 1;
                 }
@@ -1012,20 +1010,18 @@ fn find_function_bounds(
 ) -> (u32, u32) {
     let (mut start_pc, mut end_pc) = (instructions[0].address, instructions.last().unwrap().address);
     for instruction in instructions[0..=current].iter().rev() {
-        if let Some(label) = symbols.get(&instruction.address) {
-            if label.parse::<usize>().is_err() {
+        if let Some(label) = symbols.get(&instruction.address)
+            && label.parse::<usize>().is_err() {
                 start_pc = instruction.address;
                 break;
             }
-        }
     }
     for instruction in instructions[current + 1..].iter() {
-        if let Some(label) = symbols.get(&instruction.address) {
-            if label.parse::<usize>().is_err() {
+        if let Some(label) = symbols.get(&instruction.address)
+            && label.parse::<usize>().is_err() {
                 end_pc = instruction.address;
                 break;
             }
-        }
     }
     (start_pc, end_pc)
 }

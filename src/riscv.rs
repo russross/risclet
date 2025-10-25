@@ -269,6 +269,7 @@ pub enum Op {
     Unimplemented { inst: i32, note: String },
 }
 
+#[allow(dead_code)]
 impl Op {
     pub fn new(inst: i32) -> Self {
         InstructionDecoder::decode(inst)
@@ -1109,7 +1110,7 @@ impl Op {
             Op::Fence => {
             }
             Op::Ecall => {
-                return Err(format!("ecall execution via ExecutionContext not yet implemented"));
+                return Err("ecall execution via ExecutionContext not yet implemented".to_string());
             }
             Op::Ebreak => {
                 return Err(String::from("ebreak"));
@@ -1456,7 +1457,7 @@ impl Field {
                 match symbols.get(&addr) {
                     Some(symbol) => symbol.clone(),
                     _ => {
-                        if !hex || (0..=9).contains(&(*offset as i32)) {
+                        if !hex || (0..=9).contains(&{ *offset }) {
                             format!("{}", offset)
                         } else {
                             format!("0x{:x}", offset)
