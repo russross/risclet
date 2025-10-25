@@ -10,3 +10,11 @@ pub mod tokenizer;
 
 #[cfg(test)]
 mod encoder_tests;
+#[cfg(test)]
+mod expressions_tests;
+#[cfg(test)]
+mod parser_tests;
+#[cfg(test)]
+mod symbols_tests;
+#[cfg(test)]
+mod tokenizer_tests;

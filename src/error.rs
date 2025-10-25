@@ -3,7 +3,7 @@
 // This file defines the AssemblerError type for the RISC-V assembler.
 // It provides error handling with location and source context.
 
-use crate::ast::Location;
+use crate::ast::{LinePointer, Location, Source};
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead};
@@ -20,6 +20,11 @@ impl AssemblerError {
         AssemblerError { location: Some(location), message }
     }
 
+    pub fn from_source_pointer(message: String, source: &Source, pointer: &LinePointer) -> Self {
+        let location = source.files[pointer.file_index].lines[pointer.line_index].location.clone();
+        AssemblerError { location: Some(location), message }
+    }
+
     pub fn no_context(message: String) -> Self {
         AssemblerError { location: None, message }
     }
@@ -31,7 +36,7 @@ impl AssemblerError {
                 let reader = io::BufReader::new(file);
                 let lines: Vec<String> = reader
                     .lines()
-                    .collect::<Result<_, _>>()
+                    .collect::<std::result::Result<_, _>>()
                     .unwrap_or_default();
                 let line_num = location.line as usize;
                 let start = line_num.saturating_sub(3);
@@ -79,3 +84,6 @@ impl fmt::Display for AssemblerError {
         write!(f, "{}", self.with_source_context())
     }
 }
+
+// Type alias for Result with AssemblerError
+pub type Result<T> = std::result::Result<T, AssemblerError>;

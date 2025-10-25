@@ -34,7 +34,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
         }
 
         // Parse
-        let lines = parse(&tokens, "test.s".to_string(), (line_num + 1) as u32)
+        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
             .map_err(|e| {
                 format!("Parse error on line {}: {}", line_num + 1, e)
             })?;
@@ -51,7 +51,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
             }
 
             line.segment = current_segment;
-            line.size = guess_line_size(&line.content)?;
+            line.size = guess_line_size(&line.content);
             all_lines.push(line);
         }
     }
@@ -71,6 +71,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
         data_size: 0,
         bss_size: 0,
         global_symbols: vec![],
+        uses_global_pointer: false,
     };
 
     // Resolve symbols
@@ -186,28 +187,6 @@ and x28, x29, x30
 }
 
 #[test]
-fn test_r_type_word_ops() {
-    let source = r#"
-.text
-addw x1, x2, x3
-subw x4, x5, x6
-sllw x7, x8, x9
-srlw x10, x11, x12
-sraw x13, x14, x15
-"#;
-
-    let expected = &[
-        0xbb, 0x00, 0x31, 0x00, // addw ra,sp,gp
-        0x3b, 0x82, 0x62, 0x40, // subw tp,t0,t1
-        0xbb, 0x13, 0x94, 0x00, // sllw t2,s0,s1
-        0x3b, 0xd5, 0xc5, 0x00, // srlw a0,a1,a2
-        0xbb, 0x56, 0xf7, 0x40, // sraw a3,a4,a5
-    ];
-
-    assert_instructions_match(source, expected);
-}
-
-#[test]
 fn test_m_extension() {
     let source = r#"
 .text
@@ -230,28 +209,6 @@ remu x22, x23, x24
         0x33, 0xd8, 0x28, 0x03, // divu a6,a7,s2
         0xb3, 0x69, 0x5a, 0x03, // rem s3,s4,s5
         0x33, 0xfb, 0x8b, 0x03, // remu s6,s7,s8
-    ];
-
-    assert_instructions_match(source, expected);
-}
-
-#[test]
-fn test_m_extension_word_ops() {
-    let source = r#"
-.text
-mulw x1, x2, x3
-divw x4, x5, x6
-divuw x7, x8, x9
-remw x10, x11, x12
-remuw x13, x14, x15
-"#;
-
-    let expected = &[
-        0xbb, 0x00, 0x31, 0x02, // mulw ra,sp,gp
-        0x3b, 0xc2, 0x62, 0x02, // divw tp,t0,t1
-        0xbb, 0x53, 0x94, 0x02, // divuw t2,s0,s1
-        0x3b, 0xe5, 0xc5, 0x02, // remw a0,a1,a2
-        0xbb, 0x76, 0xf7, 0x02, // remuw a3,a4,a5
     ];
 
     assert_instructions_match(source, expected);
@@ -304,26 +261,6 @@ srai x17, x18, 15
 }
 
 #[test]
-fn test_i_type_word_ops() {
-    let source = r#"
-.text
-addiw x19, x20, 42
-slliw x21, x22, 8
-srliw x23, x24, 12
-sraiw x25, x26, 20
-"#;
-
-    let expected = &[
-        0x9b, 0x09, 0xaa, 0x02, // addiw s3,s4,42
-        0x9b, 0x1a, 0x8b, 0x00, // slliw s5,s6,0x8
-        0x9b, 0x5b, 0xcc, 0x00, // srliw s7,s8,0xc
-        0x9b, 0x5c, 0x4d, 0x41, // sraiw s9,s10,0x14
-    ];
-
-    assert_instructions_match(source, expected);
-}
-
-#[test]
 fn test_jalr() {
     let source = r#"
 .text
@@ -348,20 +285,16 @@ fn test_load_instructions() {
 lb x1, 0(x2)
 lh x3, 4(x4)
 lw x5, 8(x6)
-ld x7, 16(x8)
 lbu x9, 20(x10)
 lhu x11, 24(x12)
-lwu x13, 28(x14)
 "#;
 
     let expected = &[
         0x83, 0x00, 0x01, 0x00, // lb ra,0(sp)
         0x83, 0x11, 0x42, 0x00, // lh gp,4(tp)
         0x83, 0x22, 0x83, 0x00, // lw t0,8(t1)
-        0x83, 0x33, 0x04, 0x01, // ld t2,16(s0)
         0x83, 0x44, 0x45, 0x01, // lbu s1,20(a0)
         0x83, 0x55, 0x86, 0x01, // lhu a1,24(a2)
-        0x83, 0x66, 0xc7, 0x01, // lwu a3,28(a4)
     ];
 
     assert_instructions_match(source, expected);
@@ -374,14 +307,12 @@ fn test_store_instructions() {
 sb x15, 32(x16)
 sh x17, 36(x18)
 sw x19, 40(x20)
-sd x21, 48(x22)
 "#;
 
     let expected = &[
         0x23, 0x00, 0xf8, 0x02, // sb a5,32(a6)
         0x23, 0x12, 0x19, 0x03, // sh a7,36(s2)
         0x23, 0x24, 0x3a, 0x03, // sw s3,40(s4)
-        0x23, 0x38, 0x5b, 0x03, // sd s5,48(s6)
     ];
 
     assert_instructions_match(source, expected);
@@ -506,15 +437,15 @@ fn test_li_large_immediate() {
     let source = r#"
 .text
 li x5, 0x12345678
-li x6, -0x80000000
+li x6, -0x7fffffff
 "#;
 
-    // Large 32-bit immediates expand to: lui + addiw
+    // Large 32-bit immediates expand to: lui + addi
     let expected = &[
         0xb7, 0x52, 0x34, 0x12, // lui t0,0x12345
-        0x9b, 0x82, 0x82, 0x67, // addiw t0,t0,1656
+        0x93, 0x82, 0x82, 0x67, // addi t0,t0,1656
         0x37, 0x03, 0x00, 0x80, // lui t1,0x80000
-        0x1b, 0x03, 0x03, 0x00, // addiw t1,t1,0
+        0x13, 0x03, 0x13, 0x00, // addi t1,t1,1
     ];
 
     assert_instructions_match(source, expected);
@@ -641,19 +572,6 @@ fn test_fourbyte_directive() {
 }
 
 #[test]
-fn test_eightbyte_directive() {
-    let source = r#"
-.data
-.8byte 0x123456789ABCDEF0
-"#;
-
-    // Little-endian: 0x123456789ABCDEF0 -> f0 de bc 9a 78 56 34 12
-    let expected = &[0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12];
-
-    assert_data_match(source, expected);
-}
-
-#[test]
 fn test_string_directive() {
     let source = r#"
 .data
@@ -686,7 +604,6 @@ fn test_mixed_data_directives() {
 .byte 0x42, 0x43, 0x44
 .2byte 0x1234, 0x5678
 .4byte 0xDEADBEEF, 0xCAFEBABE
-.8byte 0x123456789ABCDEF0
 .string "hello"
 .asciz "world"
 "#;
@@ -696,7 +613,6 @@ fn test_mixed_data_directives() {
         0x42, 0x43, 0x44, // .byte
         0x34, 0x12, 0x78, 0x56, // .2byte
         0xef, 0xbe, 0xad, 0xde, 0xbe, 0xba, 0xfe, 0xca, // .4byte
-        0xf0, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12, // .8byte
         0x68, 0x65, 0x6c, 0x6c, 0x6f, // .string "hello"
         0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, // .asciz "world"
     ];
@@ -954,7 +870,7 @@ fn test_load_offset_rejects_address() {
     let source = r#"
 .text
 target:
-ld x1, target(x2)
+lw x1, target(x2)
 "#;
 
     let result = assemble(source);
@@ -1053,27 +969,7 @@ slli x1, x2, 64
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("64")
-            && (err_msg.contains("0-63") || err_msg.contains("RV64")),
-        "Error should mention shift amount out of range, got: {}",
-        err_msg
-    );
-}
-
-#[test]
-fn test_shift_word_amount_out_of_range() {
-    let source = r#"
-.text
-slliw x1, x2, 32
-"#;
-
-    let result = assemble(source);
-    assert!(
-        result.is_err(),
-        "Expected error for word shift amount out of range"
-    );
-    let err_msg = result.unwrap_err();
-    assert!(
-        err_msg.contains("32") && err_msg.contains("0-31"),
+            && (err_msg.contains("0-31") || err_msg.contains("RV32")),
         "Error should mention shift amount out of range, got: {}",
         err_msg
     );
@@ -1192,7 +1088,7 @@ add x32, x1, x2
 fn test_load_store_offset_out_of_range() {
     let source = r#"
 .text
-ld x1, 2048(x2)
+lw x1, 2048(x2)
 "#;
 
     let result = assemble(source);
@@ -1580,12 +1476,11 @@ data_label:
     let (text, data, _bss) = assemble(source).expect("Assembly should succeed");
 
     // Verify text section
-    // la at offset 0, expands to auipc + addi (8 bytes)
+    // la at offset 0, expands to auipc + addi (8 bytes) - no GP optimization since __global_pointer$ not referenced
     // call at offset 8, relaxes to jal (4 bytes)
-    // nop at offset 12
-    // Our assembler produces 16 bytes (missing func: label's nop instruction)
-    // This appears to be an issue with label-only lines not creating entries
-    assert_eq!(text.len(), 16, "Text section should be 16 bytes");
+    // nop at offset 12 (func label)
+    // nop at offset 16
+    assert_eq!(text.len(), 20, "Text section should be 20 bytes");
 
     // Verify data section exists
     assert_eq!(data.len(), 4, "Data section should be 4 bytes");
@@ -1617,4 +1512,53 @@ end:
     assert_eq!(text.len(), 20);
     assert_eq!(data.len(), 4);
     assert_eq!(&data[..], &[0x10, 0x00, 0x00, 0x00]); // 16 in little-endian
+}
+
+#[test]
+fn test_global_pointer_optimization_enabled() {
+    // Test that when __global_pointer$ is referenced, GP-relative optimization is enabled
+    let source = r#"
+.text
+.global _start
+_start:
+    la a0, __global_pointer$
+    nop
+"#;
+
+    let expected = &[
+        0x13, 0x85, 0x01, 0x00, // addi a0, gp, 0
+        0x13, 0x00, 0x00, 0x00, // nop
+    ];
+
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_global_pointer_optimization_disabled() {
+    // Test that when __global_pointer$ is NOT referenced, GP-relative optimization is disabled
+    let source = r#"
+.text
+.global _start
+_start:
+    la a0, target
+    nop
+target:
+    nop
+"#;
+
+    let (text, _, _) = assemble(source).expect("Assembly should succeed");
+
+    // Should use auipc + addi (8 bytes for la) instead of addi rd, gp, offset (4 bytes)
+    assert_eq!(
+        text.len(),
+        16,
+        "Should use auipc + addi (8 bytes) + nop + nop = 16 bytes"
+    );
+
+    // First instruction should be auipc (opcode 0b0010111), proving no GP optimization
+    assert_eq!(
+        text[0] & 0x7F,
+        0b0010111,
+        "First instruction should be auipc, not addi rd, gp, offset"
+    );
 }

@@ -5,7 +5,7 @@
 
 use crate::ast::*;
 use crate::elf::ElfBuilder;
-use crate::expressions::{self, EvaluationContext, ValueType};
+use crate::expressions::{self, EvaluatedValue, EvaluationContext};
 
 // ============================================================================
 // Configuration Data Structures
@@ -442,14 +442,6 @@ fn dump_directive_ast(dir: &Directive) {
             }
             print!(")");
         }
-        Directive::EightByte(exprs) => {
-            print!("(directive 8byte");
-            for expr in exprs {
-                print!(" ");
-                dump_expression_ast(expr);
-            }
-            print!(")");
-        }
     }
 }
 
@@ -653,7 +645,7 @@ pub fn dump_values(
         for line in &file.lines {
             // Get absolute address
             let segment_base = get_segment_base(line.segment, eval_context);
-            let abs_addr = segment_base + line.offset;
+            let abs_addr = segment_base + (line.offset as i64);
 
             let (loc_str, padding) =
                 format_location_aligned(&line.location, max_line_width);
@@ -722,7 +714,7 @@ pub fn dump_code(
         for line in &file.lines {
             // Get absolute address and encoded bytes
             let segment_base = get_segment_base(line.segment, eval_context);
-            let abs_addr = segment_base + line.offset;
+            let abs_addr = segment_base + (line.offset as i64);
             let encoded_bytes = get_encoded_bytes(line, text_bytes, data_bytes);
 
             match &line.content {
@@ -1152,7 +1144,7 @@ fn dump_elf_symbols(builder: &ElfBuilder, _source: &Source) {
 
 /// Calculate the maximum line number width in a single source file for alignment purposes
 fn calculate_max_line_width_for_file(file: &SourceFile) -> usize {
-    let mut max_line_num = 0u32;
+    let mut max_line_num = 0;
     for line in &file.lines {
         if line.location.line > max_line_num {
             max_line_num = line.location.line;
@@ -1184,14 +1176,13 @@ fn format_location_aligned(
 /// Calculate the number of hex digits needed to represent an address
 /// Given a base address, determines how many hex digits it needs, then adds 1.
 /// Examples: 0x10000 needs 5 digits, so use 6; 0x1000000 needs 7 digits, so use 8
-fn calculate_address_width(text_start: i64) -> usize {
-    if text_start <= 0 {
+fn calculate_address_width(text_start: u32) -> usize {
+    if text_start == 0 {
         return 6; // Fallback: 0x0 needs 1 digit, so use 2 as minimum, but we'll use 6 for consistency
     }
 
     // Calculate number of hex digits needed to represent text_start
-    let unsigned_addr = text_start.unsigned_abs();
-    let bits_needed = 64 - unsigned_addr.leading_zeros() as usize;
+    let bits_needed = 32 - text_start.leading_zeros() as usize;
     let hex_digits_for_addr = bits_needed.div_ceil(4); // Round up to nearest hex digit
 
     // Add 1 to the digit count as per requirements
@@ -1214,9 +1205,9 @@ fn format_address(addr: u64, addr_width: usize, segment: Segment) -> String {
 
 fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> i64 {
     match segment {
-        Segment::Text => eval_context.text_start,
-        Segment::Data => eval_context.data_start,
-        Segment::Bss => eval_context.bss_start,
+        Segment::Text => eval_context.text_start as i64,
+        Segment::Data => eval_context.data_start as i64,
+        Segment::Bss => eval_context.bss_start as i64,
     }
 }
 
@@ -1263,10 +1254,10 @@ fn collect_expression_values(
     // Helper to format an evaluated expression value
     let mut format_value = |expr: &Expression| -> String {
         match expressions::eval_expr(expr, line, eval_context) {
-            Ok(value) => match value.value_type {
-                ValueType::Integer => format!("{}", value.value),
-                ValueType::Address => {
-                    format!("0x{:x}", value.value)
+            Ok(value) => match value {
+                EvaluatedValue::Integer(i) => format!("{}", i),
+                EvaluatedValue::Address(a) => {
+                    format!("0x{:x}", a)
                 }
             },
             Err(_) => "ERROR".to_string(),
@@ -1281,8 +1272,7 @@ fn collect_expression_values(
             }
             Directive::Byte(exprs)
             | Directive::TwoByte(exprs)
-            | Directive::FourByte(exprs)
-            | Directive::EightByte(exprs) => {
+            | Directive::FourByte(exprs) => {
                 for expr in exprs.iter() {
                     values.push(format_value(expr));
                 }

@@ -19,7 +19,7 @@ mod tokenizer;
 struct Config {
     input_files: Vec<String>,
     output_file: String,
-    text_start: i64,
+    text_start: u32,
     verbose: bool,
     dump: dump::DumpConfig,
 }
@@ -33,7 +33,7 @@ fn process_cli_args() -> Result<Config, String> {
 
     let mut input_files = Vec::new();
     let mut output_file = "a.out".to_string();
-    let mut text_start = 0x10000i64;
+    let mut text_start = 0x10000u32;
     let mut verbose = false;
     let mut dump_config = dump::DumpConfig::new();
     let mut i = 1;
@@ -185,12 +185,12 @@ Note: When any --dump-* option is used, no output file is generated.",
         program_name)
 }
 
-fn parse_address(s: &str) -> Result<i64, String> {
+fn parse_address(s: &str) -> Result<u32, String> {
     if let Some(hex) = s.strip_prefix("0x") {
-        i64::from_str_radix(hex, 16)
+        u32::from_str_radix(hex, 16)
             .map_err(|_| format!("Error: invalid hex address: {}", s))
     } else {
-        s.parse::<i64>().map_err(|_| format!("Error: invalid address: {}", s))
+        s.parse::<u32>().map_err(|_| format!("Error: invalid address: {}", s))
     }
 }
 
@@ -300,7 +300,7 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
 }
 
 // Main assembly driver - unified flow with checkpoints
-fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
+fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 1: Parse source files into AST
     // ========================================================================
@@ -388,24 +388,24 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
     let has_bss = bss_size > 0;
 
     let mut elf_builder = elf::ElfBuilder::new(
-        eval_context.text_start as u64,
-        source.header_size as u64,
+        eval_context.text_start as u32,
+        source.header_size as u32,
     );
     elf_builder.set_segments(
         text_bytes.clone(),
         data_bytes.clone(),
-        bss_size as u64,
-        eval_context.data_start as u64,
-        eval_context.bss_start as u64,
+        bss_size as u32,
+        eval_context.data_start as u32,
+        eval_context.bss_start as u32,
     );
 
     // Build symbol table
     elf::build_symbol_table(
         &source,
         &mut elf_builder,
-        eval_context.text_start as u64,
-        eval_context.data_start as u64,
-        eval_context.bss_start as u64,
+        eval_context.text_start as u32,
+        eval_context.data_start as u32,
+        eval_context.bss_start as u32,
         has_data,
         has_bss,
     );
@@ -443,28 +443,28 @@ fn drive_assembler(config: Config) -> Result<(), error::AssemblerError> {
                 [g.definition_pointer.line_index];
             Ok(eval_context.text_start as u64 + line.offset as u64)
         } else {
-            Err(error::AssemblerError::no_context(
+            Err(AssemblerError::no_context(
                 "_start symbol not defined".to_string(),
             ))
         }
     }?;
 
-    let elf_bytes = elf_builder.build(entry_point);
+    let elf_bytes = elf_builder.build(entry_point as u32);
 
     // Write to output file
     let mut file = File::create(&config.output_file)
-        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
     file.write_all(&elf_bytes)
-        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
 
     // Set executable permissions (0755)
     let metadata = file
         .metadata()
-        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&config.output_file, permissions)
-        .map_err(|e| error::AssemblerError::no_context(e.to_string()))?;
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
 
     // Default: silent on success (Unix style)
     // Verbose mode only shows stats/progress during convergence, not detailed listing
@@ -511,6 +511,7 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
         data_size: 0,
         bss_size: 0,
         global_symbols: Vec::new(),
+        uses_global_pointer: false,
     };
 
     for file_path in &files {
@@ -524,9 +525,9 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
     Ok(source)
 }
 
-fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
+fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
     let file = File::open(file_path).map_err(|e| {
-        error::AssemblerError::no_context(format!(
+        AssemblerError::no_context(format!(
             "could not open file '{}': {}",
             file_path, e
         ))
@@ -538,7 +539,7 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
 
     for (line_num, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| {
-            error::AssemblerError::no_context(format!(
+            AssemblerError::no_context(format!(
                 "could not read file '{}': {}",
                 file_path, e
             ))
@@ -547,21 +548,15 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
             continue;
         }
 
-        let location = ast::Location {
-            file: file_path.to_string(),
-            line: (line_num + 1) as u32,
-        };
+        let location =
+            ast::Location { file: file_path.to_string(), line: line_num };
 
-        let tokens = tokenizer::tokenize(&line).map_err(|e| {
-            error::AssemblerError::from_context(e, location.clone())
-        })?;
+        let tokens = tokenizer::tokenize(&line)
+            .map_err(|e| AssemblerError::from_context(e, location.clone()))?;
 
         if !tokens.is_empty() {
-            let parsed_lines = parser::parse(
-                &tokens,
-                file_path.to_string(),
-                (line_num + 1) as u32,
-            )?;
+            let parsed_lines =
+                parser::parse(&tokens, file_path.to_string(), line_num + 1)?;
 
             for parsed_line in parsed_lines {
                 // Update segment if directive changes it
@@ -579,14 +574,7 @@ fn process_file(file_path: &str) -> Result<SourceFile, error::AssemblerError> {
                 // Assign segment and set size
                 let mut new_line = parsed_line;
                 new_line.segment = current_segment;
-                new_line.size = assembler::guess_line_size(&new_line.content)
-                    .map_err(|e| {
-                    error::AssemblerError::from_context(
-                        e,
-                        new_line.location.clone(),
-                    )
-                })?;
-
+                new_line.size = assembler::guess_line_size(&new_line.content);
                 lines.push(new_line);
             }
         }

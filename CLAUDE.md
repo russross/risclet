@@ -742,33 +742,3 @@ PseudoOp::NewPseudo(rd, expr) => {
     // Emit base instruction(s)
 }
 ```
-
----
-
-## FAQ
-
-**Q: Why not use LLVM or another backend?**
-A: This is for classroom use and needs to be easy to install and use.It's intentionally simple and self-contained.
-
-**Q: Does it support macros or includes?**
-A: Not yet. You can pass multiple files on the command line, but there's no `.include` directive or macro expansion.
-
-**Q: What about compressed instructions (C extension)?**
-A: Not supported. Only RV64IM (Integer and Multiply/Divide extensions).
-
-**Q: Can it generate position-independent code (PIC)?**
-A: Not explicitly, but PC-relative addressing (via `auipc`) works. There's no GOT/PLT support.
-
-**Q: How do I debug convergence issues?**
-A: Convergence failures are rare but can happen with pathological relaxation patterns. Increase `MAX_ITERATIONS` in `assembler.rs` (currently 10) or add debug logging to `converge_and_encode`.
-
-**Q: What's the difference between this and GNU as + ld?**
-A: This assembler combines both assembly and linking into one step. It directly generates executable ELF binaries rather than relocatable object files. This means faster builds but no separate linking step.
-
----
-
-## Further Reading
-
-- RISC-V ISA Specification: https://riscv.org/technical/specifications/
-- ELF Format: https://refspecs.linuxfoundation.org/elf/elf.pdf
-- Relaxation algorithms: See GNU `ld` documentation on relaxation

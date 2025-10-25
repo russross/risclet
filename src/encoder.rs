@@ -4,8 +4,8 @@
 //
 // This module takes parsed AST lines with resolved symbols and generates
 // binary machine code. It handles:
-// - Base RV64I instructions
-// - M extension (multiply/divide)
+// - Base rv32i instructions
+// - m extension (multiply/divide)
 // - Pseudo-instruction expansion (li, la, call, tail, etc.)
 // - Data directives
 // - BSS segment validation (space-only)
@@ -19,9 +19,7 @@ use crate::ast::{
     UTypeOp,
 };
 use crate::error::AssemblerError;
-use crate::expressions::{
-    EvaluatedValue, EvaluationContext, ValueType, eval_expr,
-};
+use crate::expressions::{EvaluatedValue, EvaluationContext, eval_expr};
 
 type Result<T> = std::result::Result<T, AssemblerError>;
 
@@ -41,10 +39,10 @@ pub struct EncodingContext<'a> {
 pub fn encode_source(
     source: &Source,
     eval_context: &mut EvaluationContext,
-) -> Result<(Vec<u8>, Vec<u8>, i64)> {
+) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
-    let mut bss_size: i64 = 0;
+    let mut bss_size: u32 = 0;
 
     let mut context = EncodingContext { source, eval_context };
 
@@ -53,11 +51,19 @@ pub fn encode_source(
         for line in &file.lines {
             match line.segment {
                 Segment::Text => {
-                    let bytes = encode_line(line, &mut context)?;
+                    let bytes = encode_line(
+                        line,
+                        &mut context,
+                        source.uses_global_pointer,
+                    )?;
                     text_bytes.extend_from_slice(&bytes);
                 }
                 Segment::Data => {
-                    let bytes = encode_line(line, &mut context)?;
+                    let bytes = encode_line(
+                        line,
+                        &mut context,
+                        source.uses_global_pointer,
+                    )?;
                     data_bytes.extend_from_slice(&bytes);
                 }
                 Segment::Bss => {
@@ -105,8 +111,12 @@ pub fn encode_source_with_size_tracking(
             // Encode the line
             let (bytes, actual_size) = match segment {
                 Segment::Text | Segment::Data => {
-                    let bytes = encode_line(line, &mut context)?;
-                    let size = bytes.len() as i64;
+                    let bytes = encode_line(
+                        line,
+                        &mut context,
+                        source.uses_global_pointer,
+                    )?;
+                    let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
                 Segment::Bss => {
@@ -129,7 +139,7 @@ pub fn encode_source_with_size_tracking(
                     Segment::Bss => unreachable!(),
                 }
             } else {
-                bss_size += actual_size;
+                bss_size += actual_size as i64;
             }
         }
     }
@@ -141,6 +151,7 @@ pub fn encode_source_with_size_tracking(
 pub fn encode_line(
     line: &Line,
     context: &mut EncodingContext,
+    uses_global_pointer: bool,
 ) -> Result<Vec<u8>> {
     // BSS segment should be handled separately in encode_source
     assert!(
@@ -153,7 +164,7 @@ pub fn encode_line(
         LineContent::Label(_) => Ok(Vec::new()), // Labels don't generate code
 
         LineContent::Instruction(inst) => {
-            encode_instruction(inst, line, context)
+            encode_instruction(inst, line, context, uses_global_pointer)
         }
 
         LineContent::Directive(dir) => encode_directive(dir, line, context),
@@ -166,7 +177,7 @@ pub fn encode_line(
 
 /// Special encoder for .bss segment lines
 /// Returns Ok(size) for valid content, error otherwise
-fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<i64> {
+fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<u32> {
     match &line.content {
         LineContent::Label(_) => Ok(0),
 
@@ -181,7 +192,7 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<i64> {
                         line.location.clone(),
                     ));
                 }
-                Ok(size)
+                Ok(size as u32)
             }
 
             Directive::Balign(_) => {
@@ -200,7 +211,6 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<i64> {
             Directive::Byte(_)
             | Directive::TwoByte(_)
             | Directive::FourByte(_)
-            | Directive::EightByte(_)
             | Directive::String(_)
             | Directive::Asciz(_) => Err(AssemblerError::from_context(
                 format!(
@@ -225,7 +235,6 @@ fn directive_name(directive: &Directive) -> &str {
         Directive::Byte(_) => ".byte",
         Directive::TwoByte(_) => ".2byte",
         Directive::FourByte(_) => ".4byte",
-        Directive::EightByte(_) => ".8byte",
         Directive::String(_) => ".string",
         Directive::Asciz(_) => ".asciz",
         Directive::Space(_) => ".space",
@@ -242,30 +251,30 @@ fn directive_name(directive: &Directive) -> &str {
 // Type Checking Helpers
 // ============================================================================
 
-/// Require that a value is an Integer, return error if Address
+/// Require that a value is an Integer, return error if Address (RV32: returns i64 for compatibility)
 fn require_integer(
     val: EvaluatedValue,
     context: &str,
     location: &crate::ast::Location,
 ) -> Result<i64> {
-    match val.value_type {
-        ValueType::Integer => Ok(val.value),
-        ValueType::Address => Err(AssemblerError::from_context(
+    match val {
+        EvaluatedValue::Integer(i) => Ok(i as i64),
+        EvaluatedValue::Address(_) => Err(AssemblerError::from_context(
             format!("{}: expected Integer, got Address", context),
             location.clone(),
         )),
     }
 }
 
-/// Require that a value is an Address, return error if Integer
+/// Require that a value is an Address, return error if Integer (RV32: returns u32 as i64 for compatibility)
 fn require_address(
     val: EvaluatedValue,
     context: &str,
     location: &crate::ast::Location,
 ) -> Result<i64> {
-    match val.value_type {
-        ValueType::Address => Ok(val.value),
-        ValueType::Integer => Err(AssemblerError::from_context(
+    match val {
+        EvaluatedValue::Address(a) => Ok(a as i64),
+        EvaluatedValue::Integer(_) => Err(AssemblerError::from_context(
             format!("{}: expected Address, got Integer", context),
             location.clone(),
         )),
@@ -552,6 +561,7 @@ fn encode_instruction(
     inst: &Instruction,
     line: &Line,
     context: &mut EncodingContext,
+    uses_global_pointer: bool,
 ) -> Result<Vec<u8>> {
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
@@ -621,18 +631,20 @@ fn encode_instruction(
             Ok(u32_to_le_bytes(encoded))
         }
 
-        Instruction::Pseudo(pseudo) => encode_pseudo(pseudo, line, context),
+        Instruction::Pseudo(pseudo) => {
+            encode_pseudo(pseudo, line, context, uses_global_pointer)
+        }
     }
 }
 
-/// Get the absolute address of a line
+/// Get the absolute address of a line (returns i64 for compatibility with offset calculations)
 fn get_line_address(line: &Line, context: &EncodingContext) -> i64 {
     let segment_start = match line.segment {
         Segment::Text => context.eval_context.text_start,
         Segment::Data => context.eval_context.data_start,
         Segment::Bss => context.eval_context.bss_start,
     };
-    segment_start + line.offset
+    (segment_start as i64) + (line.offset as i64)
 }
 
 /// Encode R-type instruction with opcode lookup
@@ -657,13 +669,6 @@ fn encode_r_type_inst(
         Or => (0b0110011, 0b110, 0b0000000),
         And => (0b0110011, 0b111, 0b0000000),
 
-        // RV64I word operations
-        Addw => (0b0111011, 0b000, 0b0000000),
-        Subw => (0b0111011, 0b000, 0b0100000),
-        Sllw => (0b0111011, 0b001, 0b0000000),
-        Srlw => (0b0111011, 0b101, 0b0000000),
-        Sraw => (0b0111011, 0b101, 0b0100000),
-
         // M extension
         Mul => (0b0110011, 0b000, 0b0000001),
         Mulh => (0b0110011, 0b001, 0b0000001),
@@ -673,13 +678,6 @@ fn encode_r_type_inst(
         Divu => (0b0110011, 0b101, 0b0000001),
         Rem => (0b0110011, 0b110, 0b0000001),
         Remu => (0b0110011, 0b111, 0b0000001),
-
-        // M extension word operations
-        Mulw => (0b0111011, 0b000, 0b0000001),
-        Divw => (0b0111011, 0b100, 0b0000001),
-        Divuw => (0b0111011, 0b101, 0b0000001),
-        Remw => (0b0111011, 0b110, 0b0000001),
-        Remuw => (0b0111011, 0b111, 0b0000001),
     };
 
     encode_r_type(opcode, rd, funct3, rs1, rs2, funct7)
@@ -704,21 +702,17 @@ fn encode_i_type_inst(
         Andi => (0b0010011, 0b111),
         Slli => (0b0010011, 0b001), // Note: upper bits of imm must be 0
         Srli => (0b0010011, 0b101), // Note: upper bits of imm must be 0
-        Srai => (0b0010011, 0b101), // Note: upper bits of imm must be 0x10
-        Addiw => (0b0011011, 0b000),
-        Slliw => (0b0011011, 0b001),
-        Srliw => (0b0011011, 0b101),
-        Sraiw => (0b0011011, 0b101),
+        Srai => (0b0010011, 0b101), // Note: upper bits of imm must be 0x20
         Jalr => (0b1100111, 0b000),
     };
 
-    // For shift instructions, validate that shift amount fits in 6 bits (RV64) or 5 bits (RV32)
+    // For shift instructions, validate that shift amount fits in 5 bits (RV32)
     let imm_to_encode = match op {
         Slli | Srli | Srai => {
-            if !(0..64).contains(&imm) {
+            if !(0..32).contains(&imm) {
                 return Err(AssemblerError::from_context(
                     format!(
-                        "Shift amount {} out of range (must be 0-63 for RV64)",
+                        "Shift amount {} out of range (must be 0-31 for RV32)",
                         imm
                     ),
                     location.clone(),
@@ -726,19 +720,6 @@ fn encode_i_type_inst(
             }
             // For srai, set bit 10 (0x400)
             if matches!(op, Srai) { imm | 0x400 } else { imm }
-        }
-        Slliw | Srliw | Sraiw => {
-            if !(0..32).contains(&imm) {
-                return Err(AssemblerError::from_context(
-                    format!(
-                        "Shift amount {} out of range (must be 0-31 for word operations)",
-                        imm
-                    ),
-                    location.clone(),
-                ));
-            }
-            // For sraiw, set bit 10 (0x400)
-            if matches!(op, Sraiw) { imm | 0x400 } else { imm }
         }
         _ => imm,
     };
@@ -826,16 +807,13 @@ fn encode_load_store(
         Lb => (0b0000011, 0b000, false),
         Lh => (0b0000011, 0b001, false),
         Lw => (0b0000011, 0b010, false),
-        Ld => (0b0000011, 0b011, false),
         Lbu => (0b0000011, 0b100, false),
         Lhu => (0b0000011, 0b101, false),
-        Lwu => (0b0000011, 0b110, false),
 
         // Stores
         Sb => (0b0100011, 0b000, true),
         Sh => (0b0100011, 0b001, true),
         Sw => (0b0100011, 0b010, true),
-        Sd => (0b0100011, 0b011, true),
     };
 
     if is_store {
@@ -855,6 +833,7 @@ fn encode_pseudo(
     pseudo: &PseudoOp,
     line: &Line,
     context: &mut EncodingContext,
+    uses_global_pointer: bool,
 ) -> Result<Vec<u8>> {
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
@@ -873,9 +852,16 @@ fn encode_pseudo(
                 require_address(val, "la pseudo-instruction", &line.location)?;
 
             let current_pc = get_line_address(line, context);
-            let gp = context.eval_context.data_start + 2048;
+            let gp = (context.eval_context.data_start as i64) + 2048;
 
-            expand_la(*rd, addr, current_pc, gp, &line.location)
+            expand_la(
+                *rd,
+                addr,
+                current_pc,
+                gp,
+                &line.location,
+                uses_global_pointer,
+            )
         }
 
         PseudoOp::Call(target_expr) => {
@@ -984,14 +970,14 @@ fn expand_li(
             encode_u_type(0b0110111, rd, adjusted_upper & 0xFFFFF, location)?;
         bytes.extend_from_slice(&u32_to_le_bytes(lui_inst));
 
-        // Sign-extend lower 12 bits for addiw
+        // Sign-extend lower 12 bits for addi
         let lower_signed =
             if lower & 0x800 != 0 { lower | !0xFFF } else { lower };
 
-        // addiw rd, rd, lower
-        let addiw_inst =
-            encode_i_type(0b0011011, rd, 0b000, rd, lower_signed, location)?;
-        bytes.extend_from_slice(&u32_to_le_bytes(addiw_inst));
+        // addi rd, rd, lower
+        let addi_inst =
+            encode_i_type(0b0010011, rd, 0b000, rd, lower_signed, location)?;
+        bytes.extend_from_slice(&u32_to_le_bytes(addi_inst));
 
         return Ok(bytes);
     }
@@ -1011,15 +997,16 @@ fn expand_la(
     current_pc: i64,
     gp: i64,
     location: &crate::ast::Location,
+    uses_global_pointer: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
     // Special case: la gp, __global_pointer$ must use PC-relative
     let is_gp_init = rd == Register::X3 && addr == gp;
 
-    // Check if we can use GP-relative addressing
+    // Check if we can use GP-relative addressing (only if __global_pointer$ is referenced)
     let gp_offset = addr - gp;
-    if !is_gp_init && fits_signed(gp_offset, 12) {
+    if !is_gp_init && uses_global_pointer && fits_signed(gp_offset, 12) {
         // addi rd, gp, offset
         let inst = encode_i_type(
             0b0010011,
@@ -1210,7 +1197,10 @@ fn encode_directive(
             for expr in exprs {
                 let val = eval_expr(expr, line, context.eval_context)?;
                 // Allow both Integer and Address types, use the numeric value
-                let byte_val = val.value as u8;
+                let byte_val = match val {
+                    EvaluatedValue::Integer(i) => i as u8,
+                    EvaluatedValue::Address(a) => a as u8,
+                };
                 bytes.push(byte_val);
             }
             Ok(bytes)
@@ -1220,7 +1210,10 @@ fn encode_directive(
             let mut bytes = Vec::new();
             for expr in exprs {
                 let val = eval_expr(expr, line, context.eval_context)?;
-                let short_val = val.value as u16;
+                let short_val = match val {
+                    EvaluatedValue::Integer(i) => i as u16,
+                    EvaluatedValue::Address(a) => a as u16,
+                };
                 bytes.extend_from_slice(&short_val.to_le_bytes());
             }
             Ok(bytes)
@@ -1230,17 +1223,11 @@ fn encode_directive(
             let mut bytes = Vec::new();
             for expr in exprs {
                 let val = eval_expr(expr, line, context.eval_context)?;
-                let word_val = val.value as u32;
+                let word_val = match val {
+                    EvaluatedValue::Integer(i) => i as u32,
+                    EvaluatedValue::Address(a) => a,
+                };
                 bytes.extend_from_slice(&word_val.to_le_bytes());
-            }
-            Ok(bytes)
-        }
-
-        Directive::EightByte(exprs) => {
-            let mut bytes = Vec::new();
-            for expr in exprs {
-                let val = eval_expr(expr, line, context.eval_context)?;
-                bytes.extend_from_slice(&val.value.to_le_bytes());
             }
             Ok(bytes)
         }

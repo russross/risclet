@@ -2,10 +2,12 @@
 //
 // Core assembly pipeline functions shared between main.rs and tests
 
-use crate::ast::{self, Directive, LineContent, Segment, Source};
+use crate::ast::{
+    self, Directive, Instruction, LineContent, PseudoOp, Segment, Source,
+};
 use crate::elf::compute_header_size;
 use crate::encoder::encode_source_with_size_tracking;
-use crate::error;
+use crate::error::{AssemblerError, Result};
 use crate::expressions;
 
 /// Compute offsets for all lines in the source
@@ -13,9 +15,9 @@ use crate::expressions;
 /// This assigns each line an offset within its segment based on the
 /// current size guesses for all preceding lines.
 pub fn compute_offsets(source: &mut Source) {
-    let mut global_text_offset: i64 = 0;
-    let mut global_data_offset: i64 = 0;
-    let mut global_bss_offset: i64 = 0;
+    let mut global_text_offset: u32 = 0;
+    let mut global_data_offset: u32 = 0;
+    let mut global_bss_offset: u32 = 0;
 
     for source_file in &mut source.files {
         // Track the starting offset for this file in each segment
@@ -24,9 +26,9 @@ pub fn compute_offsets(source: &mut Source) {
         let file_bss_start = global_bss_offset;
 
         // Track offsets within this file (continuing from global offsets)
-        let mut text_offset: i64 = global_text_offset;
-        let mut data_offset: i64 = global_data_offset;
-        let mut bss_offset: i64 = global_bss_offset;
+        let mut text_offset: u32 = global_text_offset;
+        let mut data_offset: u32 = global_data_offset;
+        let mut bss_offset: u32 = global_bss_offset;
 
         for line in &mut source_file.lines {
             let current_offset = match line.segment {
@@ -49,16 +51,20 @@ pub fn compute_offsets(source: &mut Source) {
             // Advance offset
             let advance = line.size;
             match line.segment {
-                Segment::Text => text_offset += advance,
-                Segment::Data => data_offset += advance,
-                Segment::Bss => bss_offset += advance,
+                Segment::Text => {
+                    text_offset = text_offset.wrapping_add(advance)
+                }
+                Segment::Data => {
+                    data_offset = data_offset.wrapping_add(advance)
+                }
+                Segment::Bss => bss_offset = bss_offset.wrapping_add(advance),
             }
         }
 
         // Update source_file sizes (size contributed by this file in each segment)
-        source_file.text_size = text_offset - file_text_start;
-        source_file.data_size = data_offset - file_data_start;
-        source_file.bss_size = bss_offset - file_bss_start;
+        source_file.text_size = text_offset.wrapping_sub(file_text_start);
+        source_file.data_size = data_offset.wrapping_sub(file_data_start);
+        source_file.bss_size = bss_offset.wrapping_sub(file_bss_start);
 
         // Update global offsets to continue in the next file
         global_text_offset = text_offset;
@@ -75,7 +81,7 @@ pub fn compute_offsets(source: &mut Source) {
     // Segments: .text, .riscv.attributes, and optionally .data/.bss
     let has_data_or_bss = source.data_size > 0 || source.bss_size > 0;
     let num_segments = if has_data_or_bss { 3 } else { 2 };
-    source.header_size = compute_header_size(num_segments);
+    source.header_size = compute_header_size(num_segments) as u32;
 }
 
 /// Callback trait for per-iteration convergence dumps
@@ -146,10 +152,10 @@ impl ConvergenceCallback for NoOpCallback {
 /// If `show_progress` is true, prints convergence progress to stderr.
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
-    text_start: i64,
+    text_start: u32,
     callback: &C,
     show_progress: bool,
-) -> Result<(Vec<u8>, Vec<u8>, i64), error::AssemblerError> {
+) -> Result<(Vec<u8>, Vec<u8>, i64)> {
     const MAX_ITERATIONS: usize = 10;
 
     if show_progress {
@@ -181,9 +187,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // Evaluate all line symbols to populate the expression evaluation context
         for file in &source.files {
             for line in &file.lines {
-                // Ignore errors - some expressions may not be evaluable yet
-                let _ =
-                    expressions::evaluate_line_symbols(line, &mut eval_context);
+                expressions::evaluate_line_symbols(line, &mut eval_context)?;
             }
         }
 
@@ -241,7 +245,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // (The encoder already updated source.lines[].size)
     }
 
-    Err(error::AssemblerError::no_context(format!(
+    Err(AssemblerError::no_context(format!(
         "Failed to converge after {} iterations - possible cyclic size dependencies",
         MAX_ITERATIONS
     )))
@@ -250,52 +254,35 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
 /// Initial size guess for a line before convergence
 ///
 /// Returns a conservative estimate that will be refined during convergence.
-pub fn guess_line_size(content: &ast::LineContent) -> Result<i64, String> {
-    use ast::{Instruction, PseudoOp};
-
-    match content {
+pub fn guess_line_size(content: &ast::LineContent) -> u32 {
+    (match content {
         ast::LineContent::Instruction(inst) => match inst {
             // Pseudo-instructions that expand to 2 base instructions (8 bytes)
             Instruction::Pseudo(pseudo) => match pseudo {
-                PseudoOp::Li(_, _) => Ok(8), // lui + addiw (worst case)
-                PseudoOp::La(_, _) => Ok(8), // auipc + addi
-                PseudoOp::Call(_) => Ok(8),  // auipc + jalr
-                PseudoOp::Tail(_) => Ok(8),  // auipc + jalr
-                PseudoOp::LoadGlobal(_, _, _) => Ok(8), // auipc + load
-                PseudoOp::StoreGlobal(_, _, _, _) => Ok(8), // auipc + store
+                PseudoOp::Li(_, _) => 8,                // lui + addi
+                PseudoOp::La(_, _) => 8,                // auipc + addi
+                PseudoOp::Call(_) => 8,                 // auipc + jalr
+                PseudoOp::Tail(_) => 8,                 // auipc + jalr
+                PseudoOp::LoadGlobal(_, _, _) => 8,     // auipc + load
+                PseudoOp::StoreGlobal(_, _, _, _) => 8, // auipc + store
             },
             // All other instructions are 4 bytes
-            _ => Ok(4),
+            _ => 4,
         },
-        ast::LineContent::Label(_) => Ok(0),
+        ast::LineContent::Label(_) => 0,
         ast::LineContent::Directive(dir) => match dir {
-            ast::Directive::Space(_expr) => {
-                // Placeholder: in later phases, evaluate expression
-                Ok(0)
-            }
-            ast::Directive::Balign(_expr) => {
-                // Size computed in compute_offsets
-                Ok(0)
-            }
-            ast::Directive::Byte(exprs) => Ok(exprs.len() as i64),
-            ast::Directive::TwoByte(exprs) => Ok(exprs.len() as i64 * 2),
-            ast::Directive::FourByte(exprs) => Ok(exprs.len() as i64 * 4),
-            ast::Directive::EightByte(exprs) => Ok(exprs.len() as i64 * 8),
+            ast::Directive::Space(_expr) => 0,
+            ast::Directive::Balign(_expr) => 0,
+            ast::Directive::Byte(exprs) => exprs.len(),
+            ast::Directive::TwoByte(exprs) => exprs.len() * 2,
+            ast::Directive::FourByte(exprs) => exprs.len() * 4,
             ast::Directive::String(strings) => {
-                let mut size = 0;
-                for s in strings {
-                    size += s.len() as i64;
-                }
-                Ok(size)
+                strings.iter().map(|s| s.len()).sum()
             }
             ast::Directive::Asciz(strings) => {
-                let mut size = 0;
-                for s in strings {
-                    size += s.len() as i64 + 1; // +1 for null terminator
-                }
-                Ok(size)
+                strings.iter().map(|s| s.len() + 1).sum()
             }
-            _ => Ok(0), // Non-data directives like .text, .global
+            _ => 0, // Non-data directives like .text, .global
         },
-    }
+    }) as u32
 }

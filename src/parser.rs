@@ -1,15 +1,15 @@
 use crate::ast::*;
-use crate::error::AssemblerError;
+use crate::error::{AssemblerError, Result};
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
     file: String,
-    line: u32,
+    line: usize,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(tokens: &'a [Token], file: String, line: u32) -> Self {
+    pub fn new(tokens: &'a [Token], file: String, line: usize) -> Self {
         Parser { tokens, pos: 0, file, line }
     }
 
@@ -31,7 +31,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect(&mut self, expected: &Token) -> Result<(), AssemblerError> {
+    fn expect(&mut self, expected: &Token) -> Result<()> {
         if let Some(t) = self.peek() {
             if t == expected {
                 self.next();
@@ -52,7 +52,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: ident
     // Example: foo
-    fn parse_identifier(&mut self) -> Result<String, AssemblerError> {
+    fn parse_identifier(&mut self) -> Result<String> {
         if let Some(Token::Identifier(s)) = self.next() {
             Ok(s)
         } else {
@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg
     // Example: a0
-    fn parse_register(&mut self) -> Result<Register, AssemblerError> {
+    fn parse_register(&mut self) -> Result<Register> {
         if let Some(Token::Register(r)) = self.next() {
             Ok(r)
         } else {
@@ -78,13 +78,13 @@ impl<'a> Parser<'a> {
 
     // Grammar: exp (calls parse_bitwise_or) (part of expression grammar)
     // Example: a + b * c
-    fn parse_expression(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_expression(&mut self) -> Result<Expression> {
         self.parse_bitwise_or()
     }
 
     // Grammar: bitwise_or ::= bitwise_xor ( | bitwise_xor )* (part of expression grammar)
     // Example: a | b | c
-    fn parse_bitwise_or(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_bitwise_or(&mut self) -> Result<Expression> {
         let mut left = self.parse_bitwise_xor()?;
         while let Some(op) = self.peek() {
             match op {
@@ -104,7 +104,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: bitwise_xor ::= bitwise_and ( ^ bitwise_and )* (part of expression grammar)
     // Example: a ^ b
-    fn parse_bitwise_xor(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_bitwise_xor(&mut self) -> Result<Expression> {
         let mut left = self.parse_bitwise_and()?;
         while let Some(op) = self.peek() {
             match op {
@@ -124,7 +124,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: bitwise_and ::= shift ( & shift )* (part of expression grammar)
     // Example: a & b & c
-    fn parse_bitwise_and(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_bitwise_and(&mut self) -> Result<Expression> {
         let mut left = self.parse_shift()?;
         while let Some(op) = self.peek() {
             match op {
@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: shift ::= additive ( << additive | >> additive )* (part of expression grammar)
     // Examples: a << 1, b >> 2, c << 1 >> 2
-    fn parse_shift(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_shift(&mut self) -> Result<Expression> {
         let mut left = self.parse_additive()?;
         while let Some(op) = self.peek() {
             match op {
@@ -172,7 +172,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: additive ::= multiplicative ( + multiplicative | - multiplicative )* (part of expression grammar)
     // Examples: a + b, c - d, e + f - g
-    fn parse_additive(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_additive(&mut self) -> Result<Expression> {
         let mut left = self.parse_multiplicative()?;
         while let Some(op) = self.peek() {
             match op {
@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: multiplicative ::= unary ( * unary | / unary | % unary )* (part of expression grammar)
     // Examples: a * b, c / d, e % f, g * h / i % j
-    fn parse_multiplicative(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_multiplicative(&mut self) -> Result<Expression> {
         let mut left = self.parse_unary()?;
         while let Some(op) = self.peek() {
             match op {
@@ -236,7 +236,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: unary ::= - unary | ~ unary | operand (part of expression grammar)
     // Examples: -a (negation), ~b (bitwise not), c (no unary op)
-    fn parse_unary(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_unary(&mut self) -> Result<Expression> {
         if let Some(Token::Operator(OperatorOp::Minus)) = self.peek() {
             self.next();
             let expr = self.parse_unary()?;
@@ -254,7 +254,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: operand ::= int | ident | label_ref | ( exp ) (part of expression grammar)
     // Examples: 42 (integer literal), foo (identifier), 1f (numeric label), (a + b) (parenthesized expression)
-    fn parse_operand(&mut self) -> Result<Expression, AssemblerError> {
+    fn parse_operand(&mut self) -> Result<Expression> {
         if let Some(t) = self.peek().cloned() {
             match t {
                 Token::Integer(i) => {
@@ -311,7 +311,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: [ident | int :] [directive | instruction]
     // Examples: loop: add a0, a1, a2 (labeled instruction), .global foo (directive), add a0, a1, a2 (unlabeled instruction)
-    fn parse_line(&mut self) -> Result<Vec<Line>, AssemblerError> {
+    fn parse_line(&mut self) -> Result<Vec<Line>> {
         let location = Location { file: self.file.clone(), line: self.line };
         let mut lines = Vec::new();
         // Check for label: [ident | int :] (peekahead and backtrack if no colon)
@@ -379,7 +379,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: .global ident | .equ ident , exp | .text | .data | .bss | .space exp | .balign exp | .string string [, string]* | .asciz string [, string]* | .byte exp [, exp]* | .2byte exp [, exp]* | .4byte exp [, exp]* | .8byte exp [, exp]*
     // Examples: .global main, .equ SIZE, 100, .text, .data, .bss, .space 4, .balign 8, .string "hello", "world", .asciz "foo", .byte 1, 2, 3, .2byte 10, 20, .4byte 100, .8byte 1000
-    fn parse_directive(&mut self) -> Result<Directive, AssemblerError> {
+    fn parse_directive(&mut self) -> Result<Directive> {
         if let Some(Token::Directive(d)) = self.next() {
             match d {
                 DirectiveOp::Global => {
@@ -461,15 +461,6 @@ impl<'a> Parser<'a> {
                     }
                     Ok(Directive::FourByte(exprs))
                 }
-                DirectiveOp::EightByte => {
-                    let mut exprs = Vec::new();
-                    exprs.push(self.parse_expression()?);
-                    while let Some(Token::Comma) = self.peek() {
-                        self.next();
-                        exprs.push(self.parse_expression()?);
-                    }
-                    Ok(Directive::EightByte(exprs))
-                }
             }
         } else {
             Err(AssemblerError::from_context(
@@ -480,7 +471,7 @@ impl<'a> Parser<'a> {
     }
 
     // Grammar: opcode-specific (see below for each type)
-    fn parse_instruction(&mut self) -> Result<Instruction, AssemblerError> {
+    fn parse_instruction(&mut self) -> Result<Instruction> {
         let opcode = self.parse_identifier()?;
         match opcode.as_str() {
             // R-type
@@ -502,19 +493,8 @@ impl<'a> Parser<'a> {
             "divu" => self.parse_rtype(RTypeOp::Divu),
             "rem" => self.parse_rtype(RTypeOp::Rem),
             "remu" => self.parse_rtype(RTypeOp::Remu),
-            "addw" => self.parse_rtype(RTypeOp::Addw),
-            "subw" => self.parse_rtype(RTypeOp::Subw),
-            "sllw" => self.parse_rtype(RTypeOp::Sllw),
-            "srlw" => self.parse_rtype(RTypeOp::Srlw),
-            "sraw" => self.parse_rtype(RTypeOp::Sraw),
-            "mulw" => self.parse_rtype(RTypeOp::Mulw),
-            "divw" => self.parse_rtype(RTypeOp::Divw),
-            "divuw" => self.parse_rtype(RTypeOp::Divuw),
-            "remw" => self.parse_rtype(RTypeOp::Remw),
-            "remuw" => self.parse_rtype(RTypeOp::Remuw),
             // I-type
             "addi" => self.parse_itype(ITypeOp::Addi),
-            "addiw" => self.parse_itype(ITypeOp::Addiw),
             "slli" => self.parse_itype(ITypeOp::Slli),
             "slti" => self.parse_itype(ITypeOp::Slti),
             "sltiu" => self.parse_itype(ITypeOp::Sltiu),
@@ -524,9 +504,6 @@ impl<'a> Parser<'a> {
             "srli" => self.parse_itype(ITypeOp::Srli),
             "srai" => self.parse_itype(ITypeOp::Srai),
             "jalr" => self.parse_itype(ITypeOp::Jalr),
-            "slliw" => self.parse_itype(ITypeOp::Slliw),
-            "srliw" => self.parse_itype(ITypeOp::Srliw),
-            "sraiw" => self.parse_itype(ITypeOp::Sraiw),
             // B-type
             "beq" => self.parse_btype(BTypeOp::Beq),
             "bne" => self.parse_btype(BTypeOp::Bne),
@@ -590,14 +567,11 @@ impl<'a> Parser<'a> {
             "lb" => self.parse_load(LoadStoreOp::Lb),
             "lh" => self.parse_load(LoadStoreOp::Lh),
             "lw" => self.parse_load(LoadStoreOp::Lw),
-            "ld" => self.parse_load(LoadStoreOp::Ld),
             "lbu" => self.parse_load(LoadStoreOp::Lbu),
             "lhu" => self.parse_load(LoadStoreOp::Lhu),
-            "lwu" => self.parse_load(LoadStoreOp::Lwu),
             "sb" => self.parse_store(LoadStoreOp::Sb),
             "sh" => self.parse_store(LoadStoreOp::Sh),
             "sw" => self.parse_store(LoadStoreOp::Sw),
-            "sd" => self.parse_store(LoadStoreOp::Sd),
             // Pseudo
             "li" => {
                 let rd = self.parse_register()?;
@@ -647,23 +621,6 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
                 Ok(Instruction::RType(RTypeOp::Sub, rd, Register::X0, rs))
-            }
-            "negw" => {
-                let rd = self.parse_register()?;
-                self.expect(&Token::Comma)?;
-                let rs = self.parse_register()?;
-                Ok(Instruction::RType(RTypeOp::Subw, rd, Register::X0, rs))
-            }
-            "sext.w" => {
-                let rd = self.parse_register()?;
-                self.expect(&Token::Comma)?;
-                let rs = self.parse_register()?;
-                Ok(Instruction::IType(
-                    ITypeOp::Addiw,
-                    rd,
-                    rs,
-                    Box::new(Expression::Literal(0)),
-                ))
             }
             "seqz" => {
                 let rd = self.parse_register()?;
@@ -791,10 +748,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , reg
     // Example: add a0, a1, a2
-    fn parse_rtype(
-        &mut self,
-        op: RTypeOp,
-    ) -> Result<Instruction, AssemblerError> {
+    fn parse_rtype(&mut self, op: RTypeOp) -> Result<Instruction> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs1 = self.parse_register()?;
@@ -805,10 +759,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , exp
     // Examples: addi a0, a1, 1, addi a0, a1, 'z' - 'a'
-    fn parse_itype(
-        &mut self,
-        op: ITypeOp,
-    ) -> Result<Instruction, AssemblerError> {
+    fn parse_itype(&mut self, op: ITypeOp) -> Result<Instruction> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs1 = self.parse_register()?;
@@ -819,10 +770,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , reg , expression
     // Examples: beq a0, a1, loop (symbolic), beq a0, a1, . + 8 (expression)
-    fn parse_btype(
-        &mut self,
-        op: BTypeOp,
-    ) -> Result<Instruction, AssemblerError> {
+    fn parse_btype(&mut self, op: BTypeOp) -> Result<Instruction> {
         let rs1 = self.parse_register()?;
         self.expect(&Token::Comma)?;
         let rs2 = self.parse_register()?;
@@ -833,10 +781,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , [exp] ( reg ) | reg , exp (global load, exp not followed by '(')
     // Examples: lb a0, 0(sp) (immediate offset), lb a0, (sp) (zero offset via peekahead), lb a0, label (global load, no parens; parentheses in exp like (label + 4) are part of the expression)
-    fn parse_load(
-        &mut self,
-        op: LoadStoreOp,
-    ) -> Result<Instruction, AssemblerError> {
+    fn parse_load(&mut self, op: LoadStoreOp) -> Result<Instruction> {
         let reg = self.parse_register()?;
         self.expect(&Token::Comma)?;
         // Peekahead for ( reg ) to handle zero offset: reg , ( reg )
@@ -873,10 +818,7 @@ impl<'a> Parser<'a> {
 
     // Grammar: reg , [exp] ( reg ) | reg , exp , reg (global store, exp not followed by '(')
     // Examples: sb a0, 0(sp) (immediate offset), sb a0, (sp) (zero offset via peekahead), sb a0, label, t0 (global store, no parens; parentheses in exp like (label + 4) are part of the expression)
-    fn parse_store(
-        &mut self,
-        op: LoadStoreOp,
-    ) -> Result<Instruction, AssemblerError> {
+    fn parse_store(&mut self, op: LoadStoreOp) -> Result<Instruction> {
         let reg = self.parse_register()?;
         self.expect(&Token::Comma)?;
         // Peekahead for ( reg ) to handle zero offset: reg , ( reg )
@@ -915,11 +857,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse(
-    tokens: &[Token],
-    file: String,
-    line: u32,
-) -> Result<Vec<Line>, AssemblerError> {
+pub fn parse(tokens: &[Token], file: String, line: usize) -> Result<Vec<Line>> {
     let mut parser = Parser::new(tokens, file.clone(), line);
     let lines = parser.parse_line()?;
 
@@ -936,352 +874,4 @@ pub fn parse(
     }
 
     Ok(lines)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tokenizer;
-
-    #[test]
-    fn test_parse_simple_instruction() {
-        let line = "add a0, a1, a2";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::RType(
-            RTypeOp::Add,
-            Register::X10,
-            Register::X11,
-            Register::X12,
-        )) = ast[0].content
-        {
-            // ok
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_label() {
-        let line = "loop: add a0, a1, a2";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 2);
-        assert_eq!(ast[0].content, LineContent::Label("loop".to_string()));
-        if let LineContent::Instruction(Instruction::RType(
-            RTypeOp::Add,
-            Register::X10,
-            Register::X11,
-            Register::X12,
-        )) = ast[1].content
-        {
-            // ok
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_directive() {
-        let line = ".global main";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Directive(Directive::Global(vec)) = &ast[0].content
-        {
-            assert_eq!(vec, &["main".to_string()]);
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_expression() {
-        let line = "li a0, 1 + 2";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
-            Register::X10,
-            expr,
-        ))) = &ast[0].content
-        {
-            if let Expression::PlusOp { lhs, rhs } = &**expr {
-                if let Expression::Literal(1) = **lhs {
-                    if let Expression::Literal(2) = **rhs {
-                        // ok
-                    } else {
-                        panic!("Unexpected RHS");
-                    }
-                } else {
-                    panic!("Unexpected LHS");
-                }
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_numeric_label() {
-        let line = "bnez a0, 1f";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::BType(
-            BTypeOp::Bne,
-            Register::X10,
-            Register::X0,
-            expr,
-        )) = &ast[0].content
-        {
-            if let Expression::NumericLabelRef(nlr) = &**expr {
-                assert_eq!(nlr.num, 1);
-                assert!(nlr.is_forward);
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_load_with_expression() {
-        let line = "lb a0, 1+2(a1)";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::LoadStore(
-            LoadStoreOp::Lb,
-            Register::X10,
-            expr,
-            Register::X11,
-        )) = &ast[0].content
-        {
-            if let Expression::PlusOp { lhs, rhs } = &**expr {
-                if let Expression::Literal(1) = **lhs {
-                    if let Expression::Literal(2) = **rhs {
-                        // ok
-                    } else {
-                        panic!("Unexpected RHS");
-                    }
-                } else {
-                    panic!("Unexpected LHS");
-                }
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_branch_with_expression() {
-        let line = "beq a0, a1, 1+2";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::BType(
-            BTypeOp::Beq,
-            Register::X10,
-            Register::X11,
-            expr,
-        )) = &ast[0].content
-        {
-            if let Expression::PlusOp { lhs, rhs } = &**expr {
-                if let Expression::Literal(1) = **lhs {
-                    if let Expression::Literal(2) = **rhs {
-                        // ok
-                    } else {
-                        panic!("Unexpected RHS");
-                    }
-                } else {
-                    panic!("Unexpected LHS");
-                }
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_pseudo_li() {
-        let line = "li a0, 0x123456789ABCDEF";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
-            Register::X10,
-            expr,
-        ))) = &ast[0].content
-        {
-            if let Expression::Literal(0x123456789ABCDEF) = **expr {
-                // ok
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_directive_space() {
-        let line = ".space 4";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Directive(Directive::Space(expr)) = &ast[0].content
-        {
-            if let Expression::Literal(4) = *expr {
-                // ok
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_directive_balign() {
-        let line = ".balign 8";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Directive(Directive::Balign(expr)) = &ast[0].content
-        {
-            if let Expression::Literal(8) = *expr {
-                // ok
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_directive_string() {
-        let line = ".string \"hello\", \"world\"";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Directive(Directive::String(vec)) = &ast[0].content
-        {
-            assert_eq!(*vec, vec!["hello".to_string(), "world".to_string()]);
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_directive_byte() {
-        let line = ".byte 1, 2, 3";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Directive(Directive::Byte(vec)) = &ast[0].content {
-            assert_eq!(vec.len(), 3);
-            if let Expression::Literal(1) = vec[0] {
-                if let Expression::Literal(2) = vec[1] {
-                    if let Expression::Literal(3) = vec[2] {
-                        // ok
-                    } else {
-                        panic!("Unexpected third");
-                    }
-                } else {
-                    panic!("Unexpected second");
-                }
-            } else {
-                panic!("Unexpected first");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_current_address() {
-        let line = "li a0, .";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
-            Register::X10,
-            expr,
-        ))) = &ast[0].content
-        {
-            if let Expression::CurrentAddress = **expr {
-                // ok
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_complex_expression() {
-        let line = "li a0, (1 + 2) << 3";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let ast = parse(&tokens, "test".to_string(), 1).unwrap();
-        assert_eq!(ast.len(), 1);
-        if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
-            Register::X10,
-            expr,
-        ))) = &ast[0].content
-        {
-            if let Expression::LeftShiftOp { lhs, rhs } = &**expr {
-                if let Expression::Parenthesized(plus_expr) = &**lhs {
-                    if let Expression::PlusOp { lhs: l, rhs: r } = &**plus_expr
-                    {
-                        if let Expression::Literal(1) = **l {
-                            if let Expression::Literal(2) = **r {
-                                if let Expression::Literal(3) = **rhs {
-                                    // ok
-                                } else {
-                                    panic!("Unexpected shift amount");
-                                }
-                            } else {
-                                panic!("Unexpected plus RHS");
-                            }
-                        } else {
-                            panic!("Unexpected plus LHS");
-                        }
-                    } else {
-                        panic!("Unexpected parenthesized");
-                    }
-                } else {
-                    panic!("Unexpected LHS");
-                }
-            } else {
-                panic!("Unexpected expression");
-            }
-        } else {
-            panic!("Unexpected AST");
-        }
-    }
-
-    #[test]
-    fn test_parse_error_leftover_tokens() {
-        let line = "add a0, a1, a2 extra";
-        let tokens = tokenizer::tokenize(line).unwrap();
-        let result = parse(&tokens, "test".to_string(), 1);
-        assert!(result.is_err(), "Should fail with leftover tokens");
-        let err = result.unwrap_err();
-        assert!(
-            err.message.contains("Unexpected tokens"),
-            "Error should mention unexpected tokens: {}",
-            err
-        );
-    }
 }
