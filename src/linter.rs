@@ -333,11 +333,10 @@ impl Linter {
 
                     // only allow byte values from memory
                     for address in addr..addr + (size as u32) {
-                        if let Some(val) = self.memory.get(&address) {
-                            if val.size != 1 {
+                        if let Some(val) = self.memory.get(&address)
+                            && val.size != 1 {
                                 return Err("write syscall on non-byte data".to_string());
                             }
-                        }
                     }
                 }
 
@@ -348,11 +347,10 @@ impl Linter {
 
                     for address in addr..addr + (size as u32) {
                         // do not allow overwrite of non-byte data
-                        if let Some(val) = self.memory.get(&address) {
-                            if val.size != 1 {
+                        if let Some(val) = self.memory.get(&address)
+                            && val.size != 1 {
                                 return Err("read syscall overwriting non-byte data".to_string());
                             }
-                        }
 
                         // record data as individual bytes
                         let n = self.new_n();

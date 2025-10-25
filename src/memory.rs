@@ -179,6 +179,12 @@ pub struct RegisterFile {
     x: [i32; 32],
 }
 
+impl Default for RegisterFile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RegisterFile {
     pub fn new() -> Self {
         Self { x: [0; 32] }

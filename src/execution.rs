@@ -56,7 +56,9 @@ impl Machine {
 
         let trace = ExecutionTrace::new(memory.layout);
 
-        let machine = Self {
+        
+
+        Self {
             state,
             memory,
             trace,
@@ -66,9 +68,7 @@ impl Machine {
             other_symbols,
             current_effect: None,
             io_provider,
-        };
-
-        machine
+        }
     }
 
     pub fn builder() -> MachineBuilder {
@@ -127,15 +127,14 @@ impl Machine {
     }
 
     pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<(), String> {
-        if let Some(effects) = &mut self.current_effect {
-            if let Ok(old_val) = self.memory.load(addr, raw.len() as u32) {
+        if let Some(effects) = &mut self.current_effect
+            && let Ok(old_val) = self.memory.load(addr, raw.len() as u32) {
                 assert!(effects.mem_write.is_none());
                 effects.mem_write = Some((
                     MemoryValue { address: addr, value: old_val },
                     MemoryValue { address: addr, value: raw.to_vec() },
                 ));
             }
-        }
         self.memory.store(addr, raw)
     }
 
@@ -515,29 +514,26 @@ pub fn trace(
         let mut effects = m.execute_and_collect_effects(instruction);
         i += 1;
 
-        if !effects.terminate && ["run", "debug"].contains(&mode) {
-            if let Some(output) = &effects.stdout {
+        if !effects.terminate && ["run", "debug"].contains(&mode)
+            && let Some(output) = &effects.stdout {
                 let mut handle = io::stdout().lock();
                 if let Err(e) = handle.write(output) {
                     effects.error(format!("error echoing stdout: {}", e));
                 }
             }
-        }
 
-        if !effects.terminate && echo_in {
-            if let Some(input) = &effects.stdin {
+        if !effects.terminate && echo_in
+            && let Some(input) = &effects.stdin {
                 let mut handle = io::stdout().lock();
                 if let Err(e) = handle.write(input) {
                     effects.error(format!("error echoing stdin: {}", e));
                 }
             }
-        }
 
-        if !effects.terminate && lint {
-            if let Err(msg) = linter.check_instruction(m, instruction, &mut effects) {
+        if !effects.terminate && lint
+            && let Err(msg) = linter.check_instruction(m, instruction, &mut effects) {
                 effects.error(msg);
             }
-        }
 
         let terminate = effects.terminate;
         sequence.push(effects);
@@ -546,11 +542,10 @@ pub fn trace(
         }
 
         if steps == max_steps {
-            if let Some(last) = sequence.last_mut() {
-                if last.other_message.is_none() {
+            if let Some(last) = sequence.last_mut()
+                && last.other_message.is_none() {
                     last.error(format!("stopped after {} steps", max_steps));
                 }
-            }
         } else if mode != "debug" {
             sequence.clear();
         }

@@ -68,12 +68,12 @@ impl MemoryInterface for FlatMemory {
         let half = i16::from_le_bytes(raw.try_into().unwrap());
 
         if (half & 0b11) != 0b11 {
-            return Ok((half as i32, 2));
+            Ok((half as i32, 2))
         } else if addr + 4 <= self.base + self.size {
             let raw = &self.data[offset..offset + 4];
-            return Ok((i32::from_le_bytes(raw.try_into().unwrap()), 4));
+            Ok((i32::from_le_bytes(raw.try_into().unwrap()), 4))
         } else {
-            return Err(format!("partial instruction at end of segment addr=0x{:x}", addr));
+            Err(format!("partial instruction at end of segment addr=0x{:x}", addr))
         }
     }
 
