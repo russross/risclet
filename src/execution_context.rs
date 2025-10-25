@@ -1,6 +1,5 @@
 use crate::io_abstraction::IoProvider;
 use crate::trace::Effects;
-use std::rc::Rc;
 
 pub trait ExecutionContext {
     fn read_register(&mut self, reg: usize) -> i32;
