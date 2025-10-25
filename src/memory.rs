@@ -1,8 +1,8 @@
-const STACK_SIZE: i64 = 8192;
+const STACK_SIZE: u32 = 8192;
 
 pub struct Segment {
-    start: i64,
-    end: i64,
+    start: u32,
+    end: u32,
     mem: Vec<u8>,
     init: Vec<u8>,
     writeable: bool,
@@ -10,14 +10,14 @@ pub struct Segment {
 }
 
 impl Segment {
-    pub fn new(start: i64, end: i64, writeable: bool, executable: bool, init: Vec<u8>) -> Self {
+    pub fn new(start: u32, end: u32, writeable: bool, executable: bool, init: Vec<u8>) -> Self {
         assert!(start > 0 && end > start);
         assert!(init.len() <= (end - start) as usize);
         Self { start, end, mem: Vec::new(), init, writeable, executable }
     }
 
-    pub fn in_range(&self, addr: i64, size: i64) -> bool {
-        addr >= self.start && addr + size <= self.end
+    pub fn in_range(&self, addr: u32, size: u32) -> bool {
+        addr >= self.start && addr.saturating_add(size) <= self.end
     }
 
     pub fn is_executable(&self) -> bool {
@@ -33,13 +33,15 @@ impl Segment {
         self.mem.resize((self.end - self.start) as usize, 0);
     }
 
-    pub fn load(&self, addr: i64, size: i64) -> &[u8] {
+    pub fn load(&self, addr: u32, size: u32) -> &[u8] {
         assert!(self.in_range(addr, size));
-        &self.mem[(addr - self.start) as usize..(addr + size - self.start) as usize]
+        let start = (addr - self.start) as usize;
+        let end = start + size as usize;
+        &self.mem[start..end]
     }
 
-    pub fn store(&mut self, addr: i64, raw: &[u8]) {
-        assert!(self.in_range(addr, raw.len() as i64));
+    pub fn store(&mut self, addr: u32, raw: &[u8]) {
+        assert!(self.in_range(addr, raw.len() as u32));
         let offset = (addr - self.start) as usize;
         self.mem[offset..offset + raw.len()].copy_from_slice(raw);
     }
@@ -47,20 +49,20 @@ impl Segment {
 
 #[derive(Clone, Copy)]
 pub struct MemoryLayout {
-    pub stack_start: i64,
-    pub stack_end: i64,
-    pub data_start: i64,
-    pub data_end: i64,
-    pub text_start: i64,
-    pub text_end: i64,
+    pub stack_start: u32,
+    pub stack_end: u32,
+    pub data_start: u32,
+    pub data_end: u32,
+    pub text_start: u32,
+    pub text_end: u32,
 }
 
 impl MemoryLayout {
     pub fn new(segments: &[Segment]) -> Self {
         let mut stack_start = 0x100000 - STACK_SIZE;
         for segment in segments {
-            if segment.end + STACK_SIZE >= stack_start {
-                stack_start = (segment.end + STACK_SIZE * 2 - 1) & (STACK_SIZE - 1);
+            if segment.end.saturating_add(STACK_SIZE) >= stack_start {
+                stack_start = (segment.end.saturating_add(STACK_SIZE * 2).saturating_sub(1)) & (STACK_SIZE - 1);
             }
         }
 
@@ -106,7 +108,7 @@ impl MemoryManager {
         }
     }
 
-    pub fn load(&self, addr: i64, size: i64) -> Result<Vec<u8>, String> {
+    pub fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
         for segment in &self.segments {
             if segment.in_range(addr, size) {
                 return Ok(segment.load(addr, size).to_vec());
@@ -115,7 +117,7 @@ impl MemoryManager {
         Err(format!("segfault: load addr=0x{:x} size={}", addr, size))
     }
 
-    pub fn load_raw(&self, addr: i64, size: i64) -> Result<&[u8], String> {
+    pub fn load_raw(&self, addr: u32, size: u32) -> Result<&[u8], String> {
         for segment in &self.segments {
             if segment.in_range(addr, size) {
                 return Ok(segment.load(addr, size));
@@ -124,8 +126,8 @@ impl MemoryManager {
         Err(format!("segfault: load addr=0x{:x} size={}", addr, size))
     }
 
-    pub fn store(&mut self, addr: i64, raw: &[u8]) -> Result<(), String> {
-        let size = raw.len() as i64;
+    pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<(), String> {
+        let size = raw.len() as u32;
         for segment in &mut self.segments {
             if segment.in_range(addr, size) && segment.writeable {
                 segment.store(addr, raw);
@@ -135,8 +137,8 @@ impl MemoryManager {
         Err(format!("segfault: store addr=0x{:x} size={}", addr, size))
     }
 
-    pub fn store_with_tracking(&mut self, addr: i64, raw: &[u8], mem_write: &mut Option<(Vec<u8>, Vec<u8>)>) -> Result<(), String> {
-        let size = raw.len() as i64;
+    pub fn store_with_tracking(&mut self, addr: u32, raw: &[u8], mem_write: &mut Option<(Vec<u8>, Vec<u8>)>) -> Result<(), String> {
+        let size = raw.len() as u32;
         for segment in &mut self.segments {
             if segment.in_range(addr, size) && segment.writeable {
                 if let Some(tracking) = mem_write {
@@ -151,7 +153,7 @@ impl MemoryManager {
         Err(format!("segfault: store addr=0x{:x} size={}", addr, size))
     }
 
-    pub fn load_instruction(&self, addr: i64) -> Result<(i32, i64), String> {
+    pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32), String> {
         for segment in &self.segments {
             if !segment.in_range(addr, 2) || !segment.executable {
                 continue;
@@ -174,7 +176,7 @@ impl MemoryManager {
 }
 
 pub struct RegisterFile {
-    x: [i64; 32],
+    x: [i32; 32],
 }
 
 impl RegisterFile {
@@ -186,35 +188,27 @@ impl RegisterFile {
         self.x = [0; 32];
     }
 
-    pub fn get(&self, reg: usize) -> i64 {
+    pub fn get(&self, reg: usize) -> i32 {
         self.x[reg]
     }
 
-    pub fn set(&mut self, reg: usize, value: i64) {
+    pub fn set(&mut self, reg: usize, value: i32) {
         if reg != 0 {
             self.x[reg] = value;
         }
-    }
-
-    pub fn get32(&self, reg: usize) -> i32 {
-        self.get(reg) as i32
-    }
-
-    pub fn set32(&mut self, reg: usize, value: i32) {
-        self.set(reg, value as i64);
     }
 }
 
 pub struct CpuState {
     registers: RegisterFile,
-    pc: i64,
+    pc: u32,
     stdout: Vec<u8>,
     stdin: Vec<u8>,
-    stack_frames: Vec<i64>,
+    stack_frames: Vec<u32>,
 }
 
 impl CpuState {
-    pub fn new(pc_start: i64) -> Self {
+    pub fn new(pc_start: u32) -> Self {
         Self {
             registers: RegisterFile::new(),
             pc: pc_start,
@@ -224,36 +218,28 @@ impl CpuState {
         }
     }
 
-    pub fn reset(&mut self, pc_start: i64, stack_end: i64) {
+    pub fn reset(&mut self, pc_start: u32, stack_end: u32) {
         self.registers.reset();
-        self.registers.set(2, stack_end);
+        self.registers.set(2, stack_end as i32);
         self.pc = pc_start;
         self.stdout.clear();
         self.stdin.clear();
         self.stack_frames.clear();
     }
 
-    pub fn get_reg(&self, reg: usize) -> i64 {
+    pub fn get_reg(&self, reg: usize) -> i32 {
         self.registers.get(reg)
     }
 
-    pub fn set_reg(&mut self, reg: usize, value: i64) {
+    pub fn set_reg(&mut self, reg: usize, value: i32) {
         self.registers.set(reg, value);
     }
 
-    pub fn get_reg32(&self, reg: usize) -> i32 {
-        self.registers.get32(reg)
-    }
-
-    pub fn set_reg32(&mut self, reg: usize, value: i32) {
-        self.registers.set32(reg, value);
-    }
-
-    pub fn pc(&self) -> i64 {
+    pub fn pc(&self) -> u32 {
         self.pc
     }
 
-    pub fn set_pc(&mut self, value: i64) {
+    pub fn set_pc(&mut self, value: u32) {
         self.pc = value;
     }
 
@@ -273,11 +259,11 @@ impl CpuState {
         &mut self.stdin
     }
 
-    pub fn stack_frames(&self) -> &[i64] {
+    pub fn stack_frames(&self) -> &[u32] {
         &self.stack_frames
     }
 
-    pub fn push_stack_frame(&mut self, frame: i64) {
+    pub fn push_stack_frame(&mut self, frame: u32) {
         self.stack_frames.push(frame);
     }
 

@@ -11,20 +11,20 @@ pub struct Machine {
     state: CpuState,
     memory: MemoryManager,
     trace: ExecutionTrace,
-    pc_start: i64,
-    pub global_pointer: i64,
-    pub address_symbols: HashMap<i64, String>,
-    pub other_symbols: HashMap<String, i64>,
+    pc_start: u32,
+    pub global_pointer: u32,
+    pub address_symbols: HashMap<u32, String>,
+    pub other_symbols: HashMap<String, u32>,
     current_effect: Option<Effects>,
 }
 
 impl Machine {
     pub fn new(
         segments: Vec<Segment>,
-        pc_start: i64,
-        global_pointer: i64,
-        address_symbols: HashMap<i64, String>,
-        other_symbols: HashMap<String, i64>,
+        pc_start: u32,
+        global_pointer: u32,
+        address_symbols: HashMap<u32, String>,
+        other_symbols: HashMap<String, u32>,
     ) -> Self {
         let mut memory = MemoryManager::new(segments);
         memory.reset();
@@ -55,7 +55,7 @@ impl Machine {
         self.current_effect = None;
     }
 
-    pub fn load(&mut self, addr: i64, size: i64) -> Result<Vec<u8>, String> {
+    pub fn load(&mut self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
         let raw = self.memory.load_raw(addr, size)?;
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.mem_read.is_none());
@@ -64,48 +64,38 @@ impl Machine {
         Ok(raw.to_vec())
     }
 
-    pub fn load_i8(&mut self, addr: i64) -> Result<i64, String> {
+    pub fn load_i8(&mut self, addr: u32) -> Result<i32, String> {
         let bytes = self.load(addr, 1)?;
-        Ok(i8::from_le_bytes(bytes[..1].try_into().unwrap()) as i64)
+        Ok(i8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32)
     }
 
-    pub fn load_u8(&mut self, addr: i64) -> Result<i64, String> {
+    pub fn load_u8(&mut self, addr: u32) -> Result<i32, String> {
         let bytes = self.load(addr, 1)?;
-        Ok(u8::from_le_bytes(bytes[..1].try_into().unwrap()) as i64)
+        Ok(u8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32)
     }
 
-    pub fn load_i16(&mut self, addr: i64) -> Result<i64, String> {
+    pub fn load_i16(&mut self, addr: u32) -> Result<i32, String> {
         let bytes = self.load(addr, 2)?;
-        Ok(i16::from_le_bytes(bytes[..2].try_into().unwrap()) as i64)
+        Ok(i16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32)
     }
 
-    pub fn load_u16(&mut self, addr: i64) -> Result<i64, String> {
+    pub fn load_u16(&mut self, addr: u32) -> Result<i32, String> {
         let bytes = self.load(addr, 2)?;
-        Ok(u16::from_le_bytes(bytes[..2].try_into().unwrap()) as i64)
+        Ok(u16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32)
     }
 
-    pub fn load_i32(&mut self, addr: i64) -> Result<i64, String> {
+    pub fn load_i32(&mut self, addr: u32) -> Result<i32, String> {
         let bytes = self.load(addr, 4)?;
-        Ok(i32::from_le_bytes(bytes[..4].try_into().unwrap()) as i64)
+        Ok(i32::from_le_bytes(bytes[..4].try_into().unwrap()))
     }
 
-    pub fn load_u32(&mut self, addr: i64) -> Result<i64, String> {
-        let bytes = self.load(addr, 4)?;
-        Ok(u32::from_le_bytes(bytes[..4].try_into().unwrap()) as i64)
-    }
-
-    pub fn load_i64(&mut self, addr: i64) -> Result<i64, String> {
-        let bytes = self.load(addr, 8)?;
-        Ok(i64::from_le_bytes(bytes.try_into().unwrap()))
-    }
-
-    pub fn load_instruction(&self, addr: i64) -> Result<(i32, i64), String> {
+    pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32), String> {
         self.memory.load_instruction(addr)
     }
 
-    pub fn store(&mut self, addr: i64, raw: &[u8]) -> Result<(), String> {
+    pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<(), String> {
         if let Some(effects) = &mut self.current_effect {
-            if let Ok(old_val) = self.memory.load(addr, raw.len() as i64) {
+            if let Ok(old_val) = self.memory.load(addr, raw.len() as u32) {
                 assert!(effects.mem_write.is_none());
                 effects.mem_write = Some((
                     MemoryValue { address: addr, value: old_val },
@@ -116,7 +106,7 @@ impl Machine {
         self.memory.store(addr, raw)
     }
 
-    pub fn get(&mut self, reg: usize) -> i64 {
+    pub fn get(&mut self, reg: usize) -> i32 {
         let val = self.state.get_reg(reg);
         if reg != 0 && self.current_effect.is_some() {
             let effects = self.current_effect.as_mut().unwrap();
@@ -127,11 +117,7 @@ impl Machine {
         val
     }
 
-    pub fn get32(&mut self, reg: usize) -> i32 {
-        self.get(reg) as i32
-    }
-
-    pub fn set(&mut self, reg: usize, value: i64) {
+    pub fn set(&mut self, reg: usize, value: i32) {
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.reg_write.is_none());
             let old_val = self.state.get_reg(reg);
@@ -143,18 +129,14 @@ impl Machine {
         self.state.set_reg(reg, value);
     }
 
-    pub fn set32(&mut self, reg: usize, value: i32) {
-        self.set(reg, value as i64);
-    }
-
-    pub fn set_pc(&mut self, value: i64) -> Result<(), String> {
+    pub fn set_pc(&mut self, value: u32) -> Result<(), String> {
         let old_pc = self.state.pc();
         self.state.set_pc(value);
-        if self.state.pc() & 1 != 0 {
-            return Err(format!("bus error: pc addr={}", self.state.pc()));
+        if value & 1 != 0 {
+            return Err(format!("bus error: pc addr={:x}", value));
         }
         if let Some(effects) = &mut self.current_effect {
-            effects.pc = (old_pc, self.state.pc());
+            effects.pc = (old_pc, value);
         }
         Ok(())
     }
@@ -186,17 +168,17 @@ impl Machine {
     pub fn set_most_recent_memory(&mut self, _sequence: &[Effects], _index: usize) {
     }
 
-    pub fn most_recent_memory(&self) -> i64 {
+    pub fn most_recent_memory(&self) -> u32 {
         let (addr, _, _) = self.trace.set_most_recent_memory();
         addr
     }
 
-    pub fn most_recent_data(&self) -> (i64, usize) {
+    pub fn most_recent_data(&self) -> (u32, usize) {
         let (_, addr_size, _) = self.trace.set_most_recent_memory();
         addr_size
     }
 
-    pub fn most_recent_stack(&self) -> (i64, usize) {
+    pub fn most_recent_stack(&self) -> (u32, usize) {
         let (_, _, addr_size) = self.trace.set_most_recent_memory();
         addr_size
     }
@@ -250,31 +232,31 @@ impl Machine {
         }
     }
 
-    pub fn text_start(&self) -> i64 {
+    pub fn text_start(&self) -> u32 {
         self.memory.layout.text_start
     }
 
-    pub fn text_end(&self) -> i64 {
+    pub fn text_end(&self) -> u32 {
         self.memory.layout.text_end
     }
 
-    pub fn data_start(&self) -> i64 {
+    pub fn data_start(&self) -> u32 {
         self.memory.layout.data_start
     }
 
-    pub fn data_end(&self) -> i64 {
+    pub fn data_end(&self) -> u32 {
         self.memory.layout.data_end
     }
 
-    pub fn stack_start(&self) -> i64 {
+    pub fn stack_start(&self) -> u32 {
         self.memory.layout.stack_start
     }
 
-    pub fn stack_end(&self) -> i64 {
+    pub fn stack_end(&self) -> u32 {
         self.memory.layout.stack_end
     }
 
-    pub fn pc(&self) -> i64 {
+    pub fn pc(&self) -> u32 {
         self.state.pc()
     }
 
@@ -294,11 +276,11 @@ impl Machine {
         self.state.stdin_mut()
     }
 
-    pub fn stack_frames(&self) -> &[i64] {
+    pub fn stack_frames(&self) -> &[u32] {
         self.state.stack_frames()
     }
 
-    pub fn push_stack_frame(&mut self, frame: i64) {
+    pub fn push_stack_frame(&mut self, frame: u32) {
         self.state.push_stack_frame(frame);
     }
 
@@ -306,7 +288,7 @@ impl Machine {
         self.state.pop_stack_frame();
     }
 
-    pub fn get_reg(&self, reg: usize) -> i64 {
+    pub fn get_reg(&self, reg: usize) -> i32 {
         self.state.get_reg(reg)
     }
 
@@ -316,16 +298,16 @@ impl Machine {
 }
 
 pub struct Instruction {
-    pub address: i64,
+    pub address: u32,
     pub op: Op,
-    pub length: i64,
+    pub length: u32,
     pub pseudo_index: usize,
     pub verbose_fields: Vec<Field>,
     pub pseudo_fields: Vec<Field>,
 }
 
 pub fn add_local_labels(m: &mut Machine, instructions: &[Instruction]) {
-    let mut branch_targets: HashSet<i64> = HashSet::new();
+    let mut branch_targets: HashSet<u32> = HashSet::new();
     for inst in instructions {
         if let Some(target) = inst.op.branch_target(inst.address) {
             branch_targets.insert(target);
@@ -347,7 +329,7 @@ pub fn add_local_labels(m: &mut Machine, instructions: &[Instruction]) {
 pub fn trace(
     m: &mut Machine,
     instructions: &[Rc<Instruction>],
-    addresses: &HashMap<i64, usize>,
+    addresses: &HashMap<u32, usize>,
     lint: bool,
     max_steps: usize,
     mode: &str,
