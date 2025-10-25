@@ -399,7 +399,7 @@ impl Op {
             4 => Op::Xori { rd, rs1, imm },
             5 => match imm_high {
                 0x00 => Op::Srli { rd, rs1, shamt },
-                0x08 => Op::Srai { rd, rs1, shamt },
+                0x20 => Op::Srai { rd, rs1, shamt },
                 _ => Op::Unimplemented {
                     inst,
                     note: format!(
