@@ -8,12 +8,16 @@
 //-----------------------------------------------------------------------
 
 #undef RVTEST_RV64U
-#define RVTEST_RV64U                                                    \
-        .global TEST_INSTRUCTION
+#define RVTEST_RV64U RVTEST_RV32U
+
+#undef RVTEST_RV32U
+#define RVTEST_RV32U                                                    \
+        .globl _start
 
 #undef RVTEST_CODE_BEGIN
 #define RVTEST_CODE_BEGIN                                               \
-        .text; TEST_INSTRUCTION: sd ra, return_addr, t0
+        .text;                                                          \
+_start:
 
 #undef RVTEST_CODE_END
 #define RVTEST_CODE_END
@@ -26,10 +30,15 @@
 //-----------------------------------------------------------------------
 
 #undef RVTEST_PASS
-#define RVTEST_PASS ld ra, return_addr; ret
+#define RVTEST_PASS                                                     \
+        li a0, 0;                                                       \
+        li a7, 93;                                                      \
+        ecall
 
 #undef RVTEST_FAIL
-#define RVTEST_FAIL mv a0, TESTNUM; ebreak
+#define RVTEST_FAIL                                                     \
+        mv a0, TESTNUM;                                                 \
+        ebreak
 
 //-----------------------------------------------------------------------
 // Data Section Macro

@@ -1,0 +1,93 @@
+# See LICENSE for license details.
+# See LICENSE for license details.
+#*****************************************************************************
+# lb.S
+#-----------------------------------------------------------------------------
+# Test lb instruction.
+#-----------------------------------------------------------------------
+# Helper macros
+#-----------------------------------------------------------------------
+# We use a macro hack to simpify code generation for various numbers
+# of bubble cycles.
+#-----------------------------------------------------------------------
+# RV64UI MACROS
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Tests for instructions with immediate operand
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Tests for an instruction with register operands
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Tests for an instruction with register-register operands
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Test memory instructions
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Test jump instructions
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# RV64UF MACROS
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Tests floating-point instructions
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Pass and fail code (assumes test num is in x28)
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Test data section
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Additional macros for load/store pointer operations
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Test load-store bypass macros
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Misaligned access test macros
+#-----------------------------------------------------------------------
+.globl _start
+.text; _start:
+  #-------------------------------------------------------------
+  # Basic tests
+  #-------------------------------------------------------------
+  test_2: li x28, 2; li x15, 0xffffffffffffffff; la x1, tdat; lb x14, 0(x1);; li x7, ((0xffffffffffffffff) & 0xffffffff); bne x14, x7, fail;;
+  test_3: li x28, 3; li x15, 0x0000000000000000; la x1, tdat; lb x14, 1(x1);; li x7, ((0x0000000000000000) & 0xffffffff); bne x14, x7, fail;;
+  test_4: li x28, 4; li x15, 0xfffffffffffffff0; la x1, tdat; lb x14, 2(x1);; li x7, ((0xfffffffffffffff0) & 0xffffffff); bne x14, x7, fail;;
+  test_5: li x28, 5; li x15, 0x000000000000000f; la x1, tdat; lb x14, 3(x1);; li x7, ((0x000000000000000f) & 0xffffffff); bne x14, x7, fail;;
+  # Test with negative offset
+  test_6: li x28, 6; li x15, 0xffffffffffffffff; la x1, tdat4; lb x14, -3(x1);; li x7, ((0xffffffffffffffff) & 0xffffffff); bne x14, x7, fail;;
+  test_7: li x28, 7; li x15, 0x0000000000000000; la x1, tdat4; lb x14, -2(x1);; li x7, ((0x0000000000000000) & 0xffffffff); bne x14, x7, fail;;
+  test_8: li x28, 8; li x15, 0xfffffffffffffff0; la x1, tdat4; lb x14, -1(x1);; li x7, ((0xfffffffffffffff0) & 0xffffffff); bne x14, x7, fail;;
+  test_9: li x28, 9; li x15, 0x000000000000000f; la x1, tdat4; lb x14, 0(x1);; li x7, ((0x000000000000000f) & 0xffffffff); bne x14, x7, fail;;
+  # Test with a negative base
+  test_10: li x28, 10; la x1, tdat; addi x1, x1, -32; lb x5, 32(x1);; li x7, ((0xffffffffffffffff) & 0xffffffff); bne x5, x7, fail;
+  # Test with unaligned base
+  test_11: li x28, 11; la x1, tdat; addi x1, x1, -6; lb x5, 7(x1);; li x7, ((0x0000000000000000) & 0xffffffff); bne x5, x7, fail;
+  #-------------------------------------------------------------
+  # Bypassing tests
+  #-------------------------------------------------------------
+  test_12: li x28, 12; li x4, 0; 1: la x1, tdat2; lb x14, 1(x1); addi x6, x14, 0; li x7, 0xfffffffffffffff0; bne x6, x7, fail; addi x4, x4, 1; li x5, 2; bne x4, x5, 1b;;
+  test_13: li x28, 13; li x4, 0; 1: la x1, tdat3; lb x14, 1(x1); nop; addi x6, x14, 0; li x7, 0x000000000000000f; bne x6, x7, fail; addi x4, x4, 1; li x5, 2; bne x4, x5, 1b;;
+  test_14: li x28, 14; li x4, 0; 1: la x1, tdat1; lb x14, 1(x1); nop; nop; addi x6, x14, 0; li x7, 0x0000000000000000; bne x6, x7, fail; addi x4, x4, 1; li x5, 2; bne x4, x5, 1b;;
+  test_15: li x28, 15; li x4, 0; 1: la x1, tdat2; lb x14, 1(x1); li x7, 0xfffffffffffffff0; bne x14, x7, fail; addi x4, x4, 1; li x5, 2; bne x4, x5, 1b;
+  test_16: li x28, 16; li x4, 0; 1: la x1, tdat3; nop; lb x14, 1(x1); li x7, 0x000000000000000f; bne x14, x7, fail; addi x4, x4, 1; li x5, 2; bne x4, x5, 1b;
+  test_17: li x28, 17; li x4, 0; 1: la x1, tdat1; nop; nop; lb x14, 1(x1); li x7, 0x0000000000000000; bne x14, x7, fail; addi x4, x4, 1; li x5, 2; bne x4, x5, 1b;
+  #-------------------------------------------------------------
+  # Test write-after-write hazard
+  #-------------------------------------------------------------
+  test_18: li x28, 18; la x5, tdat; lb x2, 0(x5); li x2, 2;; li x7, ((2) & 0xffffffff); bne x2, x7, fail;
+  test_19: li x28, 19; la x5, tdat; lb x2, 0(x5); nop; li x2, 2;; li x7, ((2) & 0xffffffff); bne x2, x7, fail;
+  bne x0, x28, pass; fail: mv a0, x28; ebreak; pass: li a0, 0; li a7, 93; ecall
+
+  .data
+
+ 
+tdat:
+tdat1: .byte 0xff
+tdat2: .byte 0x00
+tdat3: .byte 0xf0
+tdat4: .byte 0x0f
+
