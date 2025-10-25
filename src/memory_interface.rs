@@ -1,5 +1,4 @@
-use crate::memory::Segment;
-use std::collections::HashMap;
+
 
 pub trait MemoryInterface {
     fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>, String>;

@@ -20,7 +20,6 @@ use self::riscv::{Op, get_pseudo_sequence, fields_to_string};
 use std::collections::HashMap;
 use std::cmp::min;
 use std::fmt;
-use std::io;
 use std::rc::Rc;
 
 const MAX_STEPS_DEFAULT: usize = 100000000;
