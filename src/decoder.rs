@@ -222,7 +222,8 @@ impl InstructionDecoder {
                 Op::Addi { rd, rs1: rd, imm }
             }
             (1, 1) => {
-                Op::Unimplemented { inst, note: String::from("C.ADDIW is not supported in RV32") }
+                let offset = get_c_j_jal_imm(inst);
+                Op::Jal { rd: RA, offset }
             }
             (1, 2) => {
                 let rd = get_c_rd_rs1(inst);
