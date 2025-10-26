@@ -14,9 +14,9 @@
 // immediate ranges for all instruction formats.
 
 use crate::ast::{
-    BTypeOp, Directive, ITypeOp, Instruction, JTypeOp, Line, LineContent,
+    BTypeOp, Directive, Expression, ITypeOp, Instruction, JTypeOp, Line, LineContent,
     LoadStoreOp, PseudoOp, RTypeOp, Register, Segment, Source, SpecialOp,
-    UTypeOp,
+    UTypeOp, CompressedOp, CompressedOperands,
 };
 use crate::encoder_compressed;
 use crate::error::AssemblerError;
@@ -638,11 +638,182 @@ fn encode_instruction(
         }
 
         Instruction::Compressed(op, operands) => {
-            encoder_compressed::encode_compressed(op, operands, &line.location)
+            // Evaluate any immediate/offset expressions in operands before encoding
+            let evaluated_operands = eval_compressed_operands(operands, line, context)?;
+            encoder_compressed::encode_compressed(op, &evaluated_operands, &line.location)
         }
 
         Instruction::Pseudo(pseudo) => {
             encode_pseudo(pseudo, line, context, uses_global_pointer)
+        }
+    }
+}
+
+/// Try to compress an instruction to its RV32C equivalent
+/// Returns Some((op, operands)) if compression is possible, None otherwise
+fn try_compress_instruction(
+    inst: &Instruction,
+    imm_or_val: Option<i64>,
+) -> Option<(CompressedOp, CompressedOperands)> {
+    use crate::ast::ITypeOp;
+    
+    match inst {
+        // c.add: add rd, rd, rs2 (both registers in full set)
+        Instruction::RType(RTypeOp::Add, rd, rs1, rs2) if rs1 == rd => {
+            if Register::is_compressed_register(*rd) || Register::is_compressed_register(*rs2) {
+                // At least one is in compressed set - try compression
+                Some((CompressedOp::CAdd, CompressedOperands::CR { 
+                    rd: *rd, 
+                    rs2: *rs2 
+                }))
+            } else {
+                None
+            }
+        }
+        
+        // c.mv: add rd, x0, rs2 (move from rs2 to rd)
+        Instruction::RType(RTypeOp::Add, rd, rs1, rs2) 
+            if *rs1 == Register::X0 && (Register::is_compressed_register(*rd) || Register::is_compressed_register(*rs2)) => {
+            Some((CompressedOp::CMv, CompressedOperands::CR { 
+                rd: *rd, 
+                rs2: *rs2 
+            }))
+        }
+        
+        // c.addi: addi rd, rd, imm (if 6-bit signed)
+        Instruction::IType(ITypeOp::Addi, rd, rs1, _)
+            if rs1 == rd && rd != &Register::X0 && imm_or_val.map_or(false, |imm| imm >= -32 && imm <= 31) => {
+            // Can compress if imm is 6-bit signed
+            Some((CompressedOp::CAddi, CompressedOperands::CI { 
+                rd: *rd, 
+                imm: Box::new(crate::ast::Expression::Literal(imm_or_val.unwrap() as i32)) 
+            }))
+        }
+        
+        // c.li: addi rd, x0, imm (load immediate, if 6-bit signed)
+        Instruction::IType(ITypeOp::Addi, rd, rs1, _)
+            if *rs1 == Register::X0 && imm_or_val.map_or(false, |imm| imm >= -32 && imm <= 31) => {
+            Some((CompressedOp::CLi, CompressedOperands::CI { 
+                rd: *rd, 
+                imm: Box::new(crate::ast::Expression::Literal(imm_or_val.unwrap() as i32)) 
+            }))
+        }
+        
+        _ => None,
+    }
+}
+
+/// Evaluate immediate/offset expressions in compressed operands
+/// 
+/// Converts operands with expression values to operands with concrete literal values.
+/// This follows the same pattern as IType, UType, BType, and JType instruction encoding:
+/// expressions are evaluated at encoding time, then concrete values are passed to the encoder.
+fn eval_compressed_operands(
+    operands: &CompressedOperands,
+    line: &Line,
+    context: &mut EncodingContext,
+) -> Result<CompressedOperands> {
+    use CompressedOperands::*;
+    
+    match operands {
+        // CI format - evaluate immediate expression
+        CI { rd, imm } => {
+            let val = eval_expr(imm, line, context.eval_context)?;
+            let imm_val = require_integer(val, "Compressed immediate", &line.location)?;
+            Ok(CI {
+                rd: *rd,
+                imm: Box::new(Expression::Literal(imm_val as i32)),
+            })
+        }
+        
+        // CIW format - evaluate immediate expression  
+        CIW { rd_prime, imm } => {
+            let val = eval_expr(imm, line, context.eval_context)?;
+            let imm_val = require_integer(val, "Compressed immediate", &line.location)?;
+            Ok(CIW {
+                rd_prime: *rd_prime,
+                imm: Box::new(Expression::Literal(imm_val as i32)),
+            })
+        }
+        
+        // CIStackLoad - evaluate offset expression
+        CIStackLoad { rd, offset } => {
+            let val = eval_expr(offset, line, context.eval_context)?;
+            let offset_val = require_integer(val, "Stack offset", &line.location)?;
+            Ok(CIStackLoad {
+                rd: *rd,
+                offset: Box::new(Expression::Literal(offset_val as i32)),
+            })
+        }
+        
+        // CSSStackStore - evaluate offset expression
+        CSSStackStore { rs2, offset } => {
+            let val = eval_expr(offset, line, context.eval_context)?;
+            let offset_val = require_integer(val, "Stack offset", &line.location)?;
+            Ok(CSSStackStore {
+                rs2: *rs2,
+                offset: Box::new(Expression::Literal(offset_val as i32)),
+            })
+        }
+        
+        // CL format - evaluate offset expression
+        CL { rd_prime, rs1_prime, offset } => {
+            let val = eval_expr(offset, line, context.eval_context)?;
+            let offset_val = require_integer(val, "Load offset", &line.location)?;
+            Ok(CL {
+                rd_prime: *rd_prime,
+                rs1_prime: *rs1_prime,
+                offset: Box::new(Expression::Literal(offset_val as i32)),
+            })
+        }
+        
+        // CS format - evaluate offset expression
+        CS { rs2_prime, rs1_prime, offset } => {
+            let val = eval_expr(offset, line, context.eval_context)?;
+            let offset_val = require_integer(val, "Store offset", &line.location)?;
+            Ok(CS {
+                rs2_prime: *rs2_prime,
+                rs1_prime: *rs1_prime,
+                offset: Box::new(Expression::Literal(offset_val as i32)),
+            })
+        }
+        
+        // CBImm format - evaluate immediate expression
+        CBImm { rd_prime, imm } => {
+            let val = eval_expr(imm, line, context.eval_context)?;
+            let imm_val = require_integer(val, "Compressed immediate", &line.location)?;
+            Ok(CBImm {
+                rd_prime: *rd_prime,
+                imm: Box::new(Expression::Literal(imm_val as i32)),
+            })
+        }
+        
+        // CBBranch format - evaluate PC-relative offset
+        CBBranch { rs1_prime, offset } => {
+            let val = eval_expr(offset, line, context.eval_context)?;
+            let target = require_address(val, "Branch target", &line.location)?;
+            let current_pc = get_line_address(line, context);
+            let offset_val = target - current_pc;
+            Ok(CBBranch {
+                rs1_prime: *rs1_prime,
+                offset: Box::new(Expression::Literal(offset_val as i32)),
+            })
+        }
+        
+        // CJOpnd format - evaluate PC-relative offset
+        CJOpnd { offset } => {
+            let val = eval_expr(offset, line, context.eval_context)?;
+            let target = require_address(val, "Jump target", &line.location)?;
+            let current_pc = get_line_address(line, context);
+            let offset_val = target - current_pc;
+            Ok(CJOpnd {
+                offset: Box::new(Expression::Literal(offset_val as i32)),
+            })
+        }
+        
+        // All other formats have no expressions - pass through unchanged
+        CR { .. } | CRSingle { .. } | CA { .. } | None => {
+            Ok(operands.clone())
         }
     }
 }

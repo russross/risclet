@@ -32,17 +32,23 @@ pub fn encode_compressed_with_context(
     Ok(inst.to_le_bytes().to_vec())
 }
 
+/// Extract the immediate value from a literal expression
+/// Expects expressions to have been evaluated to literals before encoding
+fn extract_literal(expr: &crate::ast::Expression) -> i32 {
+    match expr {
+        crate::ast::Expression::Literal(val) => *val,
+        _ => 0, // Fallback for non-evaluated expressions (shouldn't happen)
+    }
+}
+
 /// Encode compressed instruction to u16
-/// eval_context is optional - if None, immediates default to 0
+/// Expects all expressions in operands to have been pre-evaluated to Literal values
 fn encode_compressed_inst(
     op: &CompressedOp,
     operands: &CompressedOperands,
     location: &crate::ast::Location,
     _eval_context: Option<(&Line, &mut EvaluationContext)>,
 ) -> Result<u16> {
-    // TODO: expression evaluation for immediates/offsets
-    // Currently all immediate values are hardcoded to 0
-    
     use CompressedOp::*;
     use CompressedOperands::*;
 
@@ -80,10 +86,9 @@ fn encode_compressed_inst(
         // CI format: c.li rd, imm
         // opcode: 010 | imm[5] | rd[4:0] | imm[4:0] | 01
         // imm is 6-bit signed: -32 to 31
-        (CLi, CI { rd, imm: _ }) => {
-            // For now, accept zero immediate - real implementation would evaluate expression
+        (CLi, CI { rd, imm }) => {
             let rd_enc = reg_to_bits(*rd);
-            let imm_val = 0i32;
+            let imm_val = extract_literal(imm);
             check_signed_imm(imm_val, 6, "c.li", location)?;
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
@@ -94,7 +99,7 @@ fn encode_compressed_inst(
         // CI format: c.addi rd, imm (rd is also rs1, rd != x0)
         // opcode: 000 | imm[5] | rd[4:0] | imm[4:0] | 01
         // imm is 6-bit signed: -32 to 31
-        (CAddi, CI { rd, imm: _ }) => {
+        (CAddi, CI { rd, imm }) => {
             if *rd == Register::X0 {
                 return Err(AssemblerError::from_context(
                     "c.addi cannot use x0 as destination".to_string(),
@@ -102,7 +107,7 @@ fn encode_compressed_inst(
                 ));
             }
             let rd_enc = reg_to_bits(*rd);
-            let imm_val = 0i32;
+            let imm_val = extract_literal(imm);
             check_signed_imm(imm_val, 6, "c.addi", location)?;
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
@@ -113,7 +118,7 @@ fn encode_compressed_inst(
         // CI format: c.slli rd, shamt
         // opcode: 000 | shamt[5] | rd[4:0] | shamt[4:0] | 10
         // shamt is 6-bit unsigned: 0 to 63 (but usually 1-31)
-        (CSlli, CI { rd, imm: _ }) => {
+        (CSlli, CI { rd, imm }) => {
             if *rd == Register::X0 {
                 return Err(AssemblerError::from_context(
                     "c.slli cannot use x0 as destination".to_string(),
@@ -121,7 +126,7 @@ fn encode_compressed_inst(
                 ));
             }
             let rd_enc = reg_to_bits(*rd);
-            let shamt_val = 0u32;
+            let shamt_val = extract_literal(imm) as u32;
             if shamt_val > 63 {
                 return Err(AssemblerError::from_context(
                     format!("c.slli shift amount {} out of range [0, 63]", shamt_val),
@@ -137,7 +142,7 @@ fn encode_compressed_inst(
         // CI format stack-relative: c.lwsp rd, offset(sp)
         // opcode: 010 | offset[5] | rd[4:0] | offset[4:2,7:6] | 10
         // offset is in 4-byte increments, range [0, 252]
-        (CLwsp, CIStackLoad { rd, offset: _ }) => {
+        (CLwsp, CIStackLoad { rd, offset }) => {
             if *rd == Register::X0 {
                 return Err(AssemblerError::from_context(
                     "c.lwsp cannot use x0 as destination".to_string(),
@@ -145,7 +150,7 @@ fn encode_compressed_inst(
                 ));
             }
             let rd_enc = reg_to_bits(*rd);
-            let offset_val = 0u32;
+            let offset_val = extract_literal(offset) as u32;
             if offset_val > 252 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
                     format!("c.lwsp offset {} must be 4-byte aligned in range [0, 252]", offset_val),
@@ -169,9 +174,9 @@ fn encode_compressed_inst(
         // bits 6:2 = rs2[4:0] (5-bit register field)
         // bits 1:0 = 10 (opcode)
         // offset is in 4-byte increments, range [0, 252]
-        (CSwsp, CSSStackStore { rs2, offset: _ }) => {
+        (CSwsp, CSSStackStore { rs2, offset }) => {
             let rs2_enc = reg_to_bits(*rs2);
-            let offset_val = 0u32;
+            let offset_val = extract_literal(offset) as u32;
             if offset_val > 252 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
                     format!("c.swsp offset {} must be 4-byte aligned in range [0, 252]", offset_val),
@@ -192,10 +197,10 @@ fn encode_compressed_inst(
         // CL format: c.lw rd', offset(rs1')
         // opcode: 010 | offset[5:3] | rs1'[2:0] | offset[2,6] | rd'[2:0] | 00
         // offset is in 4-byte increments, range [0, 124]
-        (CLw, CL { rd_prime, rs1_prime, offset: _ }) => {
+        (CLw, CL { rd_prime, rs1_prime, offset }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
-            let offset_val = 0u32;
+            let offset_val = extract_literal(offset) as u32;
             if offset_val > 124 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
                     format!("c.lw offset {} must be 4-byte aligned in range [0, 124]", offset_val),
@@ -217,10 +222,10 @@ fn encode_compressed_inst(
         // CS format: c.sw rs2', offset(rs1')
         // opcode: 110 | offset[5:3] | rs1'[2:0] | offset[2,6] | rs2'[2:0] | 00
         // offset is in 4-byte increments, range [0, 124]
-        (CSw, CS { rs2_prime, rs1_prime, offset: _ }) => {
+        (CSw, CS { rs2_prime, rs1_prime, offset }) => {
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
-            let offset_val = 0u32;
+            let offset_val = extract_literal(offset) as u32;
             if offset_val > 124 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
                     format!("c.sw offset {} must be 4-byte aligned in range [0, 124]", offset_val),
@@ -271,9 +276,9 @@ fn encode_compressed_inst(
 
         // CB format: c.srli, c.srai, c.andi
         // opcode: 100 | funct2 | imm[5] | rd'[2:0] | imm[4:0] | 01
-        (CSrli, CBImm { rd_prime, imm: _ }) => {
+        (CSrli, CBImm { rd_prime, imm }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
-            let imm_val = 0u32;
+            let imm_val = extract_literal(imm) as u32;
             if imm_val > 63 {
                 return Err(AssemblerError::from_context(
                     format!("c.srli shift amount {} out of range [0, 63]", imm_val),
@@ -289,9 +294,9 @@ fn encode_compressed_inst(
                 | (imm_4_0 << 2))
         }
 
-        (CSrai, CBImm { rd_prime, imm: _ }) => {
+        (CSrai, CBImm { rd_prime, imm }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
-            let imm_val = 0u32;
+            let imm_val = extract_literal(imm) as u32;
             if imm_val > 63 {
                 return Err(AssemblerError::from_context(
                     format!("c.srai shift amount {} out of range [0, 63]", imm_val),
@@ -307,9 +312,9 @@ fn encode_compressed_inst(
                 | (imm_4_0 << 2))
         }
 
-        (CAndi, CBImm { rd_prime, imm: _ }) => {
+        (CAndi, CBImm { rd_prime, imm }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
-            let imm_val = 0i32;
+            let imm_val = extract_literal(imm);
             check_signed_imm(imm_val, 6, "c.andi", location)?;
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
@@ -323,9 +328,9 @@ fn encode_compressed_inst(
         // CB format branches: c.beqz, c.bnez
         // opcode: 110 | offset[8|4:3] | rs1'[2:0] | offset[7:6|2:1|5] | 01
         // offset is 9-bit signed: -256 to 254, must be even
-        (CBeqz, CBBranch { rs1_prime, offset: _ }) => {
+        (CBeqz, CBBranch { rs1_prime, offset }) => {
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
-            let offset_val = 0i32;
+            let offset_val = extract_literal(offset);
             check_compressed_branch_offset(offset_val, location)?;
             let offset_bits = ((offset_val as u16) & 0x1FF) as u16;
             let offset_8 = (offset_bits >> 8) & 1;
@@ -342,9 +347,9 @@ fn encode_compressed_inst(
                 | (offset_5 << 2))
         }
 
-        (CBnez, CBBranch { rs1_prime, offset: _ }) => {
+        (CBnez, CBBranch { rs1_prime, offset }) => {
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
-            let offset_val = 0i32;
+            let offset_val = extract_literal(offset);
             check_compressed_branch_offset(offset_val, location)?;
             let offset_bits = ((offset_val as u16) & 0x1FF) as u16;
             let offset_8 = (offset_bits >> 8) & 1;
@@ -364,8 +369,8 @@ fn encode_compressed_inst(
         // CJ format: c.j offset
         // opcode: 101 | offset[11|4|9:8|10|6|7|3:1|5] | 01
         // offset is 12-bit signed: -2048 to 2046, must be even
-        (CJComp, CJOpnd { offset: _ }) => {
-            let offset_val = 0i32;
+        (CJComp, CJOpnd { offset }) => {
+            let offset_val = extract_literal(offset);
             check_compressed_jump_offset(offset_val, location)?;
             let offset_bits = ((offset_val as u16) & 0xFFF) as u16;
             let offset_11 = (offset_bits >> 11) & 1;
@@ -389,8 +394,8 @@ fn encode_compressed_inst(
 
         // CJ format: c.jal offset (RV32C only)
         // Same encoding as c.j but with opcode 001
-        (CJalComp, CJOpnd { offset: _ }) => {
-            let offset_val = 0i32;
+        (CJalComp, CJOpnd { offset }) => {
+            let offset_val = extract_literal(offset);
             check_compressed_jump_offset(offset_val, location)?;
             let offset_bits = ((offset_val as u16) & 0xFFF) as u16;
             let offset_11 = (offset_bits >> 11) & 1;
