@@ -697,6 +697,161 @@ amoswap.w.aqrl a0, a2, (a1)
 
 ---
 
+## C Extension (Compressed Instructions)
+
+The assembler supports the RISC-V Compressed extension (RV32C/RV64C) with 16-bit instruction encodings that reduce code size by ~25%.
+
+### Supported Instructions
+
+**CR Format (two register, full register set x1-x31):**
+- `c.add rd, rs2` - Compressed add (rd += rs2)
+- `c.mv rd, rs2` - Compressed move (rd = rs2, pseudo-instruction)
+- `c.jr rs1` - Compressed jump register (PC = rs1)
+- `c.jalr rs1` - Compressed jump and link register (ra = PC+2; PC = rs1)
+
+**CI Format (register + immediate, various ranges):**
+- `c.li rd, imm` - Load immediate (rd = imm, 6-bit signed: -32 to 31)
+- `c.addi rd, imm` - Compressed add immediate (rd += imm, 6-bit signed, rd != x0)
+- `c.addi16sp sp, imm` - Adjust stack pointer (sp += imm, 10-bit signed << 4, range [-512, 496])
+- `c.addi4spn rd', imm` - Adjust stack pointer + load (rd' = sp + imm, 10-bit zero-extended << 2)
+- `c.slli rd, shamt` - Compressed shift left logical immediate (rd <<= shamt, 6-bit shift, rd != x0)
+- `c.lwsp rd, offset(sp)` - Load word from stack (rd = mem[sp + offset], offset 10-bit << 2)
+
+**CIW Format (compressed register + wide immediate):**
+- `c.addi4spn rd', imm` - Load word from stack-relative address
+
+**CL Format (compressed register load, x8-x15 only):**
+- `c.lw rd', offset(rs1')` - Load word (4-byte aligned offset, rd' and rs1' in {x8-x15})
+
+**CS Format (compressed register store, x8-x15 only):**
+- `c.sw rs2', offset(rs1')` - Store word (4-byte aligned offset, rs2' and rs1' in {x8-x15})
+- `c.swsp rs2, offset(sp)` - Store word to stack
+
+**CA Format (compressed arithmetic, x8-x15 only):**
+- `c.and rd', rs2'` - Compressed logical AND (rd' &= rs2')
+- `c.or rd', rs2'` - Compressed logical OR (rd' |= rs2')
+- `c.xor rd', rs2'` - Compressed logical XOR (rd' ^= rs2')
+- `c.sub rd', rs2'` - Compressed subtract (rd' -= rs2')
+
+**CB Format (compressed branch/immediate, x8-x15 only):**
+- `c.beqz rs1', offset` - Branch if equal to zero (9-bit signed even offset, ±256 bytes)
+- `c.bnez rs1', offset` - Branch if not equal to zero (9-bit signed even offset, ±256 bytes)
+- `c.srli rd', shamt` - Shift right logical immediate (rd' >>= shamt, 6-bit shift amount)
+- `c.srai rd', shamt` - Shift right arithmetic immediate (rd' >>= shamt (sign-extend), 6-bit shift amount)
+- `c.andi rd', imm` - Compressed logical AND with immediate (rd' &= imm, 6-bit signed)
+
+**CJ Format (unconditional jump):**
+- `c.j offset` - Unconditional jump (11-bit signed even offset, ±2 KiB)
+- `c.jal offset` - Jump and link (rd=ra, 11-bit signed even offset, ±2 KiB) [RV32C only, not in RV64C]
+
+**Special Instructions (no operands):**
+- `c.nop` - Compressed no-operation (0x0001, typically used for alignment)
+- `c.ebreak` - Compressed environment break (debugger breakpoint)
+
+### Instruction Encoding Details
+
+**Compressed Register Set:**
+- x8-x15 (s0, s1, a0-a5) - used as "rd'" and "rs1'" and "rs2'" in most formats
+- Encoded as 3-bit values 0-7 instead of 5-bit register numbers
+
+**Offset/Immediate Encoding:**
+
+| Format | Field | Range | Encoding | Notes |
+|--------|-------|-------|----------|-------|
+| CI (li/addi) | imm | -32 to 31 | 6-bit signed | bits [5:0] |
+| CI (addi16sp) | imm | -512 to 496 | 10-bit << 4 | bits [9:4] |
+| CI (slli/c.lwsp) | offset/imm | varies | varies | 10-bit values << 2 for loads |
+| CL/CS | offset | 0-124 | 7-bit << 2 (words) | bits [5:3] + [2] + [6] scattered |
+| CB (branch) | offset | ±256 | 9-bit signed even | bits [8] + [4:3] + [7:6] + [2:1] |
+| CB (shifts) | shamt | 0-63 | 6-bit unsigned | bits [5:0] |
+| CJ | offset | ±2048 | 11-bit signed even | bits [10:1] |
+
+**Bit Layout:**
+
+```
+CR format:  funct4[15:12] | rd[11:7] | rs2[6:2] | op[1:0]
+CI format:  funct3[15:13] | imm[12]  | rd[11:7] | imm[6:2] | op[1:0]
+CL/CS:      funct3[15:13] | imm[5:3] | rs1[9:7] | imm[2] imm[6] | rd/rs2[4:2] | op[1:0]
+CA format:  funct6[15:10] | rd[9:7] | funct2[6:5] | rs2[4:2] | op[1:0]
+CB format:  funct3[15:13] | offset[8] | offset[4:3] | rs1[9:7] | offset[7:6] | offset[2:1] | op[1:0]
+CJ format:  funct3[15:13] | offset[10:1] | op[1:0]
+```
+
+### Compressed Register Constraints
+
+Most compressed instructions can only use the "compressed register set": x8, x9, x10, x11, x12, x13, x14, x15 (s0, s1, a0-a5). This is denoted with a prime (') in assembly, though the assembler accepts either notation:
+
+```asm
+c.lw s0, 0(a0)         # Using ABI names (compressed registers only)
+c.lw x8, 0(x10)        # Using numeric names (must be x8-x15)
+c.lw a0, 0(a0)         # Error: a0 (x10) is OK, but a0 is x10, not in compressed set... wait
+
+# Actually a0 IS x10 which IS in the compressed set (x10 = a0)
+# So let me fix this example:
+c.lw x16, 0(a0)        # Error: x16 is not in compressed register set
+c.lw s2, 0(a0)         # Error: s2 (x18) is not in compressed register set
+```
+
+Non-compressed-register instructions (CR format: c.add, c.mv, c.jr, c.jalr) can use the full register set (x1-x31).
+
+### Examples
+
+```asm
+# Arithmetic with compressed registers
+c.add a0, a1         # a0 += a1 (both must be x10-x15)
+c.addi a0, 5         # a0 += 5
+c.li t0, 10          # t0 = 10
+
+# Loads and stores (compressed registers only)
+c.lw a0, 0(sp)       # Load word at sp + 0
+c.sw a0, 4(sp)       # Store word at sp + 4
+
+# Branches (9-bit range ±256)
+c.beqz a0, skip      # if (a0 == 0) jump to skip
+skip: c.nop
+
+# Unconditional jump (11-bit range ±2 KiB)
+c.j begin
+
+# Move between any registers
+c.add x1, x2         # x1 = x2 (CR format allows full register set)
+c.mv x1, x2          # Shorthand for c.add x1, x2
+```
+
+### Auto-Relaxation (Planned)
+
+**Phase 3.4 (not yet implemented):** The assembler will automatically compress eligible base instructions to their 2-byte equivalents during the convergence loop:
+
+- `addi x8, x8, 5` → `c.addi x8, 5` (saves 2 bytes)
+- `addi x10, x0, 10` → `c.li x10, 10` (saves 2 bytes)
+- `add x8, x8, x9` → `c.add x8, x9` (saves 2 bytes)
+
+This automatic compression reduces code size while maintaining correct semantics. The convergence loop will automatically re-layout the program if instructions shrink from 4 to 2 bytes.
+
+### Common Pitfalls
+
+1. **Register Constraints:** Most compressed instructions require the compressed register set (x8-x15). Attempting to use other registers will result in a parse error.
+
+2. **Immediate Ranges:** Compressed immediates are much smaller (6-bit signed for most) than base instruction immediates (12-bit). If your immediate doesn't fit, use the base instruction instead:
+   ```asm
+   c.addi a0, 50        # Error: 50 > 31 (6-bit signed max)
+   addi a0, a0, 50      # OK: base instruction
+   ```
+
+3. **Offset Alignment:** Load/store offsets must be 4-byte aligned (for c.lw/c.sw). The offset is automatically divided by 4 during encoding:
+   ```asm
+   c.lw a0, 4(sp)       # OK: offset 4 = 1 * 4
+   c.lw a0, 5(sp)       # Error: 5 not divisible by 4
+   ```
+
+4. **Branch Ranges:** Compressed branches have only 9 bits of offset, limiting range to ±256 bytes. For longer jumps, use base instructions:
+   ```asm
+   c.beqz a0, near      # OK for targets within ±256 bytes
+   beq a0, x0, far      # OK for any target (32-bit offset)
+   ```
+
+---
+
 ## Testing
 
 ### Unit Tests
