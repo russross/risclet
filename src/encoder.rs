@@ -649,8 +649,24 @@ fn encode_instruction(
     }
 }
 
-/// Try to compress an instruction to its RV32C equivalent
+/// Try to compress an instruction to its RV32C equivalent for auto-relaxation
 /// Returns Some((op, operands)) if compression is possible, None otherwise
+/// 
+/// **Phase 3.4: Auto-relaxation**
+/// This function is used during the convergence loop to automatically compress eligible
+/// base instructions to their 2-byte compressed equivalents, reducing code size.
+/// 
+/// Currently implemented (stub):
+/// - c.add: from add rd, rd, rs2
+/// - c.mv: from add rd, x0, rs2  
+/// - c.addi: from addi rd, rd, imm (6-bit signed)
+/// - c.li: from addi rd, x0, imm (6-bit signed)
+/// 
+/// Not yet integrated:
+/// - Need to call this during instruction encoding to replace 4-byte with 2-byte versions
+/// - Need to handle register constraints (most compressed instructions need x8-x15)
+/// - Need to ensure convergence loop properly tracks size changes
+#[allow(dead_code)]
 fn try_compress_instruction(
     inst: &Instruction,
     imm_or_val: Option<i64>,
@@ -658,39 +674,36 @@ fn try_compress_instruction(
     use crate::ast::ITypeOp;
     
     match inst {
-        // c.add: add rd, rd, rs2 (both registers in full set)
-        Instruction::RType(RTypeOp::Add, rd, rs1, rs2) if rs1 == rd => {
-            if Register::is_compressed_register(*rd) || Register::is_compressed_register(*rs2) {
-                // At least one is in compressed set - try compression
-                Some((CompressedOp::CAdd, CompressedOperands::CR { 
-                    rd: *rd, 
-                    rs2: *rs2 
-                }))
-            } else {
-                None
-            }
+        // c.add: add rd, rd, rs2 (rd == rs1, both non-zero)
+        // Can be compressed to CR format using full 5-bit register encoding
+        Instruction::RType(RTypeOp::Add, rd, rs1, rs2) 
+            if rs1 == rd && *rd != Register::X0 && *rs2 != Register::X0 => {
+            Some((CompressedOp::CAdd, CompressedOperands::CR { 
+                rd: *rd, 
+                rs2: *rs2 
+            }))
         }
         
         // c.mv: add rd, x0, rs2 (move from rs2 to rd)
+        // Can be compressed to CR format if rd != x0 and rs2 != x0
         Instruction::RType(RTypeOp::Add, rd, rs1, rs2) 
-            if *rs1 == Register::X0 && (Register::is_compressed_register(*rd) || Register::is_compressed_register(*rs2)) => {
+            if *rs1 == Register::X0 && *rd != Register::X0 && *rs2 != Register::X0 => {
             Some((CompressedOp::CMv, CompressedOperands::CR { 
                 rd: *rd, 
                 rs2: *rs2 
             }))
         }
         
-        // c.addi: addi rd, rd, imm (if 6-bit signed)
+        // c.addi: addi rd, rd, imm (rd == rs1, rd != x0, 6-bit signed immediate)
         Instruction::IType(ITypeOp::Addi, rd, rs1, _)
             if rs1 == rd && rd != &Register::X0 && imm_or_val.map_or(false, |imm| imm >= -32 && imm <= 31) => {
-            // Can compress if imm is 6-bit signed
             Some((CompressedOp::CAddi, CompressedOperands::CI { 
                 rd: *rd, 
                 imm: Box::new(crate::ast::Expression::Literal(imm_or_val.unwrap() as i32)) 
             }))
         }
         
-        // c.li: addi rd, x0, imm (load immediate, if 6-bit signed)
+        // c.li: addi rd, x0, imm (rs1 == x0, 6-bit signed immediate)
         Instruction::IType(ITypeOp::Addi, rd, rs1, _)
             if *rs1 == Register::X0 && imm_or_val.map_or(false, |imm| imm >= -32 && imm <= 31) => {
             Some((CompressedOp::CLi, CompressedOperands::CI { 
