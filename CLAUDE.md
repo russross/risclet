@@ -18,11 +18,13 @@ cargo clippy                         # Lint code
 ./target/debug/assembler -o prog program.s          # Outputs to prog
 ./target/debug/assembler -t 0x10000 program.s       # Set text start address
 ./target/debug/assembler -v program.s               # Verbose output with listing
+./target/debug/assembler --no-relax program.s       # Disable auto-relaxation
 
 # Options
 -o <file>        Write output to <file> (default: a.out)
 -t <address>     Set text start address (default: 0x10000)
 -v, --verbose    Show detailed assembly listing
+--no-relax       Disable auto-relaxation of pseudo-instructions (default: enabled)
 -h, --help       Show help message
 
 # Verify output with GNU binutils
@@ -818,15 +820,22 @@ c.add x1, x2         # x1 = x2 (CR format allows full register set)
 c.mv x1, x2          # Shorthand for c.add x1, x2
 ```
 
-### Auto-Relaxation (Planned)
+### Auto-Relaxation
 
-**Phase 3.4 (not yet implemented):** The assembler will automatically compress eligible base instructions to their 2-byte equivalents during the convergence loop:
+**Enabled by default:** The assembler automatically compresses eligible base instructions to their 2-byte equivalents during the convergence loop:
 
 - `addi x8, x8, 5` → `c.addi x8, 5` (saves 2 bytes)
 - `addi x10, x0, 10` → `c.li x10, 10` (saves 2 bytes)
 - `add x8, x8, x9` → `c.add x8, x9` (saves 2 bytes)
 
-This automatic compression reduces code size while maintaining correct semantics. The convergence loop will automatically re-layout the program if instructions shrink from 4 to 2 bytes.
+This automatic compression reduces code size while maintaining correct semantics. The convergence loop automatically re-layouts the program if instructions shrink from 4 to 2 bytes.
+
+**Disabling auto-relaxation:** Use the `--no-relax` flag to disable automatic compression:
+```bash
+./target/debug/assembler --no-relax program.s    # Produces standard 4-byte instructions
+```
+
+This is useful for debugging or when you explicitly want full-sized base instructions instead of compressed equivalents.
 
 ### Common Pitfalls
 

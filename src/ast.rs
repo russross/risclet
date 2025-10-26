@@ -120,9 +120,17 @@ pub enum Register {
 impl Register {
     /// Check if register is in the compressed register set (x8-x15: s0, s1, a0-a5)
     pub fn is_compressed_register(self) -> bool {
-        matches!(self, 
-            Register::X8 | Register::X9 | Register::X10 | Register::X11 |
-            Register::X12 | Register::X13 | Register::X14 | Register::X15)
+        matches!(
+            self,
+            Register::X8
+                | Register::X9
+                | Register::X10
+                | Register::X11
+                | Register::X12
+                | Register::X13
+                | Register::X14
+                | Register::X15
+        )
     }
 
     /// Get 3-bit encoding for compressed registers (assumes is_compressed_register is true)
@@ -318,7 +326,9 @@ pub enum CompressedOp {
 }
 
 /// Operands for compressed instructions
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum CompressedOperands {
     /// CR format with two registers: c.add rd, rs2
     CR { rd: Register, rs2: Register },
@@ -330,7 +340,8 @@ pub enum CompressedOperands {
     CIStackLoad { rd: Register, offset: Box<Expression> },
     /// CSS format stack-relative store: c.swsp rs2, offset(sp)
     CSSStackStore { rs2: Register, offset: Box<Expression> },
-    /// CIW format: c.addi4spn rd', imm
+    /// CIW format: c.addi4spn rd', imm (CIW = Compressed Immediate Wide, standard RISC-V term)
+    #[allow(clippy::upper_case_acronyms)]
     CIW { rd_prime: Register, imm: Box<Expression> },
     /// CL format: c.lw rd', offset(rs1')
     CL { rd_prime: Register, rs1_prime: Register, offset: Box<Expression> },

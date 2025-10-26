@@ -259,7 +259,7 @@ pub fn guess_line_size(content: &ast::LineContent) -> u32 {
         ast::LineContent::Instruction(inst) => match inst {
             // Compressed instructions are always 2 bytes
             Instruction::Compressed(_, _) => 2,
-            
+
             // Pseudo-instructions that expand to 2 base instructions (8 bytes)
             Instruction::Pseudo(pseudo) => match pseudo {
                 PseudoOp::Li(_, _) => 8,                // lui + addi

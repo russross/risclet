@@ -14,9 +14,9 @@
 // immediate ranges for all instruction formats.
 
 use crate::ast::{
-    BTypeOp, Directive, Expression, ITypeOp, Instruction, JTypeOp, Line, LineContent,
-    LoadStoreOp, PseudoOp, RTypeOp, Register, Segment, Source, SpecialOp,
-    UTypeOp, CompressedOp, CompressedOperands,
+    BTypeOp, CompressedOp, CompressedOperands, Directive, Expression, ITypeOp,
+    Instruction, JTypeOp, Line, LineContent, LoadStoreOp, PseudoOp, RTypeOp,
+    Register, Segment, Source, SpecialOp, UTypeOp,
 };
 use crate::encoder_compressed;
 use crate::error::AssemblerError;
@@ -567,13 +567,19 @@ fn encode_instruction(
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
             // Try to relax to compressed instruction if enabled
-            if context.source.relax {
-                if let Some((c_op, c_operands)) = try_compress_instruction(inst, None) {
-                    let evaluated_operands = eval_compressed_operands(&c_operands, line, context)?;
-                    return encoder_compressed::encode_compressed(&c_op, &evaluated_operands, &line.location);
-                }
+            if context.source.relax
+                && let Some((c_op, c_operands)) =
+                    try_compress_instruction(inst, None)
+            {
+                let evaluated_operands =
+                    eval_compressed_operands(&c_operands, line, context)?;
+                return encoder_compressed::encode_compressed(
+                    &c_op,
+                    &evaluated_operands,
+                    &line.location,
+                );
             }
-            
+
             let encoded = encode_r_type_inst(op, *rd, *rs1, *rs2);
             Ok(u32_to_le_bytes(encoded))
         }
@@ -584,11 +590,17 @@ fn encode_instruction(
             let imm = require_integer(val, "I-type immediate", &line.location)?;
 
             // Try to relax to compressed instruction if enabled
-            if context.source.relax {
-                if let Some((c_op, c_operands)) = try_compress_instruction(inst, Some(imm)) {
-                    let evaluated_operands = eval_compressed_operands(&c_operands, line, context)?;
-                    return encoder_compressed::encode_compressed(&c_op, &evaluated_operands, &line.location);
-                }
+            if context.source.relax
+                && let Some((c_op, c_operands)) =
+                    try_compress_instruction(inst, Some(imm))
+            {
+                let evaluated_operands =
+                    eval_compressed_operands(&c_operands, line, context)?;
+                return encoder_compressed::encode_compressed(
+                    &c_op,
+                    &evaluated_operands,
+                    &line.location,
+                );
             }
 
             let encoded =
@@ -655,8 +667,13 @@ fn encode_instruction(
 
         Instruction::Compressed(op, operands) => {
             // Evaluate any immediate/offset expressions in operands before encoding
-            let evaluated_operands = eval_compressed_operands(operands, line, context)?;
-            encoder_compressed::encode_compressed(op, &evaluated_operands, &line.location)
+            let evaluated_operands =
+                eval_compressed_operands(operands, line, context)?;
+            encoder_compressed::encode_compressed(
+                op,
+                &evaluated_operands,
+                &line.location,
+            )
         }
 
         Instruction::Pseudo(pseudo) => {
@@ -667,17 +684,17 @@ fn encode_instruction(
 
 /// Try to compress an instruction to its RV32C equivalent for auto-relaxation
 /// Returns Some((op, operands)) if compression is possible, None otherwise
-/// 
+///
 /// **Phase 3.4: Auto-relaxation**
 /// This function is used during the convergence loop to automatically compress eligible
 /// base instructions to their 2-byte compressed equivalents, reducing code size.
-/// 
+///
 /// Currently implemented (stub):
 /// - c.add: from add rd, rd, rs2
 /// - c.mv: from add rd, x0, rs2  
 /// - c.addi: from addi rd, rd, imm (6-bit signed)
 /// - c.li: from addi rd, x0, imm (6-bit signed)
-/// 
+///
 /// Not yet integrated:
 /// - Need to call this during instruction encoding to replace 4-byte with 2-byte versions
 /// - Need to handle register constraints (most compressed instructions need x8-x15)
@@ -688,52 +705,71 @@ fn try_compress_instruction(
     imm_or_val: Option<i64>,
 ) -> Option<(CompressedOp, CompressedOperands)> {
     use crate::ast::ITypeOp;
-    
+
     match inst {
         // c.add: add rd, rd, rs2 (rd == rs1, both non-zero)
         // Can be compressed to CR format using full 5-bit register encoding
-        Instruction::RType(RTypeOp::Add, rd, rs1, rs2) 
-            if rs1 == rd && *rd != Register::X0 && *rs2 != Register::X0 => {
-            Some((CompressedOp::CAdd, CompressedOperands::CR { 
-                rd: *rd, 
-                rs2: *rs2 
-            }))
+        Instruction::RType(RTypeOp::Add, rd, rs1, rs2)
+            if rs1 == rd && *rd != Register::X0 && *rs2 != Register::X0 =>
+        {
+            Some((
+                CompressedOp::CAdd,
+                CompressedOperands::CR { rd: *rd, rs2: *rs2 },
+            ))
         }
-        
+
         // c.mv: add rd, x0, rs2 (move from rs2 to rd)
         // Can be compressed to CR format if rd != x0 and rs2 != x0
-        Instruction::RType(RTypeOp::Add, rd, rs1, rs2) 
-            if *rs1 == Register::X0 && *rd != Register::X0 && *rs2 != Register::X0 => {
-            Some((CompressedOp::CMv, CompressedOperands::CR { 
-                rd: *rd, 
-                rs2: *rs2 
-            }))
+        Instruction::RType(RTypeOp::Add, rd, rs1, rs2)
+            if *rs1 == Register::X0
+                && *rd != Register::X0
+                && *rs2 != Register::X0 =>
+        {
+            Some((
+                CompressedOp::CMv,
+                CompressedOperands::CR { rd: *rd, rs2: *rs2 },
+            ))
         }
-        
+
         // c.addi: addi rd, rd, imm (rd == rs1, rd != x0, 6-bit signed immediate)
         Instruction::IType(ITypeOp::Addi, rd, rs1, _)
-            if rs1 == rd && rd != &Register::X0 && imm_or_val.map_or(false, |imm| imm >= -32 && imm <= 31) => {
-            Some((CompressedOp::CAddi, CompressedOperands::CI { 
-                rd: *rd, 
-                imm: Box::new(crate::ast::Expression::Literal(imm_or_val.unwrap() as i32)) 
-            }))
+            if rs1 == rd
+                && rd != &Register::X0
+                && imm_or_val.is_some_and(|imm| (-32..=31).contains(&imm)) =>
+        {
+            Some((
+                CompressedOp::CAddi,
+                CompressedOperands::CI {
+                    rd: *rd,
+                    imm: Box::new(crate::ast::Expression::Literal(
+                        imm_or_val.unwrap() as i32,
+                    )),
+                },
+            ))
         }
-        
+
         // c.li: addi rd, x0, imm (rs1 == x0, 6-bit signed immediate)
         Instruction::IType(ITypeOp::Addi, rd, rs1, _)
-            if *rs1 == Register::X0 && imm_or_val.map_or(false, |imm| imm >= -32 && imm <= 31) => {
-            Some((CompressedOp::CLi, CompressedOperands::CI { 
-                rd: *rd, 
-                imm: Box::new(crate::ast::Expression::Literal(imm_or_val.unwrap() as i32)) 
-            }))
+            if *rs1 == Register::X0
+                && imm_or_val.is_some_and(|imm| (-32..=31).contains(&imm)) =>
+        {
+            Some((
+                CompressedOp::CLi,
+                CompressedOperands::CI {
+                    rd: *rd,
+                    imm: Box::new(crate::ast::Expression::Literal(
+                        imm_or_val.unwrap() as i32,
+                    )),
+                },
+            ))
         }
-        
+
         _ => None,
     }
 }
 
 /// Evaluate immediate/offset expressions in compressed operands
-/// 
+///
 /// Converts operands with expression values to operands with concrete literal values.
 /// This follows the same pattern as IType, UType, BType, and JType instruction encoding:
 /// expressions are evaluated at encoding time, then concrete values are passed to the encoder.
@@ -743,80 +779,87 @@ fn eval_compressed_operands(
     context: &mut EncodingContext,
 ) -> Result<CompressedOperands> {
     use CompressedOperands::*;
-    
+
     match operands {
         // CI format - evaluate immediate expression
         CI { rd, imm } => {
             let val = eval_expr(imm, line, context.eval_context)?;
-            let imm_val = require_integer(val, "Compressed immediate", &line.location)?;
+            let imm_val =
+                require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CI {
                 rd: *rd,
                 imm: Box::new(Expression::Literal(imm_val as i32)),
             })
         }
-        
-        // CIW format - evaluate immediate expression  
+
+        // CIW format - evaluate immediate expression
         CIW { rd_prime, imm } => {
             let val = eval_expr(imm, line, context.eval_context)?;
-            let imm_val = require_integer(val, "Compressed immediate", &line.location)?;
+            let imm_val =
+                require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CIW {
                 rd_prime: *rd_prime,
                 imm: Box::new(Expression::Literal(imm_val as i32)),
             })
         }
-        
+
         // CIStackLoad - evaluate offset expression
         CIStackLoad { rd, offset } => {
             let val = eval_expr(offset, line, context.eval_context)?;
-            let offset_val = require_integer(val, "Stack offset", &line.location)?;
+            let offset_val =
+                require_integer(val, "Stack offset", &line.location)?;
             Ok(CIStackLoad {
                 rd: *rd,
                 offset: Box::new(Expression::Literal(offset_val as i32)),
             })
         }
-        
+
         // CSSStackStore - evaluate offset expression
         CSSStackStore { rs2, offset } => {
             let val = eval_expr(offset, line, context.eval_context)?;
-            let offset_val = require_integer(val, "Stack offset", &line.location)?;
+            let offset_val =
+                require_integer(val, "Stack offset", &line.location)?;
             Ok(CSSStackStore {
                 rs2: *rs2,
                 offset: Box::new(Expression::Literal(offset_val as i32)),
             })
         }
-        
+
         // CL format - evaluate offset expression
         CL { rd_prime, rs1_prime, offset } => {
             let val = eval_expr(offset, line, context.eval_context)?;
-            let offset_val = require_integer(val, "Load offset", &line.location)?;
+            let offset_val =
+                require_integer(val, "Load offset", &line.location)?;
             Ok(CL {
                 rd_prime: *rd_prime,
                 rs1_prime: *rs1_prime,
                 offset: Box::new(Expression::Literal(offset_val as i32)),
             })
         }
-        
+
         // CS format - evaluate offset expression
         CS { rs2_prime, rs1_prime, offset } => {
             let val = eval_expr(offset, line, context.eval_context)?;
-            let offset_val = require_integer(val, "Store offset", &line.location)?;
+            let offset_val =
+                require_integer(val, "Store offset", &line.location)?;
             Ok(CS {
                 rs2_prime: *rs2_prime,
                 rs1_prime: *rs1_prime,
                 offset: Box::new(Expression::Literal(offset_val as i32)),
             })
         }
-        
+
         // CBImm format - evaluate immediate expression
         CBImm { rd_prime, imm } => {
             let val = eval_expr(imm, line, context.eval_context)?;
-            let imm_val = require_integer(val, "Compressed immediate", &line.location)?;
+            let imm_val =
+                require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CBImm {
                 rd_prime: *rd_prime,
                 imm: Box::new(Expression::Literal(imm_val as i32)),
             })
         }
-        
+
         // CBBranch format - evaluate PC-relative offset
         CBBranch { rs1_prime, offset } => {
             let val = eval_expr(offset, line, context.eval_context)?;
@@ -828,7 +871,7 @@ fn eval_compressed_operands(
                 offset: Box::new(Expression::Literal(offset_val as i32)),
             })
         }
-        
+
         // CJOpnd format - evaluate PC-relative offset
         CJOpnd { offset } => {
             let val = eval_expr(offset, line, context.eval_context)?;
@@ -839,11 +882,9 @@ fn eval_compressed_operands(
                 offset: Box::new(Expression::Literal(offset_val as i32)),
             })
         }
-        
+
         // All other formats have no expressions - pass through unchanged
-        CR { .. } | CRSingle { .. } | CA { .. } | None => {
-            Ok(operands.clone())
-        }
+        CR { .. } | CRSingle { .. } | CA { .. } | None => Ok(operands.clone()),
     }
 }
 
