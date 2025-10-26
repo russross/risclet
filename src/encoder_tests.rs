@@ -10,7 +10,7 @@ use crate::symbols::resolve_symbols;
 use crate::tokenizer::tokenize;
 
 /// Helper function to assemble a source string and return the encoded bytes
-fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
+fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     use crate::assembler::guess_line_size;
     use crate::ast::{Directive, LineContent, Segment};
 

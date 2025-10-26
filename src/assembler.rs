@@ -155,7 +155,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
     text_start: u32,
     callback: &C,
     show_progress: bool,
-) -> Result<(Vec<u8>, Vec<u8>, i64)> {
+) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     const MAX_ITERATIONS: usize = 10;
 
     if show_progress {
