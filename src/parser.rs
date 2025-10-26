@@ -739,10 +739,17 @@ impl<'a> Parser<'a> {
                     Box::new(Expression::Literal(-1)),
                 ))
             }
-            _ => Err(AssemblerError::from_context(
-                format!("Unknown instruction {}", opcode),
-                self.location(),
-            )),
+            _ => {
+                // Try to parse as atomic instruction (A extension)
+                if let Some((op, ordering)) = Self::parse_atomic_name(&opcode) {
+                    return self.parse_atomic(op, ordering);
+                }
+
+                Err(AssemblerError::from_context(
+                    format!("Unknown instruction {}", opcode),
+                    self.location(),
+                ))
+            }
         }
     }
 
@@ -854,6 +861,94 @@ impl<'a> Parser<'a> {
                 temp,
             )))
         }
+    }
+
+    // Grammar: atomic_op[.aq|.rel|.aqrl] rd, (rs1) | atomic_op[.aq|.rel|.aqrl] rd, rs2, (rs1)
+    // Examples:
+    //   lr.w a0, (a1)
+    //   lr.w.aq a0, (a1)
+    //   sc.w a0, a2, (a1)
+    //   amoswap.w.aqrl a0, a2, (a1)
+    fn parse_atomic(
+        &mut self,
+        op: AtomicOp,
+        ordering: MemoryOrdering,
+    ) -> Result<Instruction> {
+        let rd = self.parse_register()?;
+        self.expect(&Token::Comma)?;
+
+        // Check for LR format: rd, (rs1)
+        if matches!(op, AtomicOp::LrW) {
+            self.expect(&Token::OpenParen)?;
+            let rs1 = self.parse_register()?;
+            self.expect(&Token::CloseParen)?;
+            return Ok(Instruction::Atomic(
+                op,
+                rd,
+                rs1,
+                Register::X0,
+                ordering,
+            ));
+        }
+
+        // SC/AMO format: rd, rs2, (rs1)
+        let rs2 = self.parse_register()?;
+        self.expect(&Token::Comma)?;
+        self.expect(&Token::OpenParen)?;
+        let rs1 = self.parse_register()?;
+        self.expect(&Token::CloseParen)?;
+
+        Ok(Instruction::Atomic(op, rd, rs1, rs2, ordering))
+    }
+
+    /// Parse atomic instruction name and extract operation + ordering
+    /// Examples: "lr.w" -> (LrW, None), "amoswap.w.aqrl" -> (AmoswapW, AqRl)
+    fn parse_atomic_name(name: &str) -> Option<(AtomicOp, MemoryOrdering)> {
+        use crate::ast::AtomicOp;
+        use crate::ast::MemoryOrdering;
+
+        // Split by dots: ["lr", "w", "aq"] or ["amoswap", "w"]
+        let parts: Vec<&str> = name.split('.').collect();
+
+        if parts.len() < 2 {
+            return None;
+        }
+
+        // Parse ordering suffix (.aq, .rel, .aqrl)
+        let has_ordering =
+            matches!(parts.last(), Some(&"aqrl") | Some(&"aq") | Some(&"rel"));
+        let ordering = if has_ordering {
+            match parts.last() {
+                Some(&"aqrl") => MemoryOrdering::AqRl,
+                Some(&"aq") => MemoryOrdering::Aq,
+                Some(&"rel") => MemoryOrdering::Rel,
+                _ => MemoryOrdering::None, // Should not reach here given has_ordering check
+            }
+        } else {
+            MemoryOrdering::None
+        };
+
+        // Determine base instruction (before ordering suffix)
+        let base_parts =
+            if has_ordering { &parts[..parts.len() - 1] } else { &parts[..] };
+
+        // Match instruction: base + width
+        let op = match base_parts {
+            ["lr", "w"] => AtomicOp::LrW,
+            ["sc", "w"] => AtomicOp::ScW,
+            ["amoswap", "w"] => AtomicOp::AmoswapW,
+            ["amoadd", "w"] => AtomicOp::AmoaddW,
+            ["amoxor", "w"] => AtomicOp::AmoxorW,
+            ["amoand", "w"] => AtomicOp::AmoandW,
+            ["amoor", "w"] => AtomicOp::AmoorW,
+            ["amomin", "w"] => AtomicOp::AmominW,
+            ["amomax", "w"] => AtomicOp::AmomaxW,
+            ["amominu", "w"] => AtomicOp::AmominuW,
+            ["amomaxu", "w"] => AtomicOp::AmomaxuW,
+            _ => return None,
+        };
+
+        Some((op, ordering))
     }
 }
 

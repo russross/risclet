@@ -108,40 +108,11 @@ pub struct GlobalDefinition {
 /// lookup logic out of the parser and into the tokenizer, simplifying the parser's job.
 ///
 /// **Grammar Rule:** N/A (Tokenizer maps raw identifiers to this concrete type)
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
-    X0,
-    X1,
-    X2,
-    X3,
-    X4,
-    X5,
-    X6,
-    X7,
-    X8,
-    X9,
-    X10,
-    X11,
-    X12,
-    X13,
-    X14,
-    X15,
-    X16,
-    X17,
-    X18,
-    X19,
-    X20,
-    X21,
-    X22,
-    X23,
-    X24,
-    X25,
-    X26,
-    X27,
-    X28,
-    X29,
-    X30,
-    X31,
+    X0,  X1,  X2,  X3,  X4,  X5,  X6,  X7,  X8,  X9,  X10, X11, X12, X13, X14, X15,
+    X16, X17, X18, X19, X20, X21, X22, X23, X24, X25, X26, X27, X28, X29, X30, X31,
 }
 
 /// An enum for all supported assembler directives.
@@ -283,6 +254,7 @@ pub struct NumericLabelRef {
 /// `| JTypeOp [ Register Comma ] expression`
 /// `| SpecialOp`
 /// `| LoadStoreOp Register Comma [ expression ] OpenParen Register CloseParen`
+/// `| AtomicOp [ MemoryOrdering ] Register Comma [ Register Comma ] OpenParen Register CloseParen`
 /// `| PseudoOp`
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
@@ -301,6 +273,13 @@ pub enum Instruction {
     /// The special case for all load and store instructions. The offset is an expression.
     /// If omitted in source, it is filled in as zero by the parser.
     LoadStore(LoadStoreOp, Register, Box<Expression>, Register),
+    /// Atomic instructions (A extension): (op, rd, rs1, rs2, ordering)
+    /// - For LR instructions: rs2 must be x0 (unused)
+    /// - For SC/AMO instructions: all registers are used
+    /// - Syntax: lr.w[.aq|.rel|.aqrl] rd, (rs1)
+    ///   sc.w[.aq|.rel|.aqrl] rd, rs2, (rs1)
+    ///   amo*.w[.aq|.rel|.aqrl] rd, rs2, (rs1)
+    Atomic(AtomicOp, Register, Register, Register, MemoryOrdering),
     /// A pseudo-instruction that will be desugared by a later pass.
     Pseudo(PseudoOp),
 }
@@ -471,6 +450,67 @@ pub enum LoadStoreOp {
     Sb,
     Sh,
     Sw,
+}
+
+/// Atomic instruction operations (A extension).
+///
+/// **Grammar Rule and Example:**
+/// `AtomicOp [ Ordering ] Register Comma Register Comma OpenParen Register CloseParen`
+///
+/// - `lr.w`: `lr.w a0, (a1)` - Load reserved word
+/// - `sc.w`: `sc.w a0, a2, (a1)` - Store conditional word
+/// - `amoswap.w`: `amoswap.w a0, a2, (a1)` - Atomic swap
+///
+/// **Variants:**
+/// Load-Reserved / Store-Conditional (word):
+/// - `LrW`: Load reserved word
+/// - `ScW`: Store conditional word
+///
+/// Atomic Memory Operations (word):
+/// - `AmoswapW`: Atomic swap
+/// - `AmoaddW`: Atomic add
+/// - `AmoxorW`: Atomic XOR
+/// - `AmoandW`: Atomic AND
+/// - `AmoorW`: Atomic OR
+/// - `AmominW`: Atomic min (signed)
+/// - `AmomaxW`: Atomic max (signed)
+/// - `AmominuW`: Atomic min (unsigned)
+/// - `AmomaxuW`: Atomic max (unsigned)
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum AtomicOp {
+    // Load-Reserved / Store-Conditional (word)
+    LrW,
+    ScW,
+
+    // Atomic Memory Operations (word)
+    AmoswapW,
+    AmoaddW,
+    AmoxorW,
+    AmoandW,
+    AmoorW,
+    AmominW,
+    AmomaxW,
+    AmominuW,
+    AmomaxuW,
+}
+
+/// Memory ordering constraints for atomic instructions.
+///
+/// All atomic operations in the A extension support optional memory ordering annotations:
+/// - `.aq` (acquire): Load-acquire semantics
+/// - `.rel` (release): Store-release semantics
+/// - `.aqrl` (both): Full memory barrier
+///
+/// **Examples:**
+/// - `lr.w.aq a0, (a1)` - Load with acquire semantics
+/// - `sc.w.rel a0, a2, (a1)` - Store with release semantics
+/// - `amoswap.w.aqrl a0, a2, (a1)` - Atomic operation with full barrier
+#[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
+pub enum MemoryOrdering {
+    None, // No ordering constraint
+    Aq,   // Acquire semantics
+    Rel,  // Release semantics
+    AqRl, // Both acquire and release
 }
 
 /// An enum to represent pseudo-instructions that desugar into multiple base instructions.
@@ -794,6 +834,23 @@ impl fmt::Display for LoadStoreOp {
     }
 }
 
+impl fmt::Display for AtomicOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl fmt::Display for MemoryOrdering {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryOrdering::None => Ok(()),
+            MemoryOrdering::Aq => write!(f, ".aq"),
+            MemoryOrdering::Rel => write!(f, ".rel"),
+            MemoryOrdering::AqRl => write!(f, ".aqrl"),
+        }
+    }
+}
+
 impl fmt::Display for PseudoOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -832,6 +889,15 @@ impl fmt::Display for Instruction {
             Instruction::Special(op) => write!(f, "{}", op),
             Instruction::LoadStore(op, rd, offset, rs) => {
                 write!(f, "{:<7} {}, {}({})", op.to_string(), rd, offset, rs)
+            }
+            Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
+                // LR instructions only use rd and rs1
+                let combined = format!("{}{}", op, ordering);
+                if matches!(op, AtomicOp::LrW) {
+                    write!(f, "{:<7} {}, ({})", combined rd, rs1)
+                } else {
+                    write!(f, "{:<7} {}, {}, ({})", combined rd, rs2, rs1)
+                }
             }
             Instruction::Pseudo(p) => write!(f, "{}", p),
         }

@@ -30,21 +30,27 @@ pub fn resolve_symbols(source: &mut Source) -> Result<(), AssemblerError> {
     let mut unresolved: Vec<UnresolvedReference> = Vec::new();
 
     for (file_index, file) in source.files.iter_mut().enumerate() {
-        let (file_globals, file_unresolved) =
-            resolve_file(file_index, file)?;
+        let (file_globals, file_unresolved) = resolve_file(file_index, file)?;
         // Merge globals
         for gd in file_globals {
             // not allowed to export __global_pointer$
             if gd.symbol == SPECIAL_GLOBAL_POINTER {
                 return Err(AssemblerError::from_source_pointer(
-                    format!("Global symbol {} is reserved", SPECIAL_GLOBAL_POINTER),
+                    format!(
+                        "Global symbol {} is reserved",
+                        SPECIAL_GLOBAL_POINTER
+                    ),
                     source,
                     &gd.declaration_pointer,
                 ));
             }
             if globals.contains_key(&gd.symbol) {
-                let old_gd_pointer = &globals.get(&gd.symbol).unwrap().declaration_pointer;
-                let old_location = source.files[old_gd_pointer.file_index].lines[old_gd_pointer.line_index].location.to_string();
+                let old_gd_pointer =
+                    &globals.get(&gd.symbol).unwrap().declaration_pointer;
+                let old_location = source.files[old_gd_pointer.file_index]
+                    .lines[old_gd_pointer.line_index]
+                    .location
+                    .to_string();
                 return Err(AssemblerError::from_source_pointer(
                     format!(
                         "Duplicate global symbol: {} (previously declared at {})",
@@ -62,12 +68,15 @@ pub fn resolve_symbols(source: &mut Source) -> Result<(), AssemblerError> {
         for u_r in file_unresolved {
             if u_r.symbol == SPECIAL_GLOBAL_POINTER {
                 source.uses_global_pointer = true;
-                file.lines[u_r.referencing_pointer.line_index].outgoing_refs.push(
-                    SymbolReference {
+                file.lines[u_r.referencing_pointer.line_index]
+                    .outgoing_refs
+                    .push(SymbolReference {
                         symbol: SPECIAL_GLOBAL_POINTER.to_string(),
-                        pointer: LinePointer { file_index: usize::MAX, line_index: usize::MAX },
-                    }
-                );
+                        pointer: LinePointer {
+                            file_index: usize::MAX,
+                            line_index: usize::MAX,
+                        },
+                    });
             } else {
                 unresolved.push(u_r);
             }
@@ -142,10 +151,7 @@ fn flush_numeric_labels(
 fn resolve_file(
     file_index: usize,
     file: &mut SourceFile,
-) -> Result<
-    (Vec<GlobalDefinition>, Vec<UnresolvedReference>),
-    AssemblerError,
-> {
+) -> Result<(Vec<GlobalDefinition>, Vec<UnresolvedReference>), AssemblerError> {
     let locations: Vec<Location> =
         file.lines.iter().map(|line| line.location.clone()).collect();
     let mut definitions: HashMap<String, LinePointer> = HashMap::new();
@@ -389,6 +395,9 @@ pub fn extract_references_from_line(line: &Line) -> Vec<String> {
                 Instruction::Special(_) => {}
                 Instruction::LoadStore(_, _, expr, _) => {
                     refs.extend(extract_from_expression(expr));
+                }
+                Instruction::Atomic(_, _, _, _, _) => {
+                    // Atomic instructions don't have expressions
                 }
                 Instruction::Pseudo(pseudo) => match pseudo {
                     PseudoOp::Li(_, expr) => {

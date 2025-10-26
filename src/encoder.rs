@@ -631,6 +631,11 @@ fn encode_instruction(
             Ok(u32_to_le_bytes(encoded))
         }
 
+        Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
+            let encoded = encode_atomic(op, *rd, *rs1, *rs2, ordering);
+            Ok(u32_to_le_bytes(encoded))
+        }
+
         Instruction::Pseudo(pseudo) => {
             encode_pseudo(pseudo, line, context, uses_global_pointer)
         }
@@ -823,6 +828,69 @@ fn encode_load_store(
         // For loads, rd is destination, rs is base
         encode_i_type(opcode, rd, funct3, rs, offset, location)
     }
+}
+
+/// Encode atomic instructions (A extension)
+///
+/// Format: R-type with special fields
+/// - opcode: 0b0101111 (AMO)
+/// - funct3: 010 (W=32-bit), 011 (D=64-bit)
+/// - funct5 (bits 31-27): operation type
+/// - aq (bit 26): acquire ordering
+/// - rl (bit 25): release ordering
+/// - rs2: source register (unused for LR, must be x0)
+/// - rs1: address register
+/// - rd: destination register
+fn encode_atomic(
+    op: &crate::ast::AtomicOp,
+    rd: Register,
+    rs1: Register,
+    rs2: Register,
+    ordering: &crate::ast::MemoryOrdering,
+) -> u32 {
+    use crate::ast::AtomicOp::*;
+    use crate::ast::MemoryOrdering;
+
+    // Determine funct5 based on operation
+    let funct5 = match op {
+        LrW => 0b00010,
+        ScW => 0b00011,
+        AmoswapW => 0b00001,
+        AmoaddW => 0b00000,
+        AmoxorW => 0b00100,
+        AmoandW => 0b01100,
+        AmoorW => 0b01000,
+        AmominW => 0b10000,
+        AmomaxW => 0b10100,
+        AmominuW => 0b11000,
+        AmomaxuW => 0b11100,
+    };
+
+    // Parse ordering bits
+    let (aq, rl) = match ordering {
+        MemoryOrdering::None => (0, 0),
+        MemoryOrdering::Aq => (1, 0),
+        MemoryOrdering::Rel => (0, 1),
+        MemoryOrdering::AqRl => (1, 1),
+    };
+
+    // Common parameters for all atomic ops
+    let opcode = 0b0101111; // AMO
+    let funct3 = 0b010; // W (32-bit width)
+
+    let rd_bits = reg_to_u32(rd);
+    let rs1_bits = reg_to_u32(rs1);
+    let rs2_bits = reg_to_u32(rs2);
+
+    // Encode: funct5 | aq | rl | rs2 | rs1 | funct3 | rd | opcode
+    opcode
+        | (rd_bits << 7)
+        | (funct3 << 12)
+        | (rs1_bits << 15)
+        | (rs2_bits << 20)
+        | (rl << 25)
+        | (aq << 26)
+        | (funct5 << 27)
 }
 
 // ============================================================================

@@ -639,6 +639,64 @@ Use `.data` for initialized data, `.bss` for zero-initialized.
 
 ---
 
+## A Extension (Atomic Instructions)
+
+The assembler supports the RISC-V Atomic extension (RV32A) with Load-Reserved/Store-Conditional and Atomic Memory Operations.
+
+### Supported Instructions
+
+**Load-Reserved / Store-Conditional (word):**
+- `lr.w rd, (rs1)` - Load reserved word
+- `sc.w rd, rs2, (rs1)` - Store conditional word (rd receives status: 0=success, 1=failure)
+
+**Atomic Memory Operations (word):**
+- `amoswap.w rd, rs2, (rs1)` - Atomic swap (load, store rs2, return old value)
+- `amoadd.w rd, rs2, (rs1)` - Atomic add
+- `amoxor.w rd, rs2, (rs1)` - Atomic XOR
+- `amoand.w rd, rs2, (rs1)` - Atomic AND
+- `amoor.w rd, rs2, (rs1)` - Atomic OR
+- `amomin.w rd, rs2, (rs1)` - Atomic min (signed)
+- `amomax.w rd, rs2, (rs1)` - Atomic max (signed)
+- `amominu.w rd, rs2, (rs1)` - Atomic min (unsigned)
+- `amomaxu.w rd, rs2, (rs1)` - Atomic max (unsigned)
+
+### Memory Ordering Annotations
+
+All atomic operations support optional suffixes for memory ordering:
+- `.aq` - Acquire semantics (load-acquire)
+- `.rel` - Release semantics (store-release)
+- `.aqrl` - Both acquire and release (full barrier)
+
+**Examples:**
+```asm
+# Load-reserved with acquire semantics
+lr.w.aq a0, (a1)
+
+# Store-conditional with full barrier
+sc.w.aqrl a0, a2, (a1)
+
+# Atomic swap with release semantics
+# Note: .rel is not supported by some assemblers; use .aqrl for full barrier
+amoswap.w.aqrl a0, a2, (a1)
+```
+
+### Implementation Details
+
+**Encoding:**
+- Uses R-type format with special AMO opcode (0b0101111)
+- funct3 = 010 for word (32-bit) operations
+- funct5 (bits 31-27): Specifies the atomic operation
+- aq bit (bit 26): Acquire flag
+- rl bit (bit 25): Release flag
+
+**Semantics:**
+- `lr.w` loads a value from memory and reserves the address
+- `sc.w` stores a value to reserved address; writes 0 to rd if successful, 1 if failed
+- AMO instructions perform the operation, returning the original value to rd
+- Memory ordering affects visibility of the atomic operation across processors
+
+---
+
 ## Testing
 
 ### Unit Tests

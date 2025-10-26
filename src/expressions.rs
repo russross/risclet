@@ -85,9 +85,13 @@ pub fn new_evaluation_context(
 
     // seed with __global_pointer$
     let mut symbol_values = HashMap::new();
-    symbol_values.insert(SymbolReference{
+    symbol_values.insert(
+        SymbolReference {
             symbol: SPECIAL_GLOBAL_POINTER.to_string(),
-            pointer: LinePointer { file_index: usize::MAX, line_index: usize::MAX },
+            pointer: LinePointer {
+                file_index: usize::MAX,
+                line_index: usize::MAX,
+            },
         },
         EvaluatedValue::Address(data_start + 2048),
     );
@@ -132,7 +136,7 @@ pub fn evaluate_line_symbols(
     let mut cycle_stack = Vec::new();
 
     for sym_ref in &line.outgoing_refs {
-        resolve_symbol_dependencies(&sym_ref, context, &mut cycle_stack)?;
+        resolve_symbol_dependencies(sym_ref, context, &mut cycle_stack)?;
     }
 
     Ok(())
@@ -148,12 +152,12 @@ fn resolve_symbol_dependencies(
     cycle_stack: &mut Vec<SymbolReference>,
 ) -> Result<()> {
     // Already resolved?
-    if context.symbol_values.contains_key(&key) {
+    if context.symbol_values.contains_key(key) {
         return Ok(());
     }
 
     // Detect cycles
-    if cycle_stack.contains(&key) {
+    if cycle_stack.contains(key) {
         let cycle_chain: Vec<String> =
             cycle_stack.iter().map(|k| k.symbol.clone()).collect();
         let line = context.get_line(&key.pointer)?;
@@ -178,9 +182,8 @@ fn resolve_symbol_dependencies(
     let result = match &line.content {
         LineContent::Label(_) => {
             // Label: address is computed directly from position
-            let absolute_addr = context
-                .segment_start(line.segment)
-                .wrapping_add(line.offset as u32);
+            let absolute_addr =
+                context.segment_start(line.segment).wrapping_add(line.offset);
             EvaluatedValue::Address(absolute_addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
@@ -245,7 +248,7 @@ fn evaluate_expression(
                     )
                 })?;
 
-            let value = context.symbol_values.get(&sym_ref).copied().ok_or_else(|| {
+            let value = context.symbol_values.get(sym_ref).copied().ok_or_else(|| {
                 AssemblerError::from_context(
                     format!(
                         "Symbol '{}' not resolved (internal error - should have been resolved in forward phase)",
@@ -285,7 +288,7 @@ fn evaluate_expression(
 
             let value = context
                 .symbol_values
-                .get(&sym_ref)
+                .get(sym_ref)
                 .copied()
                 .ok_or_else(|| {
                     AssemblerError::from_context(
@@ -541,13 +544,11 @@ pub fn checked_add(
                     let error_type = if sum < 0 {
                         "underflow" // Negative result
                     } else {
-                        "overflow"  // Result too large for u32
+                        "overflow" // Result too large for u32
                     };
 
                     AssemblerError::from_context(
-                        format!(
-                            "Address {}: {} + {}", error_type, lhs, rhs
-                        ),
+                        format!("Address {}: {} + {}", error_type, lhs, rhs),
                         location.clone(),
                     )
                 })?
@@ -556,8 +557,10 @@ pub fn checked_add(
         }
         (EvaluatedValue::Address(_), EvaluatedValue::Address(_)) => {
             Err(AssemblerError::from_context(
-                format!("Type error: cannot add Address + Address: {} + {}",
-                    lhs, rhs),
+                format!(
+                    "Type error: cannot add Address + Address: {} + {}",
+                    lhs, rhs
+                ),
                 location.clone(),
             ))
         }
@@ -574,7 +577,7 @@ pub fn checked_sub(
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_sub(rhs_i).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!( "Integer wraparound: {} - {}", lhs, rhs),
+                    format!("Integer wraparound: {} - {}", lhs, rhs),
                     location.clone(),
                 )
             })?;
@@ -588,13 +591,11 @@ pub fn checked_sub(
                     let error_type = if sum < 0 {
                         "underflow" // Negative result
                     } else {
-                        "overflow"  // Result too large for u32
+                        "overflow" // Result too large for u32
                     };
 
                     AssemblerError::from_context(
-                        format!(
-                            "Address {}: {} - {}", error_type, lhs, rhs
-                        ),
+                        format!("Address {}: {} - {}", error_type, lhs, rhs),
                         location.clone(),
                     )
                 })?
@@ -607,9 +608,7 @@ pub fn checked_sub(
                 let sum: i64 = i64::from(lhs_a) - i64::from(rhs_a);
                 sum.try_into().map_err(|_| {
                     AssemblerError::from_context(
-                        format!(
-                            "Integer out of range: {} - {}", lhs, rhs
-                        ),
+                        format!("Integer out of range: {} - {}", lhs, rhs),
                         location.clone(),
                     )
                 })?

@@ -856,7 +856,7 @@ pub fn build_symbol_table(
         let mut marker_addr = text_start;
         for line in &source_file.lines {
             if line.segment == Segment::Text {
-                marker_addr = text_start + line.offset as u32;
+                marker_addr = text_start + line.offset;
                 break;
             }
         }
@@ -888,16 +888,15 @@ pub fn build_symbol_table(
                 if !is_global {
                     let name_idx = builder.symbol_names.add(name);
                     let (addr, section_idx) = match line.segment {
-                        Segment::Text => (
-                            text_start + line.offset as u32,
-                            text_section_index,
-                        ),
+                        Segment::Text => {
+                            (text_start + line.offset, text_section_index)
+                        }
                         Segment::Data => (
-                            data_start + line.offset as u32,
+                            data_start + line.offset,
                             data_section_index.unwrap(),
                         ),
                         Segment::Bss => (
-                            bss_start + line.offset as u32,
+                            bss_start + line.offset,
                             bss_section_index.unwrap(),
                         ),
                     };
@@ -956,14 +955,12 @@ pub fn build_symbol_table(
 
         let name_idx = builder.symbol_names.add(&global.symbol);
         let (addr, section_idx) = match line.segment {
-            Segment::Text => {
-                (text_start + line.offset as u32, text_section_index)
-            }
+            Segment::Text => (text_start + line.offset, text_section_index),
             Segment::Data => {
-                (data_start + line.offset as u32, data_section_index.unwrap())
+                (data_start + line.offset, data_section_index.unwrap())
             }
             Segment::Bss => {
-                (bss_start + line.offset as u32, bss_section_index.unwrap())
+                (bss_start + line.offset, bss_section_index.unwrap())
             }
         };
 
@@ -978,16 +975,15 @@ pub fn build_symbol_table(
     }
 
     // More linker-provided symbols (at end)
-    let end_text = text_start + source.text_size as u32;
+    let end_text = text_start + source.text_size;
     let end_data = if has_data {
-        data_start + source.data_size as u32
+        data_start + source.data_size
     } else if has_bss {
         bss_start
     } else {
         end_text
     };
-    let end_bss =
-        if has_bss { bss_start + source.bss_size as u32 } else { end_data };
+    let end_bss = if has_bss { bss_start + source.bss_size } else { end_data };
 
     // __bss_start
     let bss_start_name = builder.symbol_names.add("__bss_start");

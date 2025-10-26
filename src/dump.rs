@@ -336,6 +336,9 @@ fn dump_instruction_ast(inst: &Instruction) {
             dump_expression_ast(offset);
             print!(" {})", rs);
         }
+        Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
+            print!("(atomic {} {} {} {} {})", op, rd, rs1, rs2, ordering);
+        }
         Instruction::Pseudo(pseudo) => {
             dump_pseudo_ast(pseudo);
         }
@@ -1316,6 +1319,9 @@ fn extract_instruction_expressions(inst: &Instruction) -> Vec<&Expression> {
         }
         Instruction::LoadStore(_, _, expr, _) => {
             exprs.push(expr.as_ref());
+        }
+        Instruction::Atomic(_, _, _, _, _) => {
+            // Atomic instructions don't have expressions
         }
         Instruction::Special(_) => {}
         Instruction::Pseudo(pseudo) => match pseudo {

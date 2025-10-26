@@ -78,10 +78,10 @@ mod tests {
     fn find_line_by_label(source: &Source, label: &str) -> Option<LinePointer> {
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, line) in file.lines.iter().enumerate() {
-                if let LineContent::Label(ref l) = line.content {
-                    if l == label {
-                        return Some(LinePointer { file_index, line_index });
-                    }
+                if let LineContent::Label(ref l) = line.content
+                    && l == label
+                {
+                    return Some(LinePointer { file_index, line_index });
                 }
             }
         }
@@ -365,13 +365,13 @@ mod tests {
     #[test]
     fn test_numeric_label_reuse_forward() {
         let source_text = "
-                beq a0, a1, 1f
-            1:
-                addi a0, a0, 1
-                beq a0, a1, 1f
-            1:
-                ret
-        ";
+                 beq a0, a1, 1f
+             1:
+                 addi a0, a0, 1
+                 beq a0, a1, 1f
+             1:
+                 ret
+         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = resolve_symbols(&mut source);
@@ -385,13 +385,11 @@ mod tests {
         let file = &source.files[0];
         let mut label_positions = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Label(ref l) = line.content {
-                if l == "1" {
-                    label_positions.push(LinePointer {
-                        file_index: 0,
-                        line_index: line_idx,
-                    });
-                }
+            if let LineContent::Label(ref l) = line.content
+                && l == "1"
+            {
+                label_positions
+                    .push(LinePointer { file_index: 0, line_index: line_idx });
             }
         }
         assert_eq!(
@@ -459,13 +457,11 @@ mod tests {
         let file = &source.files[0];
         let mut label_positions = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Label(ref l) = line.content {
-                if l == "1" {
-                    label_positions.push(LinePointer {
-                        file_index: 0,
-                        line_index: line_idx,
-                    });
-                }
+            if let LineContent::Label(ref l) = line.content
+                && l == "1"
+            {
+                label_positions
+                    .push(LinePointer { file_index: 0, line_index: line_idx });
             }
         }
         assert_eq!(
@@ -707,14 +703,11 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "CONST"
             {
-                if name == "CONST" {
-                    equ_ptr = Some(LinePointer {
-                        file_index: 0,
-                        line_index: line_idx,
-                    });
-                    break;
-                }
+                equ_ptr =
+                    Some(LinePointer { file_index: 0, line_index: line_idx });
+                break;
             }
         }
         assert!(equ_ptr.is_some(), "Should find .equ CONST");
@@ -747,10 +740,9 @@ mod tests {
         for line in &file.lines {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "counter"
             {
-                if name == "counter" {
-                    equ_count += 1;
-                }
+                equ_count += 1;
             }
         }
         assert_eq!(
@@ -897,10 +889,9 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "value"
             {
-                if name == "value" {
-                    equ_positions.push(line_idx);
-                }
+                equ_positions.push(line_idx);
             }
         }
         assert_eq!(equ_positions.len(), 3, "Should have 3 .equ definitions");
@@ -973,10 +964,9 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "counter"
             {
-                if name == "counter" {
-                    equ_line_indices.push(line_idx);
-                }
+                equ_line_indices.push(line_idx);
             }
         }
         assert_eq!(equ_line_indices.len(), 3);
@@ -1014,14 +1004,11 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "CONST"
             {
-                if name == "CONST" {
-                    equ_ptr = Some(LinePointer {
-                        file_index: 0,
-                        line_index: line_idx,
-                    });
-                    break;
-                }
+                equ_ptr =
+                    Some(LinePointer { file_index: 0, line_index: line_idx });
+                break;
             }
         }
         assert!(equ_ptr.is_some());
@@ -1054,10 +1041,9 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "value"
             {
-                if name == "value" {
-                    equ_indices.push(line_idx);
-                }
+                equ_indices.push(line_idx);
             }
         }
         assert_eq!(equ_indices.len(), 3);
@@ -1098,10 +1084,9 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "value"
             {
-                if name == "value" {
-                    equ_indices.push(line_idx);
-                }
+                equ_indices.push(line_idx);
             }
         }
         assert_eq!(equ_indices.len(), 3);
@@ -1470,11 +1455,10 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "size"
             {
-                if name == "size" {
-                    equ_line = Some(line_idx);
-                    break;
-                }
+                equ_line = Some(line_idx);
+                break;
             }
         }
         assert!(equ_line.is_some());
@@ -1573,10 +1557,9 @@ mod tests {
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
+                && name == "counter"
             {
-                if name == "counter" {
-                    equ_indices.push(line_idx);
-                }
+                equ_indices.push(line_idx);
             }
         }
         assert_eq!(equ_indices.len(), 3, "Should have 3 .equ definitions");

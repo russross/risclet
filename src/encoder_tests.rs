@@ -1562,3 +1562,186 @@ target:
         "First instruction should be auipc, not addi rd, gp, offset"
     );
 }
+
+// ============================================================================
+// Atomic Instructions (A Extension) Tests
+// ============================================================================
+// These tests verify encoding of RISC-V A extension atomic instructions.
+// Reference encodings are from GNU riscv64-unknown-elf-as with -march=rv32ia
+
+#[test]
+fn test_lr_w() {
+    // lr.w a0, (a1)
+    // GNU: 1005a52f
+    let source = "lr.w a0, (a1)";
+    let expected = &[0x2f, 0xa5, 0x05, 0x10];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_lr_w_aq() {
+    // lr.w.aq a0, (a1)
+    // GNU: 1405a52f
+    let source = "lr.w.aq a0, (a1)";
+    let expected = &[0x2f, 0xa5, 0x05, 0x14];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_lr_w_aqrl() {
+    // lr.w.aqrl a0, (a1)
+    // GNU: 1605a52f
+    let source = "lr.w.aqrl a0, (a1)";
+    let expected = &[0x2f, 0xa5, 0x05, 0x16];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_sc_w() {
+    // sc.w a0, a2, (a1)
+    // GNU: 18c5a52f
+    let source = "sc.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x18];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_sc_w_aq() {
+    // sc.w.aq a0, a2, (a1)
+    // GNU: 1cc5a52f
+    let source = "sc.w.aq a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x1c];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_sc_w_aqrl() {
+    // sc.w.aqrl a0, a2, (a1)
+    // GNU: 1ec5a52f
+    let source = "sc.w.aqrl a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x1e];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amoswap_w() {
+    // amoswap.w a0, a2, (a1)
+    // GNU: 08c5a52f
+    let source = "amoswap.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x08];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amoadd_w() {
+    // amoadd.w a0, a2, (a1)
+    // GNU: 00c5a52f
+    let source = "amoadd.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x00];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amoxor_w() {
+    // amoxor.w a0, a2, (a1)
+    // GNU: 20c5a52f
+    let source = "amoxor.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x20];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amoand_w() {
+    // amoand.w a0, a2, (a1)
+    // GNU: 60c5a52f
+    let source = "amoand.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x60];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amoor_w() {
+    // amoor.w a0, a2, (a1)
+    // GNU: 40c5a52f
+    let source = "amoor.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x40];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amomin_w() {
+    // amomin.w a0, a2, (a1)
+    // GNU: 80c5a52f
+    let source = "amomin.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0x80];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amomax_w() {
+    // amomax.w a0, a2, (a1)
+    // GNU: a0c5a52f
+    let source = "amomax.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0xa0];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amominu_w() {
+    // amominu.w a0, a2, (a1)
+    // GNU: c0c5a52f
+    let source = "amominu.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0xc0];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_amomaxu_w() {
+    // amomaxu.w a0, a2, (a1)
+    // GNU: e0c5a52f
+    let source = "amomaxu.w a0, a2, (a1)";
+    let expected = &[0x2f, 0xa5, 0xc5, 0xe0];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_all_atomic_instructions() {
+    // Test all atomic instructions assembled together
+    let source = r#"
+lr.w a0, (a1)
+lr.w.aq a0, (a1)
+lr.w.aqrl a0, (a1)
+sc.w a0, a2, (a1)
+sc.w.aq a0, a2, (a1)
+sc.w.aqrl a0, a2, (a1)
+amoswap.w a0, a2, (a1)
+amoadd.w a0, a2, (a1)
+amoxor.w a0, a2, (a1)
+amoand.w a0, a2, (a1)
+amoor.w a0, a2, (a1)
+amomin.w a0, a2, (a1)
+amomax.w a0, a2, (a1)
+amominu.w a0, a2, (a1)
+amomaxu.w a0, a2, (a1)
+"#;
+
+    let expected = &[
+        0x2f, 0xa5, 0x05, 0x10, // lr.w a0, (a1)
+        0x2f, 0xa5, 0x05, 0x14, // lr.w.aq a0, (a1)
+        0x2f, 0xa5, 0x05, 0x16, // lr.w.aqrl a0, (a1)
+        0x2f, 0xa5, 0xc5, 0x18, // sc.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x1c, // sc.w.aq a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x1e, // sc.w.aqrl a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x08, // amoswap.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x00, // amoadd.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x20, // amoxor.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x60, // amoand.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x40, // amoor.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0x80, // amomin.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0xa0, // amomax.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0xc0, // amominu.w a0, a2, (a1)
+        0x2f, 0xa5, 0xc5, 0xe0, // amomaxu.w a0, a2, (a1)
+    ];
+
+    assert_instructions_match(source, expected);
+}

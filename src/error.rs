@@ -20,8 +20,15 @@ impl AssemblerError {
         AssemblerError { location: Some(location), message }
     }
 
-    pub fn from_source_pointer(message: String, source: &Source, pointer: &LinePointer) -> Self {
-        let location = source.files[pointer.file_index].lines[pointer.line_index].location.clone();
+    pub fn from_source_pointer(
+        message: String,
+        source: &Source,
+        pointer: &LinePointer,
+    ) -> Self {
+        let location = source.files[pointer.file_index].lines
+            [pointer.line_index]
+            .location
+            .clone();
         AssemblerError { location: Some(location), message }
     }
 
@@ -38,7 +45,7 @@ impl AssemblerError {
                     .lines()
                     .collect::<std::result::Result<_, _>>()
                     .unwrap_or_default();
-                let line_num = location.line as usize;
+                let line_num = location.line;
                 let start = line_num.saturating_sub(3);
                 let end = (line_num + 3).min(lines.len());
                 let mut context = String::new();
