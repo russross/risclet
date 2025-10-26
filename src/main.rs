@@ -23,7 +23,9 @@ struct Config {
     text_start: u32,
     verbose: bool,
     dump: dump::DumpConfig,
-    relax: bool,
+    relax_gp: bool,
+    relax_pseudo: bool,
+    relax_compressed: bool,
 }
 
 fn process_cli_args() -> Result<Config, String> {
@@ -38,7 +40,9 @@ fn process_cli_args() -> Result<Config, String> {
     let mut text_start = 0x10000u32;
     let mut verbose = false;
     let mut dump_config = dump::DumpConfig::new();
-    let mut relax = true;
+    let mut relax_gp = true;
+    let mut relax_pseudo = true;
+    let mut relax_compressed = true;
     let mut i = 1;
 
     while i < args.len() {
@@ -110,7 +114,27 @@ fn process_cli_args() -> Result<Config, String> {
                     verbose = true;
                 }
                 "--no-relax" => {
-                    relax = false;
+                    relax_gp = false;
+                    relax_pseudo = false;
+                    relax_compressed = false;
+                }
+                "--relax-gp" => {
+                    relax_gp = true;
+                }
+                "--no-relax-gp" => {
+                    relax_gp = false;
+                }
+                "--relax-pseudo" => {
+                    relax_pseudo = true;
+                }
+                "--no-relax-pseudo" => {
+                    relax_pseudo = false;
+                }
+                "--relax-compressed" => {
+                    relax_compressed = true;
+                }
+                "--no-relax-compressed" => {
+                    relax_compressed = false;
                 }
                 "-h" | "--help" => {
                     return Err(print_help(&args[0]));
@@ -136,7 +160,9 @@ fn process_cli_args() -> Result<Config, String> {
         text_start,
         verbose,
         dump: dump_config,
-        relax,
+        relax_gp,
+        relax_pseudo,
+        relax_compressed,
     })
 }
 
@@ -144,11 +170,17 @@ fn print_help(program_name: &str) -> String {
     format!("Usage: {} [options] <file.s> [file.s...]
 
 Options:
-   -o <file>            Write output to <file> (default: a.out)
-   -t <address>         Set text start address (default: 0x10000)
-   -v, --verbose        Show input statistics and convergence progress
-   --no-relax           Disable auto-relaxation of pseudo-instructions
-   -h, --help           Show this help message
+    -o <file>            Write output to <file> (default: a.out)
+    -t <address>         Set text start address (default: 0x10000)
+    -v, --verbose        Show input statistics and convergence progress
+    --no-relax           Disable all relaxations
+    --relax-gp           Enable GP-relative 'la' optimization (default: on)
+    --no-relax-gp        Disable GP-relative 'la' optimization
+    --relax-pseudo       Enable 'call'/'tail' pseudo-instruction optimization (default: on)
+    --no-relax-pseudo    Disable 'call'/'tail' pseudo-instruction optimization
+    --relax-compressed   Enable automatic RV32C compressed encoding (default: on)
+    --no-relax-compressed Disable automatic RV32C compressed encoding
+    -h, --help           Show this help message
 
 Output Behavior:
   By default, successful assembly produces no output
@@ -312,7 +344,13 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 1: Parse source files into AST
     // ========================================================================
-    let mut source = process_files(config.input_files.clone(), config.relax)?;
+    let mut source =
+        process_files(config.input_files.clone(), config.relax_compressed)?;
+
+    // Set relaxation flags from config
+    source.relax_gp = config.relax_gp;
+    source.relax_pseudo = config.relax_pseudo;
+    // relax_compressed already set during process_files
 
     // Checkpoint: dump AST if requested
     if should_dump_phase(&config, Phase::Parse) {
@@ -513,7 +551,7 @@ fn print_input_statistics(source: &Source) {
 
 fn process_files(
     files: Vec<String>,
-    relax: bool,
+    relax_compressed: bool,
 ) -> Result<Source, error::AssemblerError> {
     let mut source = Source {
         files: Vec::new(),
@@ -523,7 +561,9 @@ fn process_files(
         bss_size: 0,
         global_symbols: Vec::new(),
         uses_global_pointer: false,
-        relax,
+        relax_gp: false,
+        relax_pseudo: false,
+        relax_compressed,
     };
 
     for file_path in &files {
