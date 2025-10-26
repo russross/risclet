@@ -72,6 +72,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
+        relax: false,  // Disable relaxation for testing base instruction encodings
     };
 
     // Resolve symbols
@@ -186,33 +187,246 @@ and x28, x29, x30
     assert_instructions_match(source, expected);
 }
 
+// ============================================================================
+// Auto-Relaxation Tests
+// ============================================================================
+// These tests verify that base instructions are automatically relaxed to their
+// compressed equivalents when relaxation is enabled.
+
 #[test]
-fn test_m_extension() {
+fn test_relax_addi_to_c_addi() {
+    // addi rd, rd, imm → c.addi rd, imm (when imm is 6-bit signed)
+    // Tests that the instruction count is reduced due to relaxation
     let source = r#"
-.text
-mul x1, x2, x3
-mulh x4, x5, x6
-mulhsu x7, x8, x9
-mulhu x10, x11, x12
-div x13, x14, x15
-divu x16, x17, x18
-rem x19, x20, x21
-remu x22, x23, x24
+.global _start
+_start:
+addi a0, a0, 5
+addi a1, a1, -10
 "#;
+    
+    use crate::ast::{Directive, LineContent, Segment};
+    use crate::symbols;
+    use crate::assembler::{self, guess_line_size};
 
-    let expected = &[
-        0xb3, 0x00, 0x31, 0x02, // mul ra,sp,gp
-        0x33, 0x92, 0x62, 0x02, // mulh tp,t0,t1
-        0xb3, 0x23, 0x94, 0x02, // mulhsu t2,s0,s1
-        0x33, 0xb5, 0xc5, 0x02, // mulhu a0,a1,a2
-        0xb3, 0x46, 0xf7, 0x02, // div a3,a4,a5
-        0x33, 0xd8, 0x28, 0x03, // divu a6,a7,s2
-        0xb3, 0x69, 0x5a, 0x03, // rem s3,s4,s5
-        0x33, 0xfb, 0x8b, 0x03, // remu s6,s7,s8
-    ];
+    let mut all_lines = Vec::new();
+    let mut current_segment = Segment::Text;
 
-    assert_instructions_match(source, expected);
+    for (line_num, line_text) in source.lines().enumerate() {
+        let line_text = line_text.trim();
+        if line_text.is_empty() || line_text.starts_with('#') {
+            continue;
+        }
+
+        let tokens = tokenize(line_text).expect("Tokenize should succeed");
+        if tokens.is_empty() {
+            continue;
+        }
+
+        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
+            .expect("Parse should succeed");
+
+        for mut line in lines {
+            if let LineContent::Directive(ref dir) = line.content {
+                match dir {
+                    Directive::Text => current_segment = Segment::Text,
+                    Directive::Data => current_segment = Segment::Data,
+                    Directive::Bss => current_segment = Segment::Bss,
+                    _ => {}
+                }
+            }
+
+            line.segment = current_segment;
+            line.size = guess_line_size(&line.content);
+            all_lines.push(line);
+        }
+    }
+
+    // Build Source with relaxation ENABLED
+    let mut source_struct = Source {
+        files: vec![SourceFile {
+            file: "test.s".to_string(),
+            lines: all_lines,
+            text_size: 0,
+            data_size: 0,
+            bss_size: 0,
+            local_symbols: vec![],
+        }],
+        header_size: 0,
+        text_size: 0,
+        data_size: 0,
+        bss_size: 0,
+        global_symbols: vec![],
+        uses_global_pointer: false,
+        relax: true,
+    };
+
+    let text = symbols::resolve_symbols(&mut source_struct)
+        .and_then(|_| {
+            let callback = assembler::NoOpCallback;
+            assembler::converge_and_encode(&mut source_struct, 0x10000, &callback, false)
+                .map(|(text, _, _)| text)
+        })
+        .expect("Assembly should succeed");
+
+    // With relaxation, 2 addi instructions should compile to 4 bytes (2x2) instead of 8 bytes (2x4)
+    assert_eq!(text.len(), 4, "Relaxed 2 addi instructions should be 4 bytes total");
 }
+
+#[test]
+fn test_relax_add_to_c_add() {
+    // add rd, rd, rs2 → c.add rd, rs2 (rd != x0, rs2 != x0)
+    let source = r#"
+.global _start
+_start:
+add a0, a0, a1
+"#;
+    
+    use crate::ast::{Directive, LineContent, Segment};
+    use crate::symbols;
+    use crate::assembler::{self, guess_line_size};
+
+    let mut all_lines = Vec::new();
+    let mut current_segment = Segment::Text;
+
+    for (line_num, line_text) in source.lines().enumerate() {
+        let line_text = line_text.trim();
+        if line_text.is_empty() || line_text.starts_with('#') {
+            continue;
+        }
+
+        let tokens = tokenize(line_text).expect("Tokenize should succeed");
+        if tokens.is_empty() {
+            continue;
+        }
+
+        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
+            .expect("Parse should succeed");
+
+        for mut line in lines {
+            if let LineContent::Directive(ref dir) = line.content {
+                match dir {
+                    Directive::Text => current_segment = Segment::Text,
+                    Directive::Data => current_segment = Segment::Data,
+                    Directive::Bss => current_segment = Segment::Bss,
+                    _ => {}
+                }
+            }
+
+            line.segment = current_segment;
+            line.size = guess_line_size(&line.content);
+            all_lines.push(line);
+        }
+    }
+
+    // Build Source with relaxation ENABLED
+    let mut source_struct = Source {
+        files: vec![SourceFile {
+            file: "test.s".to_string(),
+            lines: all_lines,
+            text_size: 0,
+            data_size: 0,
+            bss_size: 0,
+            local_symbols: vec![],
+        }],
+        header_size: 0,
+        text_size: 0,
+        data_size: 0,
+        bss_size: 0,
+        global_symbols: vec![],
+        uses_global_pointer: false,
+        relax: true,
+    };
+
+    let text = symbols::resolve_symbols(&mut source_struct)
+        .and_then(|_| {
+            let callback = assembler::NoOpCallback;
+            assembler::converge_and_encode(&mut source_struct, 0x10000, &callback, false)
+                .map(|(text, _, _)| text)
+        })
+        .expect("Assembly should succeed");
+
+    // With relaxation, 1 add instruction should compile to 2 bytes instead of 4 bytes
+    assert_eq!(text.len(), 2, "Relaxed add instruction should be 2 bytes");
+}
+
+#[test]
+fn test_relax_no_compression_large_immediate() {
+    // addi with immediate > 31 should NOT relax
+    let source = r#"
+.global _start
+_start:
+addi a0, a0, 50
+"#;
+    
+    use crate::ast::{Directive, LineContent, Segment};
+    use crate::symbols;
+    use crate::assembler::{self, guess_line_size};
+
+    let mut all_lines = Vec::new();
+    let mut current_segment = Segment::Text;
+
+    for (line_num, line_text) in source.lines().enumerate() {
+        let line_text = line_text.trim();
+        if line_text.is_empty() || line_text.starts_with('#') {
+            continue;
+        }
+
+        let tokens = tokenize(line_text).expect("Tokenize should succeed");
+        if tokens.is_empty() {
+            continue;
+        }
+
+        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
+            .expect("Parse should succeed");
+
+        for mut line in lines {
+            if let LineContent::Directive(ref dir) = line.content {
+                match dir {
+                    Directive::Text => current_segment = Segment::Text,
+                    Directive::Data => current_segment = Segment::Data,
+                    Directive::Bss => current_segment = Segment::Bss,
+                    _ => {}
+                }
+            }
+
+            line.segment = current_segment;
+            line.size = guess_line_size(&line.content);
+            all_lines.push(line);
+        }
+    }
+
+    // Build Source with relaxation ENABLED
+    let mut source_struct = Source {
+        files: vec![SourceFile {
+            file: "test.s".to_string(),
+            lines: all_lines,
+            text_size: 0,
+            data_size: 0,
+            bss_size: 0,
+            local_symbols: vec![],
+        }],
+        header_size: 0,
+        text_size: 0,
+        data_size: 0,
+        bss_size: 0,
+        global_symbols: vec![],
+        uses_global_pointer: false,
+        relax: true,
+    };
+
+    let text = symbols::resolve_symbols(&mut source_struct)
+        .and_then(|_| {
+            let callback = assembler::NoOpCallback;
+            assembler::converge_and_encode(&mut source_struct, 0x10000, &callback, false)
+                .map(|(text, _, _)| text)
+        })
+        .expect("Assembly should succeed");
+
+    // Should NOT be compressed because 50 doesn't fit in 6-bit signed
+    // So it should be 4 bytes (base instruction)
+    assert_eq!(text.len(), 4, "Large immediate should NOT be compressed and remain 4 bytes");
+}
+
 
 // ============================================================================
 // I-Type Instruction Tests

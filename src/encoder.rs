@@ -566,6 +566,14 @@ fn encode_instruction(
 ) -> Result<Vec<u8>> {
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
+            // Try to relax to compressed instruction if enabled
+            if context.source.relax {
+                if let Some((c_op, c_operands)) = try_compress_instruction(inst, None) {
+                    let evaluated_operands = eval_compressed_operands(&c_operands, line, context)?;
+                    return encoder_compressed::encode_compressed(&c_op, &evaluated_operands, &line.location);
+                }
+            }
+            
             let encoded = encode_r_type_inst(op, *rd, *rs1, *rs2);
             Ok(u32_to_le_bytes(encoded))
         }
@@ -574,6 +582,14 @@ fn encode_instruction(
             // Evaluate immediate and check type
             let val = eval_expr(imm_expr, line, context.eval_context)?;
             let imm = require_integer(val, "I-type immediate", &line.location)?;
+
+            // Try to relax to compressed instruction if enabled
+            if context.source.relax {
+                if let Some((c_op, c_operands)) = try_compress_instruction(inst, Some(imm)) {
+                    let evaluated_operands = eval_compressed_operands(&c_operands, line, context)?;
+                    return encoder_compressed::encode_compressed(&c_op, &evaluated_operands, &line.location);
+                }
+            }
 
             let encoded =
                 encode_i_type_inst(op, *rd, *rs1, imm, &line.location)?;

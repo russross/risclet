@@ -62,6 +62,8 @@ pub struct Source {
     pub bss_size: u32,
     pub global_symbols: Vec<GlobalDefinition>,
     pub uses_global_pointer: bool,
+    /// Enable auto-relaxation: automatically compress base instructions to RV32C equivalents
+    pub relax: bool,
 }
 
 /// A struct representing a pointer to a specific line in a source file.
