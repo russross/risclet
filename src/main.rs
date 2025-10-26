@@ -513,6 +513,7 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
         bss_size: 0,
         global_symbols: Vec::new(),
         uses_global_pointer: false,
+        relax: true,  // Enable auto-relaxation by default
     };
 
     for file_path in &files {
