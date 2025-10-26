@@ -440,7 +440,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     elf_builder.set_segments(
         text_bytes.clone(),
         data_bytes.clone(),
-        bss_size as u32,
+        bss_size,
         eval_context.data_start as u32,
         eval_context.bss_start as u32,
     );
@@ -487,7 +487,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
         {
             let line = &source.files[g.definition_pointer.file_index].lines
                 [g.definition_pointer.line_index];
-            Ok(eval_context.text_start as u64 + line.offset as u64)
+            Ok((eval_context.text_start + line.offset) as u64)
         } else {
             Err(AssemblerError::no_context(
                 "_start symbol not defined".to_string(),

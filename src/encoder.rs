@@ -82,10 +82,10 @@ pub fn encode_source_with_size_tracking(
     source: &mut Source,
     eval_context: &mut EvaluationContext,
     any_changed: &mut bool,
-) -> Result<(Vec<u8>, Vec<u8>, i64)> {
+) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
-    let mut bss_size: i64 = 0;
+    let mut bss_size: u32 = 0;
 
     // Process each file and line, updating sizes as we go
     for file_idx in 0..source.files.len() {
@@ -130,9 +130,9 @@ pub fn encode_source_with_size_tracking(
                     Segment::Data => data_bytes.extend_from_slice(&bytes),
                     Segment::Bss => unreachable!(),
                 }
-            } else {
-                bss_size += actual_size as i64;
-            }
+             } else {
+                 bss_size += actual_size;
+             }
         }
     }
 
@@ -899,7 +899,7 @@ fn encode_r_type_inst(
     use crate::ast::RTypeOp::*;
 
     let (opcode, funct3, funct7) = match op {
-        // Base RV64I
+        // Base RV32I
         Add => (0b0110011, 0b000, 0b0000000),
         Sub => (0b0110011, 0b000, 0b0100000),
         Sll => (0b0110011, 0b001, 0b0000000),

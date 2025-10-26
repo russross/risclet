@@ -651,7 +651,7 @@ pub fn dump_values(
         for line in &file.lines {
             // Get absolute address
             let segment_base = get_segment_base(line.segment, eval_context);
-            let abs_addr = segment_base + (line.offset as i64);
+            let abs_addr = segment_base + line.offset;
 
             let (loc_str, padding) =
                 format_location_aligned(&line.location, max_line_width);
@@ -659,7 +659,7 @@ pub fn dump_values(
                 "{}{} {}: {}",
                 loc_str,
                 padding,
-                format_address(abs_addr as u64, addr_width, line.segment),
+                format_address(abs_addr, addr_width, line.segment),
                 line.content
             );
 
@@ -720,14 +720,14 @@ pub fn dump_code(
         for line in &file.lines {
             // Get absolute address and encoded bytes
             let segment_base = get_segment_base(line.segment, eval_context);
-            let abs_addr = segment_base + (line.offset as i64);
+            let abs_addr = segment_base + line.offset;
             let encoded_bytes = get_encoded_bytes(line, text_bytes, data_bytes);
 
             match &line.content {
                 LineContent::Label(name) => {
                     // For labels, print with location and address prefix
                     let formatted_addr = format_address(
-                        abs_addr as u64,
+                        abs_addr,
                         addr_width,
                         line.segment,
                     );
@@ -741,7 +741,7 @@ pub fn dump_code(
                 LineContent::Instruction(inst) => {
                     // For instructions: print location, address, first 4 bytes, then instruction at column 16
                     let formatted_addr = format_address(
-                        abs_addr as u64,
+                        abs_addr,
                         addr_width,
                         line.segment,
                     );
@@ -776,9 +776,9 @@ pub fn dump_code(
                         for (i, chunk) in
                             encoded_bytes[4..].chunks(4).enumerate()
                         {
-                            let chunk_addr = abs_addr + ((i + 1) as i64 * 4);
+                            let chunk_addr = abs_addr + ((i + 1) as u32 * 4);
                             let chunk_formatted_addr = format_address(
-                                chunk_addr as u64,
+                                chunk_addr,
                                 addr_width,
                                 line.segment,
                             );
@@ -803,7 +803,7 @@ pub fn dump_code(
                     if encoded_bytes.is_empty() {
                         // Directives with no encoded bytes (e.g., .text, .data, .global)
                         let formatted_addr = format_address(
-                            abs_addr as u64,
+                            abs_addr,
                             addr_width,
                             line.segment,
                         );
@@ -818,7 +818,7 @@ pub fn dump_code(
                             loc_str,
                             padding,
                             format_address(
-                                abs_addr as u64,
+                                abs_addr,
                                 addr_width,
                                 line.segment
                             ),
@@ -835,7 +835,7 @@ pub fn dump_code(
 
                         let mut byte_offset = 0;
 
-                        // First line: print bytes until we reach 8-byte alignment or run out
+                         // First line: print bytes until we reach 8-byte alignment or run out
                         if byte_offset < encoded_bytes.len() {
                             let first_line_count = std::cmp::min(
                                 bytes_to_align as usize,
@@ -843,7 +843,7 @@ pub fn dump_code(
                             );
                             let first_addr = abs_addr;
                             let first_formatted_addr = format_address(
-                                first_addr as u64,
+                                first_addr,
                                 addr_width,
                                 line.segment,
                             );
@@ -871,9 +871,9 @@ pub fn dump_code(
 
                         // Middle lines: print 8 bytes per line starting on 8-byte aligned addresses
                         while byte_offset + 8 <= encoded_bytes.len() {
-                            let line_addr = abs_addr + byte_offset as i64;
+                            let line_addr = abs_addr + byte_offset as u32;
                             let line_formatted_addr = format_address(
-                                line_addr as u64,
+                                line_addr,
                                 addr_width,
                                 line.segment,
                             );
@@ -894,9 +894,9 @@ pub fn dump_code(
                         if byte_offset < encoded_bytes.len() {
                             // Round up to next 8-byte boundary for the address
                             let aligned_offset = byte_offset.div_ceil(8) * 8;
-                            let last_addr = abs_addr + aligned_offset as i64;
+                            let last_addr = abs_addr + aligned_offset as u32;
                             let last_formatted_addr = format_address(
-                                last_addr as u64,
+                                last_addr,
                                 addr_width,
                                 line.segment,
                             );
@@ -1199,7 +1199,7 @@ fn calculate_address_width(text_start: u32) -> usize {
 /// addr_width: number of hex digits to use
 /// addr: the address to format
 /// segment_suffix: ".t", ".d", or ".b"
-fn format_address(addr: u64, addr_width: usize, segment: Segment) -> String {
+fn format_address(addr: u32, addr_width: usize, segment: Segment) -> String {
     let suffix = match segment {
         Segment::Text => ".t",
         Segment::Data => ".d",
@@ -1209,11 +1209,11 @@ fn format_address(addr: u64, addr_width: usize, segment: Segment) -> String {
     format!("{:0width$x}{}", addr, suffix, width = addr_width)
 }
 
-fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> i64 {
+fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> u32 {
     match segment {
-        Segment::Text => eval_context.text_start as i64,
-        Segment::Data => eval_context.data_start as i64,
-        Segment::Bss => eval_context.bss_start as i64,
+        Segment::Text => eval_context.text_start,
+        Segment::Data => eval_context.data_start,
+        Segment::Bss => eval_context.bss_start,
     }
 }
 
