@@ -3,22 +3,25 @@ use crate::{Machine, memory::Segment};
 
 pub fn load_elf(filename: &str) -> Result<Machine, String> {
     let raw = std::fs::read(filename).map_err(|e| format!("loading {}: {}", filename, e))?;
+    load_elf_from_bytes(&raw, Box::new(crate::io_abstraction::SystemIo))
+}
 
+pub fn load_elf_from_bytes(raw: &[u8], io_provider: Box<dyn crate::io_abstraction::IoProvider>) -> Result<Machine, String> {
     if raw.len() < 0x34 {
-        return Err(format!("{filename} is too short"));
+        return Err("ELF data is too short".to_string());
     }
     if raw[0..4] != *b"\x7fELF" {
-        return Err(format!("{filename} does not have ELF magic number"));
+        return Err("ELF data does not have ELF magic number".to_string());
     }
     if raw[4] != 1 || raw[5] != 1 || raw[6] != 1 || raw[7] != 0 {
-        return Err(format!("{filename} is not a 32-bit, little-endian, version 1, System V ABI ELF file"));
+        return Err("ELF data is not a 32-bit, little-endian, version 1, System V ABI ELF file".to_string());
     }
 
     if u16::from_le_bytes(raw[0x10..0x12].try_into().unwrap()) != 2
         || u16::from_le_bytes(raw[0x12..0x14].try_into().unwrap()) != 0xf3
         || u32::from_le_bytes(raw[0x14..0x18].try_into().unwrap()) != 1
     {
-        return Err(format!("{filename} is not an executable, RISC-V, ELF version 1 file"));
+        return Err("ELF data is not an executable, RISC-V, ELF version 1 file".to_string());
     }
 
     // 32-bit ELF header offsets
@@ -35,7 +38,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     let e_shstrndx = u16::from_le_bytes(raw[0x32..0x34].try_into().unwrap()) as usize;
 
     if e_phoff == 0 || e_ehsize != 0x34 || e_phentsize != 0x20 || e_phnum < 1 {
-        return Err(format!("{filename} has unexpected RV32 header sizes"));
+        return Err("ELF data has unexpected RV32 header sizes".to_string());
     }
 
     // get the loadable segments
@@ -44,7 +47,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
         // unpack the program header
         let start = e_phoff + e_phentsize * i;
         if start + e_phentsize > raw.len() {
-            return Err(format!("{filename} program header entry {i} out of range"));
+            return Err("ELF data program header entry out of range".to_string());
         }
         // 32-bit program header
         let header = &raw[start..start + e_phentsize];
@@ -60,7 +63,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
             continue;
         }
         if (p_offset as usize + p_filesz as usize) > raw.len() {
-            return Err(format!("{filename} program segment {i} out of range"));
+            return Err("ELF data program segment out of range".to_string());
         }
         let chunk = (p_vaddr, raw[p_offset as usize..(p_offset as usize + p_filesz as usize)].to_vec());
         chunks.push(chunk);
@@ -69,7 +72,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     // get the section header strings
     let start = e_shoff + e_shentsize * e_shstrndx;
     if start + e_shentsize > raw.len() {
-        return Err(format!("{filename} section header string table entry out of range"));
+        return Err("ELF data section header string table entry out of range".to_string());
     }
     // 32-bit section header offsets
     let header = &raw[start..start + e_shentsize];
@@ -85,7 +88,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     //let sh_entsize = u32::from_le_bytes(header[0x24..0x28].try_into().unwrap());
 
     if sh_offset + sh_size > raw.len() {
-        return Err(format!("{filename} section header string table out of range"));
+        return Err("ELF data section header string table out of range".to_string());
     }
 
     // unpack the strings, keyed by offset
@@ -106,7 +109,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     for i in 0..e_shnum {
         let start = e_shoff + e_shentsize * i;
         if start + e_shentsize > raw.len() {
-            return Err(format!("{filename} section header {i} out of range"));
+            return Err("ELF data section header out of range".to_string());
         }
 
         // 32-bit section header unpacking
@@ -133,7 +136,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
             || sh_type == 0x10
             || sh_type == 0x11
         {
-            return Err(format!("{filename} contains unsupported section type 0x{:x}", sh_type));
+            return Err("ELF data contains unsupported section type".to_string());
         }
 
         if (sh_type == 1 || sh_type == 8) && (sh_flags & 0x2) != 0 {
@@ -155,22 +158,22 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
             ));
         } else if sh_strs.get(&sh_name) == Some(&String::from(".strtab")) && sh_type == 3 {
             if sh_offset + sh_size > raw.len() {
-                return Err(format!("{filename} string table out of range"));
+                return Err("ELF data string table out of range".to_string());
             }
             strs_raw = raw[sh_offset..sh_offset + sh_size].to_vec();
         } else if sh_strs.get(&sh_name) == Some(&String::from(".symtab")) && sh_type == 2 {
             if sh_offset + sh_size > raw.len() {
-                return Err(format!("{filename} symbol table out of range"));
+                return Err("ELF data symbol table out of range".to_string());
             }
             syms_raw = raw[sh_offset..sh_offset + sh_size].to_vec();
         }
     }
 
     if strs_raw.is_empty() {
-        return Err(format!("{filename}: no string table found"));
+        return Err("ELF data: no string table found".to_string());
     }
     if syms_raw.is_empty() {
-        return Err(format!("{filename}: no symbol table found"));
+        return Err("ELF data: no symbol table found".to_string());
     }
 
     // parse the symbol table
@@ -182,7 +185,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
 
     for start in (0..syms_raw.len()).step_by(SYMBOL_SIZE) {
         if start + SYMBOL_SIZE > syms_raw.len() {
-            return Err(format!("{filename} symbol table entry out of range"));
+            return Err("ELF data symbol table entry out of range".to_string());
         }
         // 32-bit symbol entry format:
         let symbol = &syms_raw[start..start + SYMBOL_SIZE];
@@ -198,7 +201,7 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
             end += 1;
         }
         if end >= strs_raw.len() {
-            return Err(format!("{filename} symbol name out of range"));
+            return Err("ELF data symbol name out of range".to_string());
         }
         let name = String::from_utf8_lossy(&strs_raw[st_name..end]).into_owned();
 
@@ -224,5 +227,5 @@ pub fn load_elf(filename: &str) -> Result<Machine, String> {
     }
 
     // allocate address space
-    Ok(Machine::new(segments, e_entry, global_pointer, address_symbols, other_symbols))
+    Ok(Machine::with_io_provider(segments, e_entry, global_pointer, address_symbols, other_symbols, io_provider))
 }

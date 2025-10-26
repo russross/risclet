@@ -11,6 +11,7 @@ pub mod memory_interface;
 pub mod linter_context;
 pub mod decoder;
 pub mod test_utils;
+pub mod isa_tests;
 
 use self::execution::{Machine, Instruction, add_local_labels, trace};
 use self::trace::Effects;
