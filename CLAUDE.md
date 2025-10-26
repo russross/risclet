@@ -14,18 +14,27 @@ cargo fmt                            # Format code
 cargo clippy                         # Lint code
 
 # Usage examples
-./target/debug/assembler program.s                  # Outputs to a.out
-./target/debug/assembler -o prog program.s          # Outputs to prog
-./target/debug/assembler -t 0x10000 program.s       # Set text start address
-./target/debug/assembler -v program.s               # Verbose output with listing
-./target/debug/assembler --no-relax program.s       # Disable auto-relaxation
+./target/debug/assembler program.s                        # Outputs to a.out
+./target/debug/assembler -o prog program.s                # Outputs to prog
+./target/debug/assembler -t 0x10000 program.s             # Set text start address
+./target/debug/assembler -v program.s                     # Verbose output with listing
+./target/debug/assembler --no-relax program.s             # Disable all relaxations
+./target/debug/assembler --no-relax-gp program.s          # Disable GP-relative addressing
+./target/debug/assembler --no-relax-pseudo program.s      # Disable call/tail optimization
+./target/debug/assembler --no-relax-compressed program.s  # Disable RV32C auto-encoding
 
 # Options
--o <file>        Write output to <file> (default: a.out)
--t <address>     Set text start address (default: 0x10000)
--v, --verbose    Show detailed assembly listing
---no-relax       Disable auto-relaxation of pseudo-instructions (default: enabled)
--h, --help       Show help message
+-o <file>              Write output to <file> (default: a.out)
+-t <address>           Set text start address (default: 0x10000)
+-v, --verbose          Show detailed assembly listing
+--no-relax             Disable all relaxations
+--relax-gp             Enable GP-relative 'la' optimization (default: on)
+--no-relax-gp          Disable GP-relative 'la' optimization
+--relax-pseudo         Enable 'call'/'tail' pseudo-instruction optimization (default: on)
+--no-relax-pseudo      Disable 'call'/'tail' pseudo-instruction optimization
+--relax-compressed     Enable automatic RV32C compressed encoding (default: on)
+--no-relax-compressed  Disable automatic RV32C compressed encoding
+-h, --help             Show help message
 
 # Verify output with GNU binutils
 riscv64-unknown-elf-objdump -d a.out
@@ -49,7 +58,7 @@ This assembler has several unique design choices that distinguish it from typica
 1. **Direct ELF Generation**: No intermediate object files or separate linker. The assembler outputs a complete, executable ELF binary.
 
 2. **Convergence-Based Layout**: Instead of making multiple discrete passes, the assembler iteratively refines instruction sizes until they stabilize. This naturally handles:
-   - Relaxation (pseudo-instructions can shrink from 8 to 4 bytes)
+   - Three types of relaxation (GP-relative, pseudo-instruction, and compressed)
    - Complex forward references
    - Address-dependent code size
 
@@ -59,6 +68,30 @@ This assembler has several unique design choices that distinguish it from typica
 
 5. **Single-File Design**: All source files are processed together into a unified `Source` structure. There's no concept of separate compilation units or relocations.
 
+### Three Types of Relaxation
+
+The assembler supports three independent relaxation optimizations, all enabled by default:
+
+1. **GP-Relative LA Relaxation** (`--relax-gp`)
+   - The `la rd, symbol` pseudo-instruction can use `addi rd, gp, offset` when the symbol is within ±2 KiB of the global pointer
+   - This saves 4 bytes per instruction (2 bytes instead of auipc+addi)
+   - Requires the global pointer (x3) to be initialized correctly at runtime
+   - Can be disabled with `--no-relax-gp` if gp initialization is unavailable
+
+2. **Pseudo-Instruction Optimization** (`--relax-pseudo`)
+   - The `call` and `tail` pseudo-instructions check if the target is within ±1 MiB
+   - If so, they use `jal`/`j` (4 bytes) instead of `auipc+jalr` (8 bytes)
+   - Works regardless of global pointer initialization
+   - Can be disabled with `--no-relax-pseudo` if you need predictable instruction sizes
+
+3. **Compressed Instruction Auto-Encoding** (`--relax-compressed`)
+   - Eligible base instructions (RV32I) are automatically encoded as RV32C compressed equivalents
+   - Reduces code size by ~25% for compatible code
+   - Only works on platforms that support the C extension
+   - Can be disabled with `--no-relax-compressed` for incompatible targets
+
+Use `--no-relax` to disable all three optimizations at once.
+
 ### Why This Matters
 
 If you're used to GNU assembler, note these differences:
@@ -67,7 +100,7 @@ If you're used to GNU assembler, note these differences:
 - **No separate linking**: All files are assembled together; `.global` symbols are resolved immediately
 - **No relocations**: All addresses are concrete after assembly
 - **Strict expression typing**: `label1 + label2` is a type error (can't add two addresses)
-- **Built-in relaxation**: Pseudo-instructions automatically use the smallest encoding
+- **Three configurable relaxations**: GP-relative addressing, pseudo-instruction optimization, and compressed instruction encoding
 
 ---
 
@@ -628,7 +661,7 @@ func:
     ret
 ```
 
-If `func` is far, `call` is 8 bytes. If it's close, it relaxes to 4 bytes during convergence.
+With `--relax-pseudo` enabled (default), if `func` is far, `call` is 8 bytes. If it's close, it relaxes to 4 bytes during convergence. Disable with `--no-relax-pseudo` to always use 8 bytes.
 
 ### 6. **BSS Is Zero-Only**
 ```asm
@@ -830,12 +863,17 @@ c.mv x1, x2          # Shorthand for c.add x1, x2
 
 This automatic compression reduces code size while maintaining correct semantics. The convergence loop automatically re-layouts the program if instructions shrink from 4 to 2 bytes.
 
-**Disabling auto-relaxation:** Use the `--no-relax` flag to disable automatic compression:
+**Disabling compression:** Use the `--no-relax-compressed` flag to disable automatic compression:
 ```bash
-./target/debug/assembler --no-relax program.s    # Produces standard 4-byte instructions
+./target/debug/assembler --no-relax-compressed program.s    # Produces standard 4-byte instructions
 ```
 
-This is useful for debugging or when you explicitly want full-sized base instructions instead of compressed equivalents.
+Or use `--no-relax` to disable all relaxations:
+```bash
+./target/debug/assembler --no-relax program.s    # Disables GP-relative, pseudo, and compressed relaxations
+```
+
+This is useful for debugging, targeting platforms without the C extension, or when you explicitly want full-sized base instructions instead of compressed equivalents.
 
 ### Common Pitfalls
 

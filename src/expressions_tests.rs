@@ -25,7 +25,9 @@ mod tests {
             bss_size: 0,
             global_symbols: vec![],
             uses_global_pointer: false,
-            relax: false,
+            relax_gp: false,
+            relax_pseudo: false,
+            relax_compressed: false,
         }
     }
 
@@ -690,7 +692,9 @@ mod tests {
             global_symbols: vec![],
             header_size: 0,
             uses_global_pointer: false,
-            relax: false,
+            relax_gp: false,
+            relax_pseudo: false,
+            relax_compressed: false,
         };
 
         let context = new_evaluation_context(source, 0x100e8);

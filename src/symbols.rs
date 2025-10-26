@@ -67,7 +67,8 @@ pub fn resolve_symbols(source: &mut Source) -> Result<(), AssemblerError> {
         // Merge unresolved
         for u_r in file_unresolved {
             if u_r.symbol == SPECIAL_GLOBAL_POINTER {
-                source.uses_global_pointer = true;
+                // Allow __global_pointer$ to be used in expressions, but don't enable
+                // GP-relative addressing automatically. The relax_gp flag controls that.
                 file.lines[u_r.referencing_pointer.line_index]
                     .outgoing_refs
                     .push(SymbolReference {

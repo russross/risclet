@@ -52,19 +52,13 @@ pub fn encode_source(
         for line in &file.lines {
             match line.segment {
                 Segment::Text => {
-                    let bytes = encode_line(
-                        line,
-                        &mut context,
-                        source.uses_global_pointer,
-                    )?;
+                    let bytes =
+                        encode_line(line, &mut context, source.relax_gp)?;
                     text_bytes.extend_from_slice(&bytes);
                 }
                 Segment::Data => {
-                    let bytes = encode_line(
-                        line,
-                        &mut context,
-                        source.uses_global_pointer,
-                    )?;
+                    let bytes =
+                        encode_line(line, &mut context, source.relax_gp)?;
                     data_bytes.extend_from_slice(&bytes);
                 }
                 Segment::Bss => {
@@ -112,11 +106,8 @@ pub fn encode_source_with_size_tracking(
             // Encode the line
             let (bytes, actual_size) = match segment {
                 Segment::Text | Segment::Data => {
-                    let bytes = encode_line(
-                        line,
-                        &mut context,
-                        source.uses_global_pointer,
-                    )?;
+                    let bytes =
+                        encode_line(line, &mut context, source.relax_gp)?;
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
@@ -152,7 +143,7 @@ pub fn encode_source_with_size_tracking(
 pub fn encode_line(
     line: &Line,
     context: &mut EncodingContext,
-    uses_global_pointer: bool,
+    relax_gp: bool,
 ) -> Result<Vec<u8>> {
     // BSS segment should be handled separately in encode_source
     assert!(
@@ -165,7 +156,7 @@ pub fn encode_line(
         LineContent::Label(_) => Ok(Vec::new()), // Labels don't generate code
 
         LineContent::Instruction(inst) => {
-            encode_instruction(inst, line, context, uses_global_pointer)
+            encode_instruction(inst, line, context, relax_gp)
         }
 
         LineContent::Directive(dir) => encode_directive(dir, line, context),
@@ -562,12 +553,12 @@ fn encode_instruction(
     inst: &Instruction,
     line: &Line,
     context: &mut EncodingContext,
-    uses_global_pointer: bool,
+    relax_gp: bool,
 ) -> Result<Vec<u8>> {
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
             // Try to relax to compressed instruction if enabled
-            if context.source.relax
+            if context.source.relax_compressed
                 && let Some((c_op, c_operands)) =
                     try_compress_instruction(inst, None)
             {
@@ -590,7 +581,7 @@ fn encode_instruction(
             let imm = require_integer(val, "I-type immediate", &line.location)?;
 
             // Try to relax to compressed instruction if enabled
-            if context.source.relax
+            if context.source.relax_compressed
                 && let Some((c_op, c_operands)) =
                     try_compress_instruction(inst, Some(imm))
             {
@@ -677,7 +668,7 @@ fn encode_instruction(
         }
 
         Instruction::Pseudo(pseudo) => {
-            encode_pseudo(pseudo, line, context, uses_global_pointer)
+            encode_pseudo(pseudo, line, context, relax_gp)
         }
     }
 }
@@ -1147,7 +1138,7 @@ fn encode_pseudo(
     pseudo: &PseudoOp,
     line: &Line,
     context: &mut EncodingContext,
-    uses_global_pointer: bool,
+    relax_gp: bool,
 ) -> Result<Vec<u8>> {
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
@@ -1168,14 +1159,7 @@ fn encode_pseudo(
             let current_pc = get_line_address(line, context);
             let gp = (context.eval_context.data_start as i64) + 2048;
 
-            expand_la(
-                *rd,
-                addr,
-                current_pc,
-                gp,
-                &line.location,
-                uses_global_pointer,
-            )
+            expand_la(*rd, addr, current_pc, gp, &line.location, relax_gp)
         }
 
         PseudoOp::Call(target_expr) => {
@@ -1188,7 +1172,12 @@ fn encode_pseudo(
             )?;
 
             let current_pc = get_line_address(line, context);
-            expand_call(target, current_pc, &line.location)
+            expand_call(
+                target,
+                current_pc,
+                &line.location,
+                context.source.relax_pseudo,
+            )
         }
 
         PseudoOp::Tail(target_expr) => {
@@ -1201,7 +1190,12 @@ fn encode_pseudo(
             )?;
 
             let current_pc = get_line_address(line, context);
-            expand_tail(target, current_pc, &line.location)
+            expand_tail(
+                target,
+                current_pc,
+                &line.location,
+                context.source.relax_pseudo,
+            )
         }
 
         PseudoOp::LoadGlobal(op, rd, addr_expr) => {
@@ -1311,16 +1305,16 @@ fn expand_la(
     current_pc: i64,
     gp: i64,
     location: &crate::ast::Location,
-    uses_global_pointer: bool,
+    relax_gp: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
     // Special case: la gp, __global_pointer$ must use PC-relative
     let is_gp_init = rd == Register::X3 && addr == gp;
 
-    // Check if we can use GP-relative addressing (only if __global_pointer$ is referenced)
+    // Check if we can use GP-relative addressing
     let gp_offset = addr - gp;
-    if !is_gp_init && uses_global_pointer && fits_signed(gp_offset, 12) {
+    if !is_gp_init && relax_gp && fits_signed(gp_offset, 12) {
         // addi rd, gp, offset
         let inst = encode_i_type(
             0b0010011,
@@ -1352,27 +1346,31 @@ fn expand_la(
 /// Expand `call target` - Call subroutine
 ///
 /// Relaxation optimization:
-/// - If target is within ±1 MiB (fits in 21-bit signed immediate), use `jal ra, offset` (4 bytes)
+/// - If relax_pseudo and target is within ±1 MiB (fits in 21-bit signed immediate), use `jal ra, offset` (4 bytes)
 /// - Otherwise, use `auipc ra, hi; jalr ra, ra, lo` (8 bytes)
 fn expand_call(
     target: i64,
     current_pc: i64,
     location: &crate::ast::Location,
+    relax_pseudo: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
     let offset = target - current_pc;
 
-    // Try optimized encoding: single JAL if offset fits in 21 bits
-    if fits_signed(offset, 21) && offset % 2 == 0 {
-        // jal ra, offset (single 4-byte instruction)
-        let jal_inst =
-            encode_j_type(0b1101111, Register::X1, offset, location)?;
-        bytes.extend_from_slice(&u32_to_le_bytes(jal_inst));
-        return Ok(bytes);
+    // Only try relaxation if enabled
+    if relax_pseudo {
+        // Try optimized encoding: single JAL if offset fits in 21 bits
+        if fits_signed(offset, 21) && offset % 2 == 0 {
+            // jal ra, offset (single 4-byte instruction)
+            let jal_inst =
+                encode_j_type(0b1101111, Register::X1, offset, location)?;
+            bytes.extend_from_slice(&u32_to_le_bytes(jal_inst));
+            return Ok(bytes);
+        }
     }
 
-    // Fall back to full 8-byte encoding for far targets
+    // Fall back to full 8-byte encoding (either no relaxation or target too far)
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc ra, hi
@@ -1397,28 +1395,32 @@ fn expand_call(
 /// Expand `tail target` - Tail call
 ///
 /// Relaxation optimization:
-/// - If target is within ±1 MiB (fits in 21-bit signed immediate), use `jal x0, offset` (4 bytes)
+/// - If relax_pseudo and target is within ±1 MiB (fits in 21-bit signed immediate), use `jal x0, offset` (4 bytes)
 ///   which is the `j offset` pseudo-instruction
 /// - Otherwise, use `auipc t1, hi; jalr x0, t1, lo` (8 bytes)
 fn expand_tail(
     target: i64,
     current_pc: i64,
     location: &crate::ast::Location,
+    relax_pseudo: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
     let offset = target - current_pc;
 
-    // Try optimized encoding: single JAL (j offset) if offset fits in 21 bits
-    if fits_signed(offset, 21) && offset % 2 == 0 {
-        // jal x0, offset (j offset - single 4-byte instruction)
-        let jal_inst =
-            encode_j_type(0b1101111, Register::X0, offset, location)?;
-        bytes.extend_from_slice(&u32_to_le_bytes(jal_inst));
-        return Ok(bytes);
+    // Only try relaxation if enabled
+    if relax_pseudo {
+        // Try optimized encoding: single JAL (j offset) if offset fits in 21 bits
+        if fits_signed(offset, 21) && offset % 2 == 0 {
+            // jal x0, offset (j offset - single 4-byte instruction)
+            let jal_inst =
+                encode_j_type(0b1101111, Register::X0, offset, location)?;
+            bytes.extend_from_slice(&u32_to_le_bytes(jal_inst));
+            return Ok(bytes);
+        }
     }
 
-    // Fall back to full 8-byte encoding for far targets
+    // Fall back to full 8-byte encoding (either no relaxation or target too far)
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc t1, hi

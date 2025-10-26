@@ -72,7 +72,9 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax: false, // Disable relaxation for testing base instruction encodings
+        relax_gp: true,
+        relax_pseudo: true,
+        relax_compressed: false, // Disable compression in tests to keep instruction sizes predictable
     };
 
     // Resolve symbols
@@ -257,7 +259,9 @@ addi a1, a1, -10
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax: true,
+        relax_gp: true,
+        relax_pseudo: true,
+        relax_compressed: true,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
@@ -343,7 +347,9 @@ add a0, a0, a1
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax: true,
+        relax_gp: true,
+        relax_pseudo: true,
+        relax_compressed: true,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
@@ -425,7 +431,9 @@ addi a0, a0, 50
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax: true,
+        relax_gp: true,
+        relax_pseudo: true,
+        relax_compressed: true,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
@@ -1712,11 +1720,12 @@ data_label:
     let (text, data, _bss) = assemble(source).expect("Assembly should succeed");
 
     // Verify text section
-    // la at offset 0, expands to auipc + addi (8 bytes) - no GP optimization since __global_pointer$ not referenced
-    // call at offset 8, relaxes to jal (4 bytes)
-    // nop at offset 12 (func label)
-    // nop at offset 16
-    assert_eq!(text.len(), 20, "Text section should be 20 bytes");
+    // With relax_gp enabled (default), data_label fits within ±2KiB of gp
+    // la at offset 0, optimizes to addi rd, gp, offset (4 bytes via GP-relative addressing)
+    // call at offset 4, relaxes to jal (4 bytes)
+    // nop at offset 8 (func label)
+    // nop at offset 12
+    assert_eq!(text.len(), 16, "Text section should be 16 bytes");
 
     // Verify data section exists
     assert_eq!(data.len(), 4, "Data section should be 4 bytes");
