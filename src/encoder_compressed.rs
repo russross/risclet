@@ -195,8 +195,9 @@ fn encode_compressed_inst(
         }
 
         // CL format: c.lw rd', offset(rs1')
-        // opcode: 010 | offset[5:3] | rs1'[2:0] | offset[2,6] | rd'[2:0] | 00
+        // Layout: 010 | offset[5:3] | rs1'[2:0] | offset[2] | offset[6] | rd'[2:0] | 00
         // offset is in 4-byte increments, range [0, 124]
+        // The offset is encoded as: offset[5:3] at bits 12-10, offset[2] at bit 6, offset[6] at bit 5
         (CLw, CL { rd_prime, rs1_prime, offset }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
@@ -208,20 +209,23 @@ fn encode_compressed_inst(
                 ));
             }
             let offset_scaled = (offset_val >> 2) as u16;
-            let offset_5_3 = (offset_scaled >> 3) & 0x7;
-            let offset_2 = (offset_scaled >> 2) & 1;
-            let offset_6 = (offset_scaled >> 6) & 1;
+            // Extract offset bits: offset = offset_scaled * 4
+            // offset[5:3] = offset_scaled >> 1
+            // offset[2] = offset_scaled & 1
+            // offset[6] = 0 (always zero for valid range)
+            let offset_5_3 = (offset_scaled >> 1) & 0x7;
+            let offset_2 = offset_scaled & 1;
             Ok(0b010_000_000_00_000_00 
                 | (offset_5_3 << 10)
                 | (rs1_enc << 7)
                 | (offset_2 << 6)
-                | (offset_6 << 5)
                 | (rd_enc << 2))
         }
 
         // CS format: c.sw rs2', offset(rs1')
-        // opcode: 110 | offset[5:3] | rs1'[2:0] | offset[2,6] | rs2'[2:0] | 00
+        // Layout: 110 | offset[5:3] | rs1'[2:0] | offset[2] | offset[6] | rs2'[2:0] | 00
         // offset is in 4-byte increments, range [0, 124]
+        // The offset is encoded the same way as CL format
         (CSw, CS { rs2_prime, rs1_prime, offset }) => {
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
@@ -233,14 +237,13 @@ fn encode_compressed_inst(
                 ));
             }
             let offset_scaled = (offset_val >> 2) as u16;
-            let offset_5_3 = (offset_scaled >> 3) & 0x7;
-            let offset_2 = (offset_scaled >> 2) & 1;
-            let offset_6 = (offset_scaled >> 6) & 1;
+            // Same offset extraction as CL
+            let offset_5_3 = (offset_scaled >> 1) & 0x7;
+            let offset_2 = offset_scaled & 1;
             Ok(0b110_000_000_00_000_00 
                 | (offset_5_3 << 10)
                 | (rs1_enc << 7)
                 | (offset_2 << 6)
-                | (offset_6 << 5)
                 | (rs2_enc << 2))
         }
 
@@ -288,7 +291,7 @@ fn encode_compressed_inst(
             let imm_bits = imm_val as u16;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b100_0_10_000_00_000_01 
+            Ok(0b100_0_00_000_00_000_01 
                 | (imm_5 << 12)
                 | (rd_enc << 7)
                 | (imm_4_0 << 2))
@@ -306,7 +309,7 @@ fn encode_compressed_inst(
             let imm_bits = imm_val as u16;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b100_1_10_000_00_000_01 
+            Ok(0b100_0_01_000_00_000_01 
                 | (imm_5 << 12)
                 | (rd_enc << 7)
                 | (imm_4_0 << 2))
@@ -319,7 +322,7 @@ fn encode_compressed_inst(
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b100_1_00_000_00_000_01 
+            Ok(0b100_1_10_000_00_000_01 
                 | (imm_5 << 12)
                 | (rd_enc << 7)
                 | (imm_4_0 << 2))

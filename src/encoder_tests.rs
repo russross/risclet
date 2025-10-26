@@ -1745,3 +1745,291 @@ amomaxu.w a0, a2, (a1)
 
     assert_instructions_match(source, expected);
 }
+
+// ============================================================================
+// RV32C Compressed Instruction Tests
+// ============================================================================
+// Tests for RISC-V compressed instruction extension (RV32C)
+// Encodings validated against GNU riscv64-unknown-elf-as
+
+#[test]
+fn test_c_nop() {
+    // c.nop (special encoding of c.addi x0, 0)
+    // GNU: 0x0001
+    let source = "c.nop";
+    let expected = &[0x01, 0x00];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_ebreak() {
+    // c.ebreak
+    // GNU: 0x9002
+    let source = "c.ebreak";
+    let expected = &[0x02, 0x90];
+    assert_instructions_match(source, expected);
+}
+
+// CR format: register-register operations
+#[test]
+fn test_c_add() {
+    // c.add a0, a1
+    // GNU: 0x952e
+    let source = "c.add a0, a1";
+    let expected = &[0x2e, 0x95];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_mv() {
+    // c.mv a0, a1
+    // GNU: 0x852e
+    let source = "c.mv a0, a1";
+    let expected = &[0x2e, 0x85];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_jr() {
+    // c.jr ra
+    // GNU: 0x8082
+    let source = "c.jr ra";
+    let expected = &[0x82, 0x80];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_jalr() {
+    // c.jalr ra
+    // GNU: 0x9082
+    let source = "c.jalr ra";
+    let expected = &[0x82, 0x90];
+    assert_instructions_match(source, expected);
+}
+
+// CI format: register with 6-bit signed immediate
+#[test]
+fn test_c_li_positive() {
+    // c.li a0, 5
+    // GNU: 0x4515
+    let source = "c.li a0, 5";
+    let expected = &[0x15, 0x45];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_li_negative() {
+    // c.li a0, -1
+    // GNU: 0x557d
+    let source = "c.li a0, -1";
+    let expected = &[0x7d, 0x55];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_addi_positive() {
+    // c.addi a0, 5
+    // GNU: 0x0515
+    let source = "c.addi a0, 5";
+    let expected = &[0x15, 0x05];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_addi_negative() {
+    // c.addi a0, -5
+    // GNU: 0x156d
+    let source = "c.addi a0, -5";
+    let expected = &[0x6d, 0x15];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_slli() {
+    // c.slli a0, 2
+    // GNU: 0x050a
+    let source = "c.slli a0, 2";
+    let expected = &[0x0a, 0x05];
+    assert_instructions_match(source, expected);
+}
+
+// CA format: compressed register arithmetic
+#[test]
+fn test_c_and() {
+    // c.and s0, s1
+    // GNU: 0x8c65
+    let source = "c.and s0, s1";
+    let expected = &[0x65, 0x8c];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_or() {
+    // c.or s0, s1
+    // GNU: 0x8c45
+    let source = "c.or s0, s1";
+    let expected = &[0x45, 0x8c];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_xor() {
+    // c.xor s0, s1
+    // GNU: 0x8c25
+    let source = "c.xor s0, s1";
+    let expected = &[0x25, 0x8c];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_sub() {
+    // c.sub s0, s1
+    // GNU: 0x8c05
+    let source = "c.sub s0, s1";
+    let expected = &[0x05, 0x8c];
+    assert_instructions_match(source, expected);
+}
+
+// CBImm format: compressed register with immediate
+#[test]
+fn test_c_srli() {
+    // c.srli s0, 4
+    // GNU: 0x8011
+    let source = "c.srli s0, 4";
+    let expected = &[0x11, 0x80];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_srai() {
+    // c.srai s0, 4
+    // GNU: 0x8411
+    let source = "c.srai s0, 4";
+    let expected = &[0x11, 0x84];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_andi() {
+    // c.andi s0, -5
+    // GNU: 0x986d
+    let source = "c.andi s0, -5";
+    let expected = &[0x6d, 0x98];
+    assert_instructions_match(source, expected);
+}
+
+// CL/CS format: load/store with immediate offset (compressed registers)
+#[test]
+fn test_c_lw() {
+    // c.lw s0, 4(a0)
+    // GNU: 0x4140
+    let source = "c.lw s0, 4(a0)";
+    let expected = &[0x40, 0x41];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_sw() {
+    // c.sw s1, 4(a0)
+    // GNU: 0xc144
+    let source = "c.sw s1, 4(a0)";
+    let expected = &[0x44, 0xc1];
+    assert_instructions_match(source, expected);
+}
+
+// CBBranch format: branch with PC-relative offset
+#[test]
+fn test_c_beqz_forward() {
+    // Forward branch: c.beqz a0, forward
+    // Creates: c.beqz a0, forward (2 bytes) at offset 0
+    //          nop (4 bytes) at offset 2
+    //          forward: nop (4 bytes) at offset 6
+    // offset = 6 bytes from c.beqz to forward
+    let source = r#"
+c.beqz a0, forward
+nop
+forward:
+nop
+"#;
+    let expected = &[
+        0x19, 0xc1, // c.beqz a0, forward (offset=6)
+        0x13, 0x00, 0x00, 0x00, // nop
+        0x13, 0x00, 0x00, 0x00, // nop (forward label)
+    ];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_bnez_backward() {
+    // Backward branch: loop: c.bnez a0, loop
+    // Creates: nop
+    //          loop: c.bnez a0, loop (offset -2 back to loop)
+    //          nop
+    // GNU: 0xe101
+    let source = r#"
+nop
+loop:
+c.bnez a0, loop
+nop
+"#;
+    let expected = &[
+        0x13, 0x00, 0x00, 0x00, // nop
+        0x01, 0xe1, // c.bnez a0, loop (backward offset)
+        0x13, 0x00, 0x00, 0x00, // nop
+    ];
+    assert_instructions_match(source, expected);
+}
+
+// CJ format: unconditional jump with PC-relative offset
+#[test]
+fn test_c_j_forward() {
+    // Forward jump: c.j target
+    // Creates: c.j target (2 bytes) at offset 0
+    //          nop (4 bytes) at offset 2
+    //          target: nop (4 bytes) at offset 6
+    // offset = 6 bytes from c.j to target
+    let source = r#"
+c.j target
+nop
+target:
+nop
+"#;
+    let expected = &[
+        0x19, 0xa0, // c.j target (offset=6)
+        0x13, 0x00, 0x00, 0x00, // nop
+        0x13, 0x00, 0x00, 0x00, // nop (target label)
+    ];
+    assert_instructions_match(source, expected);
+}
+
+// Test all compressed instructions together
+#[test]
+fn test_all_compressed_instructions() {
+    let source = r#"
+c.nop
+c.addi a0, 5
+c.add s0, s1
+c.li a1, 10
+c.and s0, s1
+c.or a2, a3
+c.xor a4, a5
+c.sub a0, a1
+c.jr ra
+c.ebreak
+"#;
+
+    let expected = &[
+        0x01, 0x00, // c.nop
+        0x15, 0x05, // c.addi a0, 5
+        0x26, 0x94, // c.add s0, s1
+        0xa9, 0x45, // c.li a1, 10
+        0x65, 0x8c, // c.and s0, s1
+        0x55, 0x8e, // c.or a2, a3
+        0x3d, 0x8f, // c.xor a4, a5
+        0x0d, 0x8d, // c.sub a0, a1
+        0x82, 0x80, // c.jr ra
+        0x02, 0x90, // c.ebreak
+    ];
+
+    assert_instructions_match(source, expected);
+}
