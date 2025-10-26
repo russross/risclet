@@ -404,15 +404,33 @@ pub fn extract_references_from_line(line: &Line) -> Vec<String> {
                     use crate::ast::CompressedOperands::*;
                     match operands {
                         CR { .. } | CRSingle { .. } | CA { .. } => {}
-                        CI { imm, .. } => refs.extend(extract_from_expression(imm)),
-                        CIStackLoad { offset, .. } => refs.extend(extract_from_expression(offset)),
-                        CSSStackStore { offset, .. } => refs.extend(extract_from_expression(offset)),
-                        CIW { imm, .. } => refs.extend(extract_from_expression(imm)),
-                        CL { offset, .. } => refs.extend(extract_from_expression(offset)),
-                        CS { offset, .. } => refs.extend(extract_from_expression(offset)),
-                        CBImm { imm, .. } => refs.extend(extract_from_expression(imm)),
-                        CBBranch { offset, .. } => refs.extend(extract_from_expression(offset)),
-                        CJOpnd { offset } => refs.extend(extract_from_expression(offset)),
+                        CI { imm, .. } => {
+                            refs.extend(extract_from_expression(imm))
+                        }
+                        CIStackLoad { offset, .. } => {
+                            refs.extend(extract_from_expression(offset))
+                        }
+                        CSSStackStore { offset, .. } => {
+                            refs.extend(extract_from_expression(offset))
+                        }
+                        CIW { imm, .. } => {
+                            refs.extend(extract_from_expression(imm))
+                        }
+                        CL { offset, .. } => {
+                            refs.extend(extract_from_expression(offset))
+                        }
+                        CS { offset, .. } => {
+                            refs.extend(extract_from_expression(offset))
+                        }
+                        CBImm { imm, .. } => {
+                            refs.extend(extract_from_expression(imm))
+                        }
+                        CBBranch { offset, .. } => {
+                            refs.extend(extract_from_expression(offset))
+                        }
+                        CJOpnd { offset } => {
+                            refs.extend(extract_from_expression(offset))
+                        }
                         crate::ast::CompressedOperands::None => {}
                     }
                 }

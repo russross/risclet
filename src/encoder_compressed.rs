@@ -4,8 +4,12 @@
 //
 // This module handles encoding of 16-bit (2-byte) compressed instructions.
 // All compressed instructions must be 2-byte aligned.
+//
+// Note: Binary literals use custom grouping to show instruction format structure
+// (e.g., `0b010_0_00000_00000_01` shows [funct3]_[imm5]_[rd]_[imm4:0]_[op])
+#![allow(clippy::unusual_byte_groupings)]
 
-use crate::ast::{CompressedOp, CompressedOperands, Register, Line};
+use crate::ast::{CompressedOp, CompressedOperands, Line, Register};
 use crate::error::{AssemblerError, Result};
 use crate::expressions::EvaluationContext;
 
@@ -28,7 +32,12 @@ pub fn encode_compressed_with_context(
     line: &Line,
     eval_context: &mut EvaluationContext,
 ) -> Result<Vec<u8>> {
-    let inst = encode_compressed_inst(op, operands, &line.location, Some((line, eval_context)))?;
+    let inst = encode_compressed_inst(
+        op,
+        operands,
+        &line.location,
+        Some((line, eval_context)),
+    )?;
     Ok(inst.to_le_bytes().to_vec())
 }
 
@@ -93,7 +102,10 @@ fn encode_compressed_inst(
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b010_0_00000_00000_01 | (imm_5 << 12) | (rd_enc << 7) | (imm_4_0 << 2))
+            Ok(0b010_0_00000_00000_01
+                | (imm_5 << 12)
+                | (rd_enc << 7)
+                | (imm_4_0 << 2))
         }
 
         // CI format: c.addi rd, imm (rd is also rs1, rd != x0)
@@ -112,7 +124,48 @@ fn encode_compressed_inst(
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b000_0_00000_00000_01 | (imm_5 << 12) | (rd_enc << 7) | (imm_4_0 << 2))
+            Ok(0b000_0_00000_00000_01
+                | (imm_5 << 12)
+                | (rd_enc << 7)
+                | (imm_4_0 << 2))
+        }
+
+        // CI format: c.addi16sp sp, imm
+        // opcode: 011 | imm[9] | 00010 | imm[4:3,5,8:6] | 01
+        // imm is 10-bit signed << 4, range [-512, 496] in multiples of 16
+        (CAddi16sp, CI { rd, imm }) => {
+            if *rd != Register::X2 {
+                return Err(AssemblerError::from_context(
+                    "c.addi16sp requires sp (x2) as rd".to_string(),
+                    location.clone(),
+                ));
+            }
+            let imm_val = extract_literal(imm);
+            // Check range: -512 to 496 in multiples of 16
+            if imm_val % 16 != 0 {
+                return Err(AssemblerError::from_context(
+                    format!(
+                        "c.addi16sp immediate {} must be multiple of 16",
+                        imm_val
+                    ),
+                    location.clone(),
+                ));
+            }
+            check_signed_imm(imm_val, 11, "c.addi16sp", location)?; // Check 11-bit range for the original value
+            let imm_bits = (imm_val as u16) & 0x3FF; // Keep as 10-bit immediate
+            let imm_9 = (imm_bits >> 9) & 1;
+            let imm_8 = (imm_bits >> 8) & 1;
+            let imm_7_6 = (imm_bits >> 6) & 0x3;
+            let imm_5 = (imm_bits >> 5) & 1;
+            let imm_4 = (imm_bits >> 4) & 1;
+            // Encoding: bits 15-13 = 011, bit 12 = imm[9], bits 11-7 = 00010 (sp)
+            //           bit 6 = imm[4], bit 5 = imm[8], bit 4 = imm[5], bits 3-2 = imm[7:6], bits 1-0 = 01
+            Ok(0b011_0_00010_00_0_00_01
+                | (imm_9 << 12)
+                | (imm_4 << 6)
+                | (imm_8 << 5)
+                | (imm_5 << 4)
+                | (imm_7_6 << 2))
         }
 
         // CI format: c.slli rd, shamt
@@ -129,14 +182,20 @@ fn encode_compressed_inst(
             let shamt_val = extract_literal(imm) as u32;
             if shamt_val > 63 {
                 return Err(AssemblerError::from_context(
-                    format!("c.slli shift amount {} out of range [0, 63]", shamt_val),
+                    format!(
+                        "c.slli shift amount {} out of range [0, 63]",
+                        shamt_val
+                    ),
                     location.clone(),
                 ));
             }
             let shamt_bits = shamt_val as u16;
             let shamt_5 = (shamt_bits >> 5) & 1;
             let shamt_4_0 = shamt_bits & 0x1F;
-            Ok(0b000_0_00000_00000_10 | (shamt_5 << 12) | (rd_enc << 7) | (shamt_4_0 << 2))
+            Ok(0b000_0_00000_00000_10
+                | (shamt_5 << 12)
+                | (rd_enc << 7)
+                | (shamt_4_0 << 2))
         }
 
         // CI format stack-relative: c.lwsp rd, offset(sp)
@@ -153,7 +212,10 @@ fn encode_compressed_inst(
             let offset_val = extract_literal(offset) as u32;
             if offset_val > 252 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.lwsp offset {} must be 4-byte aligned in range [0, 252]", offset_val),
+                    format!(
+                        "c.lwsp offset {} must be 4-byte aligned in range [0, 252]",
+                        offset_val
+                    ),
                     location.clone(),
                 ));
             }
@@ -161,9 +223,9 @@ fn encode_compressed_inst(
             let offset_5 = (offset_scaled >> 5) & 1;
             let offset_4_2 = (offset_scaled >> 2) & 0x7;
             let offset_7_6 = (offset_scaled >> 7) & 0x3;
-            Ok(0b010_0_00000_00000_10 
-                | (offset_5 << 12) 
-                | (rd_enc << 7) 
+            Ok(0b010_0_00000_00000_10
+                | (offset_5 << 12)
+                | (rd_enc << 7)
                 | (offset_4_2 << 4)
                 | (offset_7_6 << 2))
         }
@@ -179,7 +241,10 @@ fn encode_compressed_inst(
             let offset_val = extract_literal(offset) as u32;
             if offset_val > 252 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.swsp offset {} must be 4-byte aligned in range [0, 252]", offset_val),
+                    format!(
+                        "c.swsp offset {} must be 4-byte aligned in range [0, 252]",
+                        offset_val
+                    ),
                     location.clone(),
                 ));
             }
@@ -187,11 +252,33 @@ fn encode_compressed_inst(
             let offset_5_2 = (offset_scaled & 0xF) as u16;
             let offset_8_6 = ((offset_scaled >> 4) & 0x7) as u16;
             // CSS format: bits 15:13=110, bits 12:7=offset[8:6,5:2], bits 6:2=rs2[4:0], bits 1:0=10
-            Ok((0b110_u16 << 13) 
+            Ok((0b110_u16 << 13)
                 | (offset_8_6 << 10)
                 | (offset_5_2 << 7)
                 | (rs2_enc << 2)
                 | 0b10)
+        }
+
+        // CIW format: c.addi4spn rd', imm
+        // opcode: 000 | imm[9:6,2,5:3] | rd'[2:0] | 00
+        // imm is 10-bit zero-extended << 2, range [0, 1020] in multiples of 4
+        (CAddi4spn, CIW { rd_prime, imm }) => {
+            let rd_enc = rd_prime.compressed_encoding() as u16;
+            let imm_val = extract_literal(imm) as u32;
+            // Check range: 0 to 1020 in multiples of 4
+            if imm_val > 1020 || imm_val % 4 != 0 {
+                return Err(AssemblerError::from_context(
+                    format!(
+                        "c.addi4spn immediate {} must be 4-byte aligned in range [0, 1020]",
+                        imm_val
+                    ),
+                    location.clone(),
+                ));
+            }
+            // CIW encoding: bits 15:13=000, bits 12:6=imm[8:2], bits 5:2=rd'[3:0], bits 1:0=00
+            let imm_bits = (imm_val as u16) & 0x3FF;
+            let imm_8_2 = (imm_bits >> 2) & 0x7F; // Extract bits 8:2
+            Ok((imm_8_2 << 6) | (rd_enc << 2))
         }
 
         // CL format: c.lw rd', offset(rs1')
@@ -204,7 +291,10 @@ fn encode_compressed_inst(
             let offset_val = extract_literal(offset) as u32;
             if offset_val > 124 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.lw offset {} must be 4-byte aligned in range [0, 124]", offset_val),
+                    format!(
+                        "c.lw offset {} must be 4-byte aligned in range [0, 124]",
+                        offset_val
+                    ),
                     location.clone(),
                 ));
             }
@@ -215,7 +305,7 @@ fn encode_compressed_inst(
             // offset[6] = 0 (always zero for valid range)
             let offset_5_3 = (offset_scaled >> 1) & 0x7;
             let offset_2 = offset_scaled & 1;
-            Ok(0b010_000_000_00_000_00 
+            Ok(0b010_000_000_00_000_00
                 | (offset_5_3 << 10)
                 | (rs1_enc << 7)
                 | (offset_2 << 6)
@@ -232,7 +322,10 @@ fn encode_compressed_inst(
             let offset_val = extract_literal(offset) as u32;
             if offset_val > 124 || offset_val % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.sw offset {} must be 4-byte aligned in range [0, 124]", offset_val),
+                    format!(
+                        "c.sw offset {} must be 4-byte aligned in range [0, 124]",
+                        offset_val
+                    ),
                     location.clone(),
                 ));
             }
@@ -240,7 +333,7 @@ fn encode_compressed_inst(
             // Same offset extraction as CL
             let offset_5_3 = (offset_scaled >> 1) & 0x7;
             let offset_2 = offset_scaled & 1;
-            Ok(0b110_000_000_00_000_00 
+            Ok(0b110_000_000_00_000_00
                 | (offset_5_3 << 10)
                 | (rs1_enc << 7)
                 | (offset_2 << 6)
@@ -256,25 +349,37 @@ fn encode_compressed_inst(
         (CAnd, CA { rd_prime, rs2_prime }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
-            Ok((0b100011_u16 << 10) | (rd_enc << 7) | (0b11_u16 << 5) | (rs2_enc << 2) | 0b01)
+            Ok((0b100011_u16 << 10)
+                | (rd_enc << 7)
+                | (0b11_u16 << 5)
+                | (rs2_enc << 2)
+                | 0b01)
         }
 
         (COr, CA { rd_prime, rs2_prime }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
-            Ok((0b100011_u16 << 10) | (rd_enc << 7) | (0b10_u16 << 5) | (rs2_enc << 2) | 0b01)
+            Ok((0b100011_u16 << 10)
+                | (rd_enc << 7)
+                | (0b10_u16 << 5)
+                | (rs2_enc << 2)
+                | 0b01)
         }
 
         (CXor, CA { rd_prime, rs2_prime }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
-            Ok((0b100011_u16 << 10) | (rd_enc << 7) | (0b01_u16 << 5) | (rs2_enc << 2) | 0b01)
+            Ok((0b100011_u16 << 10)
+                | (rd_enc << 7)
+                | (0b01_u16 << 5)
+                | (rs2_enc << 2)
+                | 0b01)
         }
 
         (CSub, CA { rd_prime, rs2_prime }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
-            Ok((0b100011_u16 << 10) | (rd_enc << 7) | (0b00_u16 << 5) | (rs2_enc << 2) | 0b01)
+            Ok((0b100011_u16 << 10) | (rd_enc << 7) | (rs2_enc << 2) | 0b01)
         }
 
         // CB format: c.srli, c.srai, c.andi
@@ -284,14 +389,17 @@ fn encode_compressed_inst(
             let imm_val = extract_literal(imm) as u32;
             if imm_val > 63 {
                 return Err(AssemblerError::from_context(
-                    format!("c.srli shift amount {} out of range [0, 63]", imm_val),
+                    format!(
+                        "c.srli shift amount {} out of range [0, 63]",
+                        imm_val
+                    ),
                     location.clone(),
                 ));
             }
             let imm_bits = imm_val as u16;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b100_0_00_000_00_000_01 
+            Ok(0b100_0_00_000_00_000_01
                 | (imm_5 << 12)
                 | (rd_enc << 7)
                 | (imm_4_0 << 2))
@@ -302,14 +410,17 @@ fn encode_compressed_inst(
             let imm_val = extract_literal(imm) as u32;
             if imm_val > 63 {
                 return Err(AssemblerError::from_context(
-                    format!("c.srai shift amount {} out of range [0, 63]", imm_val),
+                    format!(
+                        "c.srai shift amount {} out of range [0, 63]",
+                        imm_val
+                    ),
                     location.clone(),
                 ));
             }
             let imm_bits = imm_val as u16;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b100_0_01_000_00_000_01 
+            Ok(0b100_0_01_000_00_000_01
                 | (imm_5 << 12)
                 | (rd_enc << 7)
                 | (imm_4_0 << 2))
@@ -322,7 +433,7 @@ fn encode_compressed_inst(
             let imm_bits = (imm_val as u16) & 0x3F;
             let imm_5 = (imm_bits >> 5) & 1;
             let imm_4_0 = imm_bits & 0x1F;
-            Ok(0b100_1_10_000_00_000_01 
+            Ok(0b100_1_10_000_00_000_01
                 | (imm_5 << 12)
                 | (rd_enc << 7)
                 | (imm_4_0 << 2))
@@ -341,7 +452,7 @@ fn encode_compressed_inst(
             let offset_5 = (offset_bits >> 5) & 1;
             let offset_4_3 = (offset_bits >> 3) & 0x3;
             let offset_2_1 = (offset_bits >> 1) & 0x3;
-            Ok(0b110_000_000_00000_01 
+            Ok(0b110_000_000_00000_01
                 | (offset_8 << 12)
                 | (offset_4_3 << 10)
                 | (rs1_enc << 7)
@@ -360,7 +471,7 @@ fn encode_compressed_inst(
             let offset_5 = (offset_bits >> 5) & 1;
             let offset_4_3 = (offset_bits >> 3) & 0x3;
             let offset_2_1 = (offset_bits >> 1) & 0x3;
-            Ok(0b111_000_000_00000_01 
+            Ok(0b111_000_000_00000_01
                 | (offset_8 << 12)
                 | (offset_4_3 << 10)
                 | (rs1_enc << 7)
@@ -384,7 +495,7 @@ fn encode_compressed_inst(
             let offset_5 = (offset_bits >> 5) & 1;
             let offset_4 = (offset_bits >> 4) & 1;
             let offset_3_1 = (offset_bits >> 1) & 0x7;
-            Ok(0b101_00000000000_01 
+            Ok(0b101_00000000000_01
                 | (offset_11 << 12)
                 | (offset_4 << 11)
                 | (offset_9_8 << 9)
@@ -409,7 +520,7 @@ fn encode_compressed_inst(
             let offset_5 = (offset_bits >> 5) & 1;
             let offset_4 = (offset_bits >> 4) & 1;
             let offset_3_1 = (offset_bits >> 1) & 0x7;
-            Ok(0b001_00000000000_01 
+            Ok(0b001_00000000000_01
                 | (offset_11 << 12)
                 | (offset_4 << 11)
                 | (offset_9_8 << 9)
@@ -430,7 +541,10 @@ fn encode_compressed_inst(
 
         // Unimplemented or unsupported combinations
         _ => Err(AssemblerError::from_context(
-            format!("Invalid/unimplemented compressed instruction encoding: {:?} {:?}", op, operands),
+            format!(
+                "Invalid/unimplemented compressed instruction encoding: {:?} {:?}",
+                op, operands
+            ),
             location.clone(),
         )),
     }
@@ -438,7 +552,7 @@ fn encode_compressed_inst(
 
 /// Convert register to 5-bit encoding
 fn reg_to_bits(reg: Register) -> u16 {
-    let val = match reg {
+    match reg {
         Register::X0 => 0,
         Register::X1 => 1,
         Register::X2 => 2,
@@ -471,17 +585,24 @@ fn reg_to_bits(reg: Register) -> u16 {
         Register::X29 => 29,
         Register::X30 => 30,
         Register::X31 => 31,
-    };
-    val
+    }
 }
 
 /// Check if signed value fits in N bits
-fn check_signed_imm(val: i32, bits: u32, inst: &str, location: &crate::ast::Location) -> Result<()> {
+fn check_signed_imm(
+    val: i32,
+    bits: u32,
+    inst: &str,
+    location: &crate::ast::Location,
+) -> Result<()> {
     let min = -(1i32 << (bits - 1));
     let max = (1i32 << (bits - 1)) - 1;
     if val < min || val > max {
         return Err(AssemblerError::from_context(
-            format!("{} immediate {} out of range [{}, {}]", inst, val, min, max),
+            format!(
+                "{} immediate {} out of range [{}, {}]",
+                inst, val, min, max
+            ),
             location.clone(),
         ));
     }
@@ -489,16 +610,25 @@ fn check_signed_imm(val: i32, bits: u32, inst: &str, location: &crate::ast::Loca
 }
 
 /// Check compressed branch offset (9-bit signed, must be even)
-fn check_compressed_branch_offset(offset: i32, location: &crate::ast::Location) -> Result<()> {
+fn check_compressed_branch_offset(
+    offset: i32,
+    location: &crate::ast::Location,
+) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
-            format!("Compressed branch offset {} must be 2-byte aligned", offset),
+            format!(
+                "Compressed branch offset {} must be 2-byte aligned",
+                offset
+            ),
             location.clone(),
         ));
     }
-    if offset < -256 || offset > 254 {
+    if !(-256..=254).contains(&offset) {
         return Err(AssemblerError::from_context(
-            format!("Compressed branch offset {} out of range [-256, 254]", offset),
+            format!(
+                "Compressed branch offset {} out of range [-256, 254]",
+                offset
+            ),
             location.clone(),
         ));
     }
@@ -506,16 +636,22 @@ fn check_compressed_branch_offset(offset: i32, location: &crate::ast::Location) 
 }
 
 /// Check compressed jump offset (12-bit signed, must be even)
-fn check_compressed_jump_offset(offset: i32, location: &crate::ast::Location) -> Result<()> {
+fn check_compressed_jump_offset(
+    offset: i32,
+    location: &crate::ast::Location,
+) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
             format!("Compressed jump offset {} must be 2-byte aligned", offset),
             location.clone(),
         ));
     }
-    if offset < -2048 || offset > 2046 {
+    if !(-2048..=2046).contains(&offset) {
         return Err(AssemblerError::from_context(
-            format!("Compressed jump offset {} out of range [-2048, 2046]", offset),
+            format!(
+                "Compressed jump offset {} out of range [-2048, 2046]",
+                offset
+            ),
             location.clone(),
         ));
     }
@@ -527,11 +663,16 @@ mod tests {
     use super::*;
     use crate::ast::Location;
 
-     #[test]
+    #[test]
     fn test_c_nop_encoding() {
         // c.nop: 000 | 0 | 00000 | 00000 | 01 = 0x0001
         let location = Location { file: "test.s".to_string(), line: 1 };
-        let result = encode_compressed_inst(&CompressedOp::CNop, &CompressedOperands::None, &location, None);
+        let result = encode_compressed_inst(
+            &CompressedOp::CNop,
+            &CompressedOperands::None,
+            &location,
+            None,
+        );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0x0001);
     }
@@ -540,7 +681,12 @@ mod tests {
     fn test_c_ebreak_encoding() {
         // c.ebreak: 1001 | 00000 | 00000 | 10 = 0x9002
         let location = Location { file: "test.s".to_string(), line: 1 };
-        let result = encode_compressed_inst(&CompressedOp::CEbreak, &CompressedOperands::None, &location, None);
+        let result = encode_compressed_inst(
+            &CompressedOp::CEbreak,
+            &CompressedOperands::None,
+            &location,
+            None,
+        );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0x9002);
     }

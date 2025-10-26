@@ -23,6 +23,7 @@ struct Config {
     text_start: u32,
     verbose: bool,
     dump: dump::DumpConfig,
+    relax: bool,
 }
 
 fn process_cli_args() -> Result<Config, String> {
@@ -37,6 +38,7 @@ fn process_cli_args() -> Result<Config, String> {
     let mut text_start = 0x10000u32;
     let mut verbose = false;
     let mut dump_config = dump::DumpConfig::new();
+    let mut relax = true;
     let mut i = 1;
 
     while i < args.len() {
@@ -107,6 +109,9 @@ fn process_cli_args() -> Result<Config, String> {
                 "-v" | "--verbose" => {
                     verbose = true;
                 }
+                "--no-relax" => {
+                    relax = false;
+                }
                 "-h" | "--help" => {
                     return Err(print_help(&args[0]));
                 }
@@ -131,6 +136,7 @@ fn process_cli_args() -> Result<Config, String> {
         text_start,
         verbose,
         dump: dump_config,
+        relax,
     })
 }
 
@@ -138,10 +144,11 @@ fn print_help(program_name: &str) -> String {
     format!("Usage: {} [options] <file.s> [file.s...]
 
 Options:
-  -o <file>            Write output to <file> (default: a.out)
-  -t <address>         Set text start address (default: 0x10000)
-  -v, --verbose        Show input statistics and convergence progress
-  -h, --help           Show this help message
+   -o <file>            Write output to <file> (default: a.out)
+   -t <address>         Set text start address (default: 0x10000)
+   -v, --verbose        Show input statistics and convergence progress
+   --no-relax           Disable auto-relaxation of pseudo-instructions
+   -h, --help           Show this help message
 
 Output Behavior:
   By default, successful assembly produces no output
@@ -305,7 +312,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 1: Parse source files into AST
     // ========================================================================
-    let mut source = process_files(config.input_files.clone())?;
+    let mut source = process_files(config.input_files.clone(), config.relax)?;
 
     // Checkpoint: dump AST if requested
     if should_dump_phase(&config, Phase::Parse) {
@@ -504,7 +511,10 @@ fn print_input_statistics(source: &Source) {
     eprintln!();
 }
 
-fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
+fn process_files(
+    files: Vec<String>,
+    relax: bool,
+) -> Result<Source, error::AssemblerError> {
     let mut source = Source {
         files: Vec::new(),
         header_size: 0,
@@ -513,7 +523,7 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
         bss_size: 0,
         global_symbols: Vec::new(),
         uses_global_pointer: false,
-        relax: true,  // Enable auto-relaxation by default
+        relax,
     };
 
     for file_path in &files {

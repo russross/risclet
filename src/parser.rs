@@ -473,12 +473,12 @@ impl<'a> Parser<'a> {
     // Grammar: opcode-specific (see below for each type)
     fn parse_instruction(&mut self) -> Result<Instruction> {
         let opcode = self.parse_identifier()?;
-        
+
         // Check for compressed instructions (c.* prefix)
         if let Some(c_op) = opcode.strip_prefix("c.") {
             return self.parse_compressed_instruction(c_op);
         }
-        
+
         match opcode.as_str() {
             // R-type
             "add" => self.parse_rtype(RTypeOp::Add),
@@ -959,7 +959,10 @@ impl<'a> Parser<'a> {
 
     /// Parse compressed instruction (called with opcode after "c." prefix stripped)
     /// Examples: "add" in "c.add", "li" in "c.li"
-    fn parse_compressed_instruction(&mut self, op: &str) -> Result<Instruction> {
+    fn parse_compressed_instruction(
+        &mut self,
+        op: &str,
+    ) -> Result<Instruction> {
         use CompressedOp::*;
         use CompressedOperands::*;
 
@@ -1012,6 +1015,44 @@ impl<'a> Parser<'a> {
                 (CAddi, CI { rd, imm: Box::new(imm) })
             }
 
+            "addi16sp" => {
+                let rd = self.parse_register()?;
+                if rd != Register::X2 {
+                    return Err(AssemblerError::from_context(
+                        "c.addi16sp requires sp (x2) as rd".to_string(),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CAddi16sp, CI { rd, imm: Box::new(imm) })
+            }
+
+            "addi4spn" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!(
+                            "c.addi4spn requires rd in compressed register set, got {}",
+                            rd
+                        ),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let base = self.parse_register()?;
+                if base != Register::X2 {
+                    return Err(AssemblerError::from_context(
+                        "c.addi4spn requires sp (x2) as base register"
+                            .to_string(),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CAddi4spn, CIW { rd_prime: rd, imm: Box::new(imm) })
+            }
+
             "slli" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
@@ -1058,7 +1099,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}", rd),
+                        format!(
+                            "c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1068,12 +1112,22 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}", rs1),
+                        format!(
+                            "c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CLw, CL { rd_prime: rd, rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CLw,
+                    CL {
+                        rd_prime: rd,
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CS format: c.sw rs2', offset(rs1')
@@ -1081,7 +1135,10 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}", rs2),
+                        format!(
+                            "c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
@@ -1091,12 +1148,22 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}", rs1),
+                        format!(
+                            "c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CSw, CS { rs2_prime: rs2, rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CSw,
+                    CS {
+                        rs2_prime: rs2,
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CA format: c.and, c.or, c.xor, c.sub
@@ -1104,7 +1171,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.and requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.and requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1112,7 +1182,10 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.and requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.and requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
@@ -1123,7 +1196,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.or requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.or requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1131,7 +1207,10 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.or requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.or requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
@@ -1142,7 +1221,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.xor requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.xor requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1150,7 +1232,10 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.xor requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.xor requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
@@ -1161,7 +1246,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sub requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.sub requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1169,7 +1257,10 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sub requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.sub requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
@@ -1181,7 +1272,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.srli requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.srli requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1194,7 +1288,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.srai requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.srai requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1207,7 +1304,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.andi requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.andi requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1221,7 +1321,10 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.beqz requires rs1 in compressed register set, got {}", rs1),
+                        format!(
+                            "c.beqz requires rs1 in compressed register set, got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
@@ -1234,7 +1337,10 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.bnez requires rs1 in compressed register set, got {}", rs1),
+                        format!(
+                            "c.bnez requires rs1 in compressed register set, got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }

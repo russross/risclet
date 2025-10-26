@@ -72,7 +72,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, i64), String> {
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax: false,  // Disable relaxation for testing base instruction encodings
+        relax: false, // Disable relaxation for testing base instruction encodings
     };
 
     // Resolve symbols
@@ -203,10 +203,10 @@ _start:
 addi a0, a0, 5
 addi a1, a1, -10
 "#;
-    
+
+    use crate::assembler::{self, guess_line_size};
     use crate::ast::{Directive, LineContent, Segment};
     use crate::symbols;
-    use crate::assembler::{self, guess_line_size};
 
     let mut all_lines = Vec::new();
     let mut current_segment = Segment::Text;
@@ -263,13 +263,22 @@ addi a1, a1, -10
     let text = symbols::resolve_symbols(&mut source_struct)
         .and_then(|_| {
             let callback = assembler::NoOpCallback;
-            assembler::converge_and_encode(&mut source_struct, 0x10000, &callback, false)
-                .map(|(text, _, _)| text)
+            assembler::converge_and_encode(
+                &mut source_struct,
+                0x10000,
+                &callback,
+                false,
+            )
+            .map(|(text, _, _)| text)
         })
         .expect("Assembly should succeed");
 
     // With relaxation, 2 addi instructions should compile to 4 bytes (2x2) instead of 8 bytes (2x4)
-    assert_eq!(text.len(), 4, "Relaxed 2 addi instructions should be 4 bytes total");
+    assert_eq!(
+        text.len(),
+        4,
+        "Relaxed 2 addi instructions should be 4 bytes total"
+    );
 }
 
 #[test]
@@ -280,10 +289,10 @@ fn test_relax_add_to_c_add() {
 _start:
 add a0, a0, a1
 "#;
-    
+
+    use crate::assembler::{self, guess_line_size};
     use crate::ast::{Directive, LineContent, Segment};
     use crate::symbols;
-    use crate::assembler::{self, guess_line_size};
 
     let mut all_lines = Vec::new();
     let mut current_segment = Segment::Text;
@@ -340,8 +349,13 @@ add a0, a0, a1
     let text = symbols::resolve_symbols(&mut source_struct)
         .and_then(|_| {
             let callback = assembler::NoOpCallback;
-            assembler::converge_and_encode(&mut source_struct, 0x10000, &callback, false)
-                .map(|(text, _, _)| text)
+            assembler::converge_and_encode(
+                &mut source_struct,
+                0x10000,
+                &callback,
+                false,
+            )
+            .map(|(text, _, _)| text)
         })
         .expect("Assembly should succeed");
 
@@ -357,10 +371,10 @@ fn test_relax_no_compression_large_immediate() {
 _start:
 addi a0, a0, 50
 "#;
-    
+
+    use crate::assembler::{self, guess_line_size};
     use crate::ast::{Directive, LineContent, Segment};
     use crate::symbols;
-    use crate::assembler::{self, guess_line_size};
 
     let mut all_lines = Vec::new();
     let mut current_segment = Segment::Text;
@@ -417,16 +431,24 @@ addi a0, a0, 50
     let text = symbols::resolve_symbols(&mut source_struct)
         .and_then(|_| {
             let callback = assembler::NoOpCallback;
-            assembler::converge_and_encode(&mut source_struct, 0x10000, &callback, false)
-                .map(|(text, _, _)| text)
+            assembler::converge_and_encode(
+                &mut source_struct,
+                0x10000,
+                &callback,
+                false,
+            )
+            .map(|(text, _, _)| text)
         })
         .expect("Assembly should succeed");
 
     // Should NOT be compressed because 50 doesn't fit in 6-bit signed
     // So it should be 4 bytes (base instruction)
-    assert_eq!(text.len(), 4, "Large immediate should NOT be compressed and remain 4 bytes");
+    assert_eq!(
+        text.len(),
+        4,
+        "Large immediate should NOT be compressed and remain 4 bytes"
+    );
 }
-
 
 // ============================================================================
 // I-Type Instruction Tests
@@ -2064,6 +2086,33 @@ fn test_c_slli() {
     // GNU: 0x050a
     let source = "c.slli a0, 2";
     let expected = &[0x0a, 0x05];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_addi16sp_positive() {
+    // c.addi16sp sp, 16
+    // GNU: 0x6141
+    let source = "c.addi16sp sp, 16";
+    let expected = &[0x41, 0x61];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_addi16sp_negative() {
+    // c.addi16sp sp, -16
+    // GNU: 0x717d
+    let source = "c.addi16sp sp, -16";
+    let expected = &[0x7d, 0x71];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_addi4spn() {
+    // c.addi4spn s0, sp, 4
+    // GNU: 0x0040
+    let source = "c.addi4spn s0, sp, 4";
+    let expected = &[0x40, 0x00];
     assert_instructions_match(source, expected);
 }
 

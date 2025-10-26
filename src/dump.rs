@@ -1330,7 +1330,10 @@ fn extract_instruction_expressions(inst: &Instruction) -> Vec<&Expression> {
             // Extract expressions from compressed instruction operands
             use crate::ast::CompressedOperands::*;
             match operands {
-                CR { .. } | CRSingle { .. } | CA { .. } | crate::ast::CompressedOperands::None => {}
+                CR { .. }
+                | CRSingle { .. }
+                | CA { .. }
+                | crate::ast::CompressedOperands::None => {}
                 CI { imm, .. } => exprs.push(imm.as_ref()),
                 CIStackLoad { offset, .. } => exprs.push(offset.as_ref()),
                 CSSStackStore { offset, .. } => exprs.push(offset.as_ref()),
