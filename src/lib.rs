@@ -2,6 +2,7 @@ pub mod assembler;
 pub mod ast;
 pub mod elf;
 pub mod encoder;
+pub mod encoder_compressed;
 pub mod error;
 pub mod expressions;
 pub mod parser;

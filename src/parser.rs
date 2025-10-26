@@ -473,6 +473,12 @@ impl<'a> Parser<'a> {
     // Grammar: opcode-specific (see below for each type)
     fn parse_instruction(&mut self) -> Result<Instruction> {
         let opcode = self.parse_identifier()?;
+        
+        // Check for compressed instructions (c.* prefix)
+        if let Some(c_op) = opcode.strip_prefix("c.") {
+            return self.parse_compressed_instruction(c_op);
+        }
+        
         match opcode.as_str() {
             // R-type
             "add" => self.parse_rtype(RTypeOp::Add),
@@ -949,6 +955,318 @@ impl<'a> Parser<'a> {
         };
 
         Some((op, ordering))
+    }
+
+    /// Parse compressed instruction (called with opcode after "c." prefix stripped)
+    /// Examples: "add" in "c.add", "li" in "c.li"
+    fn parse_compressed_instruction(&mut self, op: &str) -> Result<Instruction> {
+        use CompressedOp::*;
+        use CompressedOperands::*;
+
+        let (c_op, operands) = match op {
+            // CR format (rd, rs2)
+            "add" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                (CAdd, CR { rd, rs2 })
+            }
+
+            "mv" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                (CMv, CR { rd, rs2 })
+            }
+
+            // CR format single register
+            "jr" => {
+                let rs1 = self.parse_register()?;
+                (CJr, CRSingle { rs1 })
+            }
+
+            "jalr" => {
+                let rs1 = self.parse_register()?;
+                (CJalr, CRSingle { rs1 })
+            }
+
+            // CI format (rd, imm)
+            "li" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CLi, CI { rd, imm: Box::new(imm) })
+            }
+
+            "lui" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CLui, CI { rd, imm: Box::new(imm) })
+            }
+
+            "addi" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CAddi, CI { rd, imm: Box::new(imm) })
+            }
+
+            "slli" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CSlli, CI { rd, imm: Box::new(imm) })
+            }
+
+            // CI format stack-relative load: c.lwsp rd, offset(sp)
+            "lwsp" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let offset = self.parse_expression()?;
+                self.expect(&Token::OpenParen)?;
+                let base = self.parse_register()?;
+                if base != Register::X2 {
+                    return Err(AssemblerError::from_context(
+                        "c.lwsp requires sp as base register".to_string(),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::CloseParen)?;
+                (CLwsp, CIStackLoad { rd, offset: Box::new(offset) })
+            }
+
+            // CSS format stack-relative store: c.swsp rs2, offset(sp)
+            "swsp" => {
+                let rs2 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let offset = self.parse_expression()?;
+                self.expect(&Token::OpenParen)?;
+                let base = self.parse_register()?;
+                if base != Register::X2 {
+                    return Err(AssemblerError::from_context(
+                        "c.swsp requires sp as base register".to_string(),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::CloseParen)?;
+                (CSwsp, CSSStackStore { rs2, offset: Box::new(offset) })
+            }
+
+            // CL format: c.lw rd', offset(rs1')
+            "lw" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let offset = self.parse_expression()?;
+                self.expect(&Token::OpenParen)?;
+                let rs1 = self.parse_register()?;
+                if !rs1.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}", rs1),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::CloseParen)?;
+                (CLw, CL { rd_prime: rd, rs1_prime: rs1, offset: Box::new(offset) })
+            }
+
+            // CS format: c.sw rs2', offset(rs1')
+            "sw" => {
+                let rs2 = self.parse_register()?;
+                if !rs2.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}", rs2),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let offset = self.parse_expression()?;
+                self.expect(&Token::OpenParen)?;
+                let rs1 = self.parse_register()?;
+                if !rs1.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}", rs1),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::CloseParen)?;
+                (CSw, CS { rs2_prime: rs2, rs1_prime: rs1, offset: Box::new(offset) })
+            }
+
+            // CA format: c.and, c.or, c.xor, c.sub
+            "and" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.and requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                if !rs2.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.and requires rs2 in compressed register set, got {}", rs2),
+                        self.location(),
+                    ));
+                }
+                (CAnd, CA { rd_prime: rd, rs2_prime: rs2 })
+            }
+
+            "or" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.or requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                if !rs2.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.or requires rs2 in compressed register set, got {}", rs2),
+                        self.location(),
+                    ));
+                }
+                (COr, CA { rd_prime: rd, rs2_prime: rs2 })
+            }
+
+            "xor" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.xor requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                if !rs2.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.xor requires rs2 in compressed register set, got {}", rs2),
+                        self.location(),
+                    ));
+                }
+                (CXor, CA { rd_prime: rd, rs2_prime: rs2 })
+            }
+
+            "sub" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.sub requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                if !rs2.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.sub requires rs2 in compressed register set, got {}", rs2),
+                        self.location(),
+                    ));
+                }
+                (CSub, CA { rd_prime: rd, rs2_prime: rs2 })
+            }
+
+            // CB format shift/immediate: c.srli, c.srai, c.andi
+            "srli" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.srli requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CSrli, CBImm { rd_prime: rd, imm: Box::new(imm) })
+            }
+
+            "srai" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.srai requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CSrai, CBImm { rd_prime: rd, imm: Box::new(imm) })
+            }
+
+            "andi" => {
+                let rd = self.parse_register()?;
+                if !rd.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.andi requires rd in compressed register set, got {}", rd),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let imm = self.parse_expression()?;
+                (CAndi, CBImm { rd_prime: rd, imm: Box::new(imm) })
+            }
+
+            // CB format branch: c.beqz, c.bnez
+            "beqz" => {
+                let rs1 = self.parse_register()?;
+                if !rs1.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.beqz requires rs1 in compressed register set, got {}", rs1),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let offset = self.parse_expression()?;
+                (CBeqz, CBBranch { rs1_prime: rs1, offset: Box::new(offset) })
+            }
+
+            "bnez" => {
+                let rs1 = self.parse_register()?;
+                if !rs1.is_compressed_register() {
+                    return Err(AssemblerError::from_context(
+                        format!("c.bnez requires rs1 in compressed register set, got {}", rs1),
+                        self.location(),
+                    ));
+                }
+                self.expect(&Token::Comma)?;
+                let offset = self.parse_expression()?;
+                (CBnez, CBBranch { rs1_prime: rs1, offset: Box::new(offset) })
+            }
+
+            // CJ format: c.j, c.jal
+            "j" => {
+                let offset = self.parse_expression()?;
+                (CJComp, CJOpnd { offset: Box::new(offset) })
+            }
+
+            "jal" => {
+                let offset = self.parse_expression()?;
+                (CJalComp, CJOpnd { offset: Box::new(offset) })
+            }
+
+            // Special
+            "nop" => (CNop, None),
+            "ebreak" => (CEbreak, None),
+
+            _ => {
+                return Err(AssemblerError::from_context(
+                    format!("Unknown compressed instruction: c.{}", op),
+                    self.location(),
+                ));
+            }
+        };
+
+        Ok(Instruction::Compressed(c_op, operands))
     }
 }
 

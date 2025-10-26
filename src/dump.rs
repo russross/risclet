@@ -339,6 +339,9 @@ fn dump_instruction_ast(inst: &Instruction) {
         Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
             print!("(atomic {} {} {} {} {})", op, rd, rs1, rs2, ordering);
         }
+        Instruction::Compressed(op, operands) => {
+            print!("(compressed {:?} {:?})", op, operands);
+        }
         Instruction::Pseudo(pseudo) => {
             dump_pseudo_ast(pseudo);
         }
@@ -1322,6 +1325,22 @@ fn extract_instruction_expressions(inst: &Instruction) -> Vec<&Expression> {
         }
         Instruction::Atomic(_, _, _, _, _) => {
             // Atomic instructions don't have expressions
+        }
+        Instruction::Compressed(_, operands) => {
+            // Extract expressions from compressed instruction operands
+            use crate::ast::CompressedOperands::*;
+            match operands {
+                CR { .. } | CRSingle { .. } | CA { .. } | crate::ast::CompressedOperands::None => {}
+                CI { imm, .. } => exprs.push(imm.as_ref()),
+                CIStackLoad { offset, .. } => exprs.push(offset.as_ref()),
+                CSSStackStore { offset, .. } => exprs.push(offset.as_ref()),
+                CIW { imm, .. } => exprs.push(imm.as_ref()),
+                CL { offset, .. } => exprs.push(offset.as_ref()),
+                CS { offset, .. } => exprs.push(offset.as_ref()),
+                CBImm { imm, .. } => exprs.push(imm.as_ref()),
+                CBBranch { offset, .. } => exprs.push(offset.as_ref()),
+                CJOpnd { offset } => exprs.push(offset.as_ref()),
+            }
         }
         Instruction::Special(_) => {}
         Instruction::Pseudo(pseudo) => match pseudo {

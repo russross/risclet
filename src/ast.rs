@@ -115,6 +115,31 @@ pub enum Register {
     X16, X17, X18, X19, X20, X21, X22, X23, X24, X25, X26, X27, X28, X29, X30, X31,
 }
 
+impl Register {
+    /// Check if register is in the compressed register set (x8-x15: s0, s1, a0-a5)
+    pub fn is_compressed_register(self) -> bool {
+        matches!(self, 
+            Register::X8 | Register::X9 | Register::X10 | Register::X11 |
+            Register::X12 | Register::X13 | Register::X14 | Register::X15)
+    }
+
+    /// Get 3-bit encoding for compressed registers (assumes is_compressed_register is true)
+    /// Maps x8-x15 to 0-7
+    pub fn compressed_encoding(self) -> u8 {
+        match self {
+            Register::X8 => 0,
+            Register::X9 => 1,
+            Register::X10 => 2,
+            Register::X11 => 3,
+            Register::X12 => 4,
+            Register::X13 => 5,
+            Register::X14 => 6,
+            Register::X15 => 7,
+            _ => panic!("Register {} is not in compressed register set", self),
+        }
+    }
+}
+
 /// An enum for all supported assembler directives.
 ///
 /// **Grammar Rule:** N/A (Tokenizer maps raw directive names to this concrete type)
@@ -241,6 +266,86 @@ pub struct NumericLabelRef {
     pub is_forward: bool,
 }
 
+/// Compressed instruction operations (C extension - RV32C)
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum CompressedOp {
+    // CR format: c.add, c.mv, c.jr, c.jalr
+    CAdd,
+    CMv,
+    CJr,
+    CJalr,
+
+    // CI format: c.li, c.lui, c.addi, c.slli
+    CLi,
+    CLui,
+    CAddi,
+    CAddi16sp,
+    CAddi4spn,
+    CSlli,
+
+    // CI format (stack-relative): c.lwsp, c.swsp
+    CLwsp,
+    CSwsp,
+
+    // CL format: c.lw
+    CLw,
+
+    // CS format: c.sw
+    CSw,
+
+    // CA format: c.and, c.or, c.xor, c.sub
+    CAnd,
+    COr,
+    CXor,
+    CSub,
+
+    // CB format: c.srli, c.srai, c.andi, c.beqz, c.bnez
+    CSrli,
+    CSrai,
+    CAndi,
+    CBeqz,
+    CBnez,
+
+    // CJ format: c.j, c.jal
+    CJComp,
+    CJalComp,
+
+    // Special
+    CNop,
+    CEbreak,
+}
+
+/// Operands for compressed instructions
+#[derive(Debug, Clone, PartialEq)]
+pub enum CompressedOperands {
+    /// CR format with two registers: c.add rd, rs2
+    CR { rd: Register, rs2: Register },
+    /// CR format with single register: c.jr rs1
+    CRSingle { rs1: Register },
+    /// CI format with register and immediate: c.addi rd, imm
+    CI { rd: Register, imm: Box<Expression> },
+    /// CI format stack-relative load: c.lwsp rd, offset(sp)
+    CIStackLoad { rd: Register, offset: Box<Expression> },
+    /// CSS format stack-relative store: c.swsp rs2, offset(sp)
+    CSSStackStore { rs2: Register, offset: Box<Expression> },
+    /// CIW format: c.addi4spn rd', imm
+    CIW { rd_prime: Register, imm: Box<Expression> },
+    /// CL format: c.lw rd', offset(rs1')
+    CL { rd_prime: Register, rs1_prime: Register, offset: Box<Expression> },
+    /// CS format: c.sw rs2', offset(rs1')
+    CS { rs2_prime: Register, rs1_prime: Register, offset: Box<Expression> },
+    /// CA format: c.and rd', rs2'
+    CA { rd_prime: Register, rs2_prime: Register },
+    /// CB format with immediate: c.srli rd', shamt
+    CBImm { rd_prime: Register, imm: Box<Expression> },
+    /// CB format with branch: c.beqz rs1', offset
+    CBBranch { rs1_prime: Register, offset: Box<Expression> },
+    /// CJ format: c.j offset
+    CJOpnd { offset: Box<Expression> },
+    /// No operands: c.nop, c.ebreak
+    None,
+}
+
 /// A node in the Abstract Syntax Tree representing a single assembly instruction.
 /// Each variant corresponds to a specific instruction format, making it easy for
 /// later stages (e.g., code generation) to pattern match on the instruction type.
@@ -280,6 +385,8 @@ pub enum Instruction {
     ///   sc.w[.aq|.rel|.aqrl] rd, rs2, (rs1)
     ///   amo*.w[.aq|.rel|.aqrl] rd, rs2, (rs1)
     Atomic(AtomicOp, Register, Register, Register, MemoryOrdering),
+    /// Compressed instructions (C extension) - 16-bit encoding
+    Compressed(CompressedOp, CompressedOperands),
     /// A pseudo-instruction that will be desugared by a later pass.
     Pseudo(PseudoOp),
 }
@@ -894,13 +1001,111 @@ impl fmt::Display for Instruction {
                 // LR instructions only use rd and rs1
                 let combined = format!("{}{}", op, ordering);
                 if matches!(op, AtomicOp::LrW) {
-                    write!(f, "{:<7} {}, ({})", combined rd, rs1)
+                    write!(f, "{:<7} {}, ({})", combined, rd, rs1)
                 } else {
-                    write!(f, "{:<7} {}, {}, ({})", combined rd, rs2, rs1)
+                    write!(f, "{:<7} {}, {}, ({})", combined, rd, rs2, rs1)
                 }
+            }
+            Instruction::Compressed(op, operands) => {
+                write!(f, "{}", format_compressed_instruction(op, operands))
             }
             Instruction::Pseudo(p) => write!(f, "{}", p),
         }
+    }
+}
+
+/// Helper function to format compressed instructions
+fn format_compressed_instruction(
+    op: &CompressedOp,
+    operands: &CompressedOperands,
+) -> String {
+    match (op, operands) {
+        (CompressedOp::CAdd, CompressedOperands::CR { rd, rs2 }) => {
+            format!("c.add       {}, {}", rd, rs2)
+        }
+        (CompressedOp::CMv, CompressedOperands::CR { rd, rs2 }) => {
+            format!("c.mv        {}, {}", rd, rs2)
+        }
+        (CompressedOp::CJr, CompressedOperands::CRSingle { rs1 }) => {
+            format!("c.jr        {}", rs1)
+        }
+        (CompressedOp::CJalr, CompressedOperands::CRSingle { rs1 }) => {
+            format!("c.jalr      {}", rs1)
+        }
+        (CompressedOp::CLi, CompressedOperands::CI { rd, imm }) => {
+            format!("c.li        {}, {}", rd, imm)
+        }
+        (CompressedOp::CLui, CompressedOperands::CI { rd, imm }) => {
+            format!("c.lui       {}, {}", rd, imm)
+        }
+        (CompressedOp::CAddi, CompressedOperands::CI { rd, imm }) => {
+            format!("c.addi      {}, {}", rd, imm)
+        }
+        (CompressedOp::CAddi16sp, CompressedOperands::CI { rd: _, imm }) => {
+            format!("c.addi16sp  {}", imm)
+        }
+        (CompressedOp::CSlli, CompressedOperands::CI { rd, imm }) => {
+            format!("c.slli      {}, {}", rd, imm)
+        }
+        (
+            CompressedOp::CLwsp,
+            CompressedOperands::CIStackLoad { rd, offset },
+        ) => format!("c.lwsp      {}, {}(sp)", rd, offset),
+        (
+            CompressedOp::CSwsp,
+            CompressedOperands::CSSStackStore { rs2, offset },
+        ) => format!("c.swsp      {}, {}(sp)", rs2, offset),
+        (
+            CompressedOp::CLw,
+            CompressedOperands::CL { rd_prime, rs1_prime, offset },
+        ) => format!("c.lw        {}, {}({})", rd_prime, offset, rs1_prime),
+        (
+            CompressedOp::CSw,
+            CompressedOperands::CS { rs2_prime, rs1_prime, offset },
+        ) => format!("c.sw        {}, {}({})", rs2_prime, offset, rs1_prime),
+        (
+            CompressedOp::CAnd,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => format!("c.and       {}, {}", rd_prime, rs2_prime),
+        (CompressedOp::COr, CompressedOperands::CA { rd_prime, rs2_prime }) => {
+            format!("c.or        {}, {}", rd_prime, rs2_prime)
+        }
+        (
+            CompressedOp::CXor,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => format!("c.xor       {}, {}", rd_prime, rs2_prime),
+        (
+            CompressedOp::CSub,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => format!("c.sub       {}, {}", rd_prime, rs2_prime),
+        (CompressedOp::CSrli, CompressedOperands::CBImm { rd_prime, imm }) => {
+            format!("c.srli      {}, {}", rd_prime, imm)
+        }
+        (CompressedOp::CSrai, CompressedOperands::CBImm { rd_prime, imm }) => {
+            format!("c.srai      {}, {}", rd_prime, imm)
+        }
+        (CompressedOp::CAndi, CompressedOperands::CBImm { rd_prime, imm }) => {
+            format!("c.andi      {}, {}", rd_prime, imm)
+        }
+        (
+            CompressedOp::CBeqz,
+            CompressedOperands::CBBranch { rs1_prime, offset },
+        ) => format!("c.beqz      {}, {}", rs1_prime, offset),
+        (
+            CompressedOp::CBnez,
+            CompressedOperands::CBBranch { rs1_prime, offset },
+        ) => format!("c.bnez      {}, {}", rs1_prime, offset),
+        (CompressedOp::CJComp, CompressedOperands::CJOpnd { offset }) => {
+            format!("c.j         {}", offset)
+        }
+        (CompressedOp::CJalComp, CompressedOperands::CJOpnd { offset }) => {
+            format!("c.jal       {}", offset)
+        }
+        (CompressedOp::CNop, CompressedOperands::None) => "c.nop".to_string(),
+        (CompressedOp::CEbreak, CompressedOperands::None) => {
+            "c.ebreak".to_string()
+        }
+        _ => format!("c.<unknown> {:?} {:?}", op, operands),
     }
 }
 

@@ -364,12 +364,11 @@ impl StringTable {
 /// This section describes the RISC-V ISA features used by the binary.
 /// Format follows the ELF attributes specification with RISC-V extensions.
 ///
-/// For RV32IM (no floating point), we generate:
-/// "rv32i2p1_m2p0"
+/// For RV32IMAC (I, M, A, and C extensions), we generate:
+/// "rv32i2p1_m2p0_a2p1_c2p0"
 pub fn generate_riscv_attributes() -> Vec<u8> {
-    // For simplicity, we'll generate attributes for RV32IM
-    // matching the basic ISA string without floating point extensions
-    let arch_string = "rv32i2p1_m2p0";
+    // Generate attributes for RV32IMAC with compressed instructions
+    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0";
 
     let mut attrs = Vec::new();
 
@@ -806,7 +805,7 @@ impl ElfBuilder {
 /// 2. Section symbols (.text, .data, .bss if present)
 /// 3. For each source file:
 ///    a. FILE symbol
-///    b. Special $xrv32i2p1_m2p0 marker symbol
+///    b. Special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
 ///    c. Local labels from that file
 /// 4. Global symbols (including linker-provided symbols)
 pub fn build_symbol_table(
@@ -848,9 +847,9 @@ pub fn build_symbol_table(
         let file_name_idx = builder.symbol_names.add(file_name);
         builder.add_symbol(ElfSymbol::file(file_name_idx));
 
-        // Add special $xrv32i2p1_m2p0 marker symbol
+        // Add special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
         // This marks the start of code from this file
-        let marker_name = builder.symbol_names.add("$xrv32i2p1_m2p0");
+        let marker_name = builder.symbol_names.add("$xrv32i2p1_m2p0_a2p1_c2p0");
 
         // Find the first .text line in this file to use as the marker address
         let mut marker_addr = text_start;

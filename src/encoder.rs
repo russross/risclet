@@ -18,6 +18,7 @@ use crate::ast::{
     LoadStoreOp, PseudoOp, RTypeOp, Register, Segment, Source, SpecialOp,
     UTypeOp,
 };
+use crate::encoder_compressed;
 use crate::error::AssemblerError;
 use crate::expressions::{EvaluatedValue, EvaluationContext, eval_expr};
 
@@ -348,11 +349,11 @@ fn check_i_imm(imm: i64, location: &crate::ast::Location) -> Result<()> {
     Ok(())
 }
 
-/// Validate 13-bit signed offset for branches (must be even)
+/// Validate 13-bit signed offset for branches (must be 2-byte aligned)
 fn check_b_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
-            format!("Branch offset {} must be even (2-byte aligned)", offset),
+            format!("Branch offset {} must be 2-byte aligned", offset),
             location.clone(),
         ));
     }
@@ -368,11 +369,11 @@ fn check_b_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
     Ok(())
 }
 
-/// Validate 21-bit signed offset for JAL (must be even)
+/// Validate 21-bit signed offset for JAL (must be 2-byte aligned)
 fn check_j_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
-            format!("Jump offset {} must be even (2-byte aligned)", offset),
+            format!("Jump offset {} must be 2-byte aligned", offset),
             location.clone(),
         ));
     }
@@ -634,6 +635,10 @@ fn encode_instruction(
         Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
             let encoded = encode_atomic(op, *rd, *rs1, *rs2, ordering);
             Ok(u32_to_le_bytes(encoded))
+        }
+
+        Instruction::Compressed(op, operands) => {
+            encoder_compressed::encode_compressed(op, operands, &line.location)
         }
 
         Instruction::Pseudo(pseudo) => {

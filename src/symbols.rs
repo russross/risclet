@@ -399,6 +399,23 @@ pub fn extract_references_from_line(line: &Line) -> Vec<String> {
                 Instruction::Atomic(_, _, _, _, _) => {
                     // Atomic instructions don't have expressions
                 }
+                Instruction::Compressed(_, operands) => {
+                    // Extract expressions from compressed instruction operands
+                    use crate::ast::CompressedOperands::*;
+                    match operands {
+                        CR { .. } | CRSingle { .. } | CA { .. } => {}
+                        CI { imm, .. } => refs.extend(extract_from_expression(imm)),
+                        CIStackLoad { offset, .. } => refs.extend(extract_from_expression(offset)),
+                        CSSStackStore { offset, .. } => refs.extend(extract_from_expression(offset)),
+                        CIW { imm, .. } => refs.extend(extract_from_expression(imm)),
+                        CL { offset, .. } => refs.extend(extract_from_expression(offset)),
+                        CS { offset, .. } => refs.extend(extract_from_expression(offset)),
+                        CBImm { imm, .. } => refs.extend(extract_from_expression(imm)),
+                        CBBranch { offset, .. } => refs.extend(extract_from_expression(offset)),
+                        CJOpnd { offset } => refs.extend(extract_from_expression(offset)),
+                        crate::ast::CompressedOperands::None => {}
+                    }
+                }
                 Instruction::Pseudo(pseudo) => match pseudo {
                     PseudoOp::Li(_, expr) => {
                         refs.extend(extract_from_expression(expr));

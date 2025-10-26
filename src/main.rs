@@ -10,6 +10,7 @@ mod ast;
 mod dump;
 mod elf;
 mod encoder;
+mod encoder_compressed;
 mod error;
 mod expressions;
 mod parser;
