@@ -638,7 +638,7 @@ pub fn dump_values(
 
     let addr_width = calculate_address_width(eval_context.text_start);
 
-    for file in &source.files {
+    for (file_index, file) in source.files.iter().enumerate() {
         if !should_include_file(&file.file, &spec.files) {
             continue;
         }
@@ -648,7 +648,7 @@ pub fn dump_values(
 
         let max_line_width = calculate_max_line_width_for_file(file);
 
-        for line in &file.lines {
+        for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address
             let segment_base = get_segment_base(line.segment, eval_context);
             let abs_addr = segment_base + line.offset;
@@ -664,7 +664,8 @@ pub fn dump_values(
             );
 
             // Collect and show evaluated expression values
-            let expr_values = collect_expression_values(line, eval_context);
+            let pointer = LinePointer { file_index, line_index };
+            let expr_values = collect_expression_values(line, &pointer, eval_context);
             if !expr_values.is_empty() {
                 print!("  # ");
                 for (i, val_str) in expr_values.iter().enumerate() {
@@ -1253,13 +1254,14 @@ fn get_encoded_bytes(
 
 fn collect_expression_values(
     line: &Line,
+    pointer: &LinePointer,
     eval_context: &mut EvaluationContext,
 ) -> Vec<String> {
     let mut values = Vec::new();
 
     // Helper to format an evaluated expression value
     let mut format_value = |expr: &Expression| -> String {
-        match expressions::eval_expr(expr, line, eval_context) {
+        match expressions::eval_expr(expr, line, pointer, eval_context) {
             Ok(value) => match value {
                 EvaluatedValue::Integer(i) => format!("{}", i),
                 EvaluatedValue::Address(a) => {

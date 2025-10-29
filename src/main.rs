@@ -1,4 +1,4 @@
-use ast::{Line, Segment, Source, SourceFile};
+use ast::{Line, Segment, Source, SourceFile, LinePointer};
 use encoder::Relax;
 use error::AssemblerError;
 use std::env;
@@ -353,7 +353,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 2: Resolve symbols (create references from uses to definitions)
     // ========================================================================
-    let _symbols = symbols::resolve_symbols(&mut source)?;
+    let symbols = symbols::resolve_symbols(&mut source)?;
 
     // Checkpoint: dump symbol resolution if requested
     if should_dump_phase(&config, Phase::SymbolResolution) {
@@ -380,6 +380,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             let dump_callback = DumpCallback { dump_config: &config.dump };
             assembler::converge_and_encode(
                 &mut source,
+                &symbols,
                 config.text_start,
                 &config.relax,
                 &dump_callback,
@@ -389,6 +390,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             // Use standard convergence with verbose stats if requested
             assembler::converge_and_encode(
                 &mut source,
+                &symbols,
                 config.text_start,
                 &config.relax,
                 &assembler::NoOpCallback,
@@ -410,12 +412,13 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
 
     // Create evaluation context for symbol values and ELF generation
     let mut eval_context =
-        expressions::new_evaluation_context(source.clone(), config.text_start);
+        expressions::new_evaluation_context(source.clone(), symbols.clone(), config.text_start);
 
     // Evaluate all symbols to populate the context
-    for file in &source.files {
-        for line in &file.lines {
-            let _ = expressions::evaluate_line_symbols(line, &mut eval_context);
+    for (file_index, file) in source.files.iter().enumerate() {
+        for (line_index, line) in file.lines.iter().enumerate() {
+            let pointer = LinePointer { file_index, line_index };
+            let _ = expressions::evaluate_line_symbols(line, &pointer, &mut eval_context);
         }
     }
 
