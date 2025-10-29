@@ -107,13 +107,22 @@ The issue is likely in one of these areas:
    - Lines 66-69 and 129-135 copy `line.outgoing_refs` to `Symbols.line_refs`
    - But if `line.outgoing_refs` is empty, Symbols will be empty too
 
-### The Most Likely Cause
+### The Most Likely Cause (REVISED)
 
-The bug is **NOT** in expression evaluation. The bug is that **symbol resolution is not populating `line.outgoing_refs` for labels referenced in `.equ` expressions**.
+**PREVIOUS HYPOTHESIS (INCORRECT):** Symbol resolution not populating refs
 
-This suggests that either:
-- `extract_references_from_line()` is not extracting label identifiers from `.equ` expressions
-- Or the reference matching logic (checking `definitions.get()`) is failing to find the label
+**CURRENT FINDING:** The bug is **NOT in symbol resolution**. Unit test `test_equ_referencing_label` PASSES, confirming that:
+- `extract_references_from_line()` correctly extracts label identifiers
+- Reference matching logic correctly finds labels in `definitions`
+- `line.outgoing_refs` is correctly populated with the label reference
+
+**NEW HYPOTHESIS:** The bug is in **expression evaluation or Symbols struct usage** during convergence:
+- Symbol resolution correctly populates `line.outgoing_refs`
+- Symbols struct is built from `line.outgoing_refs` (should be correct)
+- But during convergence, when evaluating `.equ` expressions, the reference lookup fails
+- This suggests either:
+  - Symbols struct is not being populated correctly from `line.outgoing_refs`
+  - Or the lookup in `context.symbols.get_line_refs()` is using wrong coordinates
 
 ## Evidence
 
@@ -122,6 +131,10 @@ This suggests that either:
 3. Working commit (161b235) successfully evaluates `.equ` with numeric values
 4. Broken commit (cc047f5+) fails on `.equ` with label values
 5. The failure happens specifically when `.equ` references a label (identifier), not a literal
+6. **Oct 28 UPDATE:** Unit test `test_equ_referencing_label` PASSES
+   - Confirms symbol resolution correctly populates `line.outgoing_refs`
+   - End-to-end assembly still fails during convergence
+   - **Bug is NOT in symbol resolution, but in expression evaluation phase**
 
 ## Next Steps to Fix
 
