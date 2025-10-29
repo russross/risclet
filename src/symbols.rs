@@ -22,6 +22,17 @@ pub struct Symbols {
     pub global_symbols: Vec<GlobalDefinition>,
 }
 
+impl Symbols {
+    /// Get the symbol references for a specific line
+    pub fn get_line_refs(&self, pointer: &LinePointer) -> &[SymbolReference] {
+        self.line_refs
+            .get(pointer.file_index)
+            .and_then(|file| file.get(pointer.line_index))
+            .map(|refs| refs.as_slice())
+            .unwrap_or(&[])
+    }
+}
+
 /// Temporary struct for building global symbols during file processing.
 #[derive(Debug, Clone)]
 pub struct UnfinalizedGlobal {

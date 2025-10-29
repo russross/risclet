@@ -75,7 +75,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     };
 
     // Resolve symbols
-    resolve_symbols(&mut source)
+    let symbols = resolve_symbols(&mut source)
         .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
 
     // Create relaxation settings (disable compression in tests to keep instruction sizes predictable)
@@ -87,7 +87,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    converge_and_encode(&mut source, 0x10000, &relax, &NoOpCallback, false)
+    converge_and_encode(&mut source, &symbols, 0x10000, &relax, &NoOpCallback, false)
         .map_err(|e| e.with_source_context())
 }
 
@@ -265,11 +265,12 @@ addi a1, a1, -10
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
-        .and_then(|_| {
+        .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
             assembler::converge_and_encode(
                 &mut source_struct,
+                &symbols,
                 0x10000,
                 &relax,
                 &callback,
@@ -351,11 +352,12 @@ add a0, a0, a1
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
-        .and_then(|_| {
+        .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
             assembler::converge_and_encode(
                 &mut source_struct,
+                &symbols,
                 0x10000,
                 &relax,
                 &callback,
@@ -433,11 +435,12 @@ addi a0, a0, 50
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
-        .and_then(|_| {
+        .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
             assembler::converge_and_encode(
                 &mut source_struct,
+                &symbols,
                 0x10000,
                 &relax,
                 &callback,

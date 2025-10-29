@@ -3,12 +3,13 @@
 // Core assembly pipeline functions shared between main.rs and tests
 
 use crate::ast::{
-    self, Directive, Instruction, LineContent, PseudoOp, Segment, Source,
+    self, Directive, Instruction, LineContent, PseudoOp, Segment, Source, LinePointer,
 };
 use crate::elf::compute_header_size;
-use crate::encoder::{encode_source_with_size_tracking, Relax};
+use crate::encoder::{encode_source, Relax};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
+use crate::symbols::Symbols;
 
 /// Compute offsets for all lines in the source
 ///
@@ -152,6 +153,7 @@ impl ConvergenceCallback for NoOpCallback {
 /// If `show_progress` is true, prints convergence progress to stderr.
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
+    symbols: &Symbols,
     text_start: u32,
     relax: &Relax,
     callback: &C,
@@ -183,12 +185,13 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
 
         // Step 2 & 3: Calculate symbol values and evaluate expressions
         let mut eval_context =
-            expressions::new_evaluation_context(source.clone(), text_start);
+            expressions::new_evaluation_context(source.clone(), symbols.clone(), text_start);
 
         // Evaluate all line symbols to populate the expression evaluation context
-        for file in &source.files {
-            for line in &file.lines {
-                expressions::evaluate_line_symbols(line, &mut eval_context)?;
+        for (file_index, file) in source.files.iter().enumerate() {
+            for (line_index, line) in file.lines.iter().enumerate() {
+                let pointer = LinePointer { file_index, line_index };
+                expressions::evaluate_line_symbols(line, &pointer, &mut eval_context)?;
             }
         }
 
@@ -205,7 +208,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         let mut any_changed = false;
 
          // Encode and collect results
-         let encode_result = encode_source_with_size_tracking(
+         let encode_result = encode_source(
              source,
              &mut eval_context,
              relax,

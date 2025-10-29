@@ -7,6 +7,7 @@
 
 use crate::ast::*;
 use crate::error::{AssemblerError, Result};
+use crate::symbols::Symbols;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -30,6 +31,9 @@ pub struct EvaluationContext {
     /// The complete source with all files, lines, and resolved symbols
     source: Source,
 
+    /// Symbol information extracted during resolution
+    symbols: Symbols,
+
     /// Memoization table: (symbol, definition location) -> evaluated value
     symbol_values: HashMap<SymbolReference, EvaluatedValue>,
 
@@ -37,6 +41,9 @@ pub struct EvaluationContext {
     pub text_start: u32,
     pub data_start: u32,
     pub bss_start: u32,
+
+    /// Current line context for looking up symbol references
+    current_line_pointer: LinePointer,
 }
 
 impl EvaluationContext {
@@ -67,6 +74,7 @@ impl EvaluationContext {
 /// Create an evaluation context with segment addresses and seed the symbol table
 pub fn new_evaluation_context(
     source: Source,
+    symbols: Symbols,
     text_start: u32,
 ) -> EvaluationContext {
     // The first instruction in the text segment is pushed back
@@ -98,10 +106,15 @@ pub fn new_evaluation_context(
 
     EvaluationContext {
         source,
+        symbols,
         symbol_values,
         text_start: text_first_instruction,
         data_start,
         bss_start,
+        current_line_pointer: LinePointer {
+            file_index: 0,
+            line_index: 0,
+        },
     }
 }
 
@@ -113,10 +126,14 @@ pub fn new_evaluation_context(
 pub fn eval_expr(
     expr: &Expression,
     line: &Line,
+    pointer: &LinePointer,
     context: &mut EvaluationContext,
 ) -> Result<EvaluatedValue> {
+    // Set the current line context for symbol lookups
+    context.current_line_pointer = pointer.clone();
+
     // Resolve all symbol dependencies
-    evaluate_line_symbols(line, context)?;
+    evaluate_line_symbols(line, pointer, context)?;
 
     // Evaluate the expression now that all symbol values are cached
     evaluate_expression(expr, context, line)
@@ -130,13 +147,15 @@ pub fn eval_expr(
 /// This is the forward phase of recursive evaluation: all symbol dependencies are
 /// computed and memoized before any expressions are evaluated.
 pub fn evaluate_line_symbols(
-    line: &Line,
+    _line: &Line,
+    pointer: &LinePointer,
     context: &mut EvaluationContext,
 ) -> Result<()> {
     let mut cycle_stack = Vec::new();
 
-    for sym_ref in &line.outgoing_refs {
-        resolve_symbol_dependencies(sym_ref, context, &mut cycle_stack)?;
+    let sym_refs = context.symbols.get_line_refs(pointer).to_vec();
+    for sym_ref in sym_refs {
+        resolve_symbol_dependencies(&sym_ref, context, &mut cycle_stack)?;
     }
 
     Ok(())
@@ -233,9 +252,9 @@ fn evaluate_expression(
         Expression::Literal(i) => Ok(EvaluatedValue::Integer(*i)),
 
         Expression::Identifier(name) => {
-            // Find symbol in current_line.outgoing_refs and look up cached value
-            let sym_ref = current_line
-                .outgoing_refs
+            // Find symbol in Symbols using current line context and look up cached value
+            let sym_refs = context.symbols.get_line_refs(&context.current_line_pointer);
+            let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == *name)
                 .ok_or_else(|| {
@@ -272,8 +291,8 @@ fn evaluate_expression(
                 nlr.num,
                 if nlr.is_forward { "f" } else { "b" }
             );
-            let sym_ref = current_line
-                .outgoing_refs
+            let sym_refs = context.symbols.get_line_refs(&context.current_line_pointer);
+            let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == label_name)
                 .ok_or_else(|| {
