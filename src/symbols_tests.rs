@@ -2030,4 +2030,41 @@ mod tests {
             err
         );
     }
+    #[test]
+    fn test_equ_referencing_label() {
+        let source_text = "
+            my_label:
+                nop
+            
+            .equ label_offset, my_label
+            
+            li a0, label_offset
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = resolve_symbols(&mut source);
+
+        assert!(
+            result.is_ok(),
+            "Symbol resolution should succeed with .equ referencing a label"
+        );
+
+        // Find the .equ line and verify it has a reference to my_label
+        let file = &source.files[0];
+        let mut found_equ_with_ref = false;
+        for line in &file.lines {
+            if let LineContent::Directive(Directive::Equ(ref name, _)) =
+                line.content
+                && name == "label_offset"
+            {
+                // This .equ should have an outgoing reference to my_label
+                found_equ_with_ref = line.outgoing_refs.iter().any(|r| r.symbol == "my_label");
+            }
+        }
+
+        assert!(
+            found_equ_with_ref,
+            ".equ label_offset should have a reference to my_label"
+        );
+    }
 }
