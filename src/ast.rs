@@ -61,7 +61,6 @@ pub struct Source {
     pub data_size: u32,
     pub bss_size: u32,
     pub global_symbols: Vec<GlobalDefinition>,
-    pub uses_global_pointer: bool,
 }
 
 /// A struct representing a pointer to a specific line in a source file.

@@ -24,7 +24,6 @@ mod tests {
             data_size: 0,
             bss_size: 0,
             global_symbols: vec![],
-            uses_global_pointer: false,
         }
     }
 
@@ -688,7 +687,6 @@ mod tests {
             bss_size: 200,
             global_symbols: vec![],
             header_size: 0,
-            uses_global_pointer: false,
         };
 
         let context = new_evaluation_context(source, 0x100e8);

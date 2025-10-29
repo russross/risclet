@@ -72,7 +72,6 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
         data_size: 0,
         bss_size: 0,
         global_symbols: vec![],
-        uses_global_pointer: false,
     };
 
     // Resolve symbols
@@ -263,7 +262,6 @@ addi a1, a1, -10
         data_size: 0,
         bss_size: 0,
         global_symbols: vec![],
-        uses_global_pointer: false,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
@@ -350,7 +348,6 @@ add a0, a0, a1
         data_size: 0,
         bss_size: 0,
         global_symbols: vec![],
-        uses_global_pointer: false,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
@@ -433,7 +430,6 @@ addi a0, a0, 50
         data_size: 0,
         bss_size: 0,
         global_symbols: vec![],
-        uses_global_pointer: false,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
