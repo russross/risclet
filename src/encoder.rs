@@ -25,6 +25,33 @@ use crate::expressions::{EvaluatedValue, EvaluationContext, eval_expr};
 type Result<T> = std::result::Result<T, AssemblerError>;
 
 // ============================================================================
+// Relaxation Configuration
+// ============================================================================
+
+/// Relaxation settings for instruction optimization
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Relax {
+    /// Enable GP-relative la optimization
+    pub gp: bool,
+    /// Enable call/tail pseudo-instruction optimization
+    pub pseudo: bool,
+    /// Enable automatic RV32C compressed encoding
+    pub compressed: bool,
+}
+
+impl Relax {
+    /// Create a new Relax configuration with all optimizations enabled
+    pub fn all() -> Self {
+        Relax { gp: true, pseudo: true, compressed: true }
+    }
+
+    /// Create a new Relax configuration with all optimizations disabled
+    pub fn none() -> Self {
+        Relax { gp: false, pseudo: false, compressed: false }
+    }
+}
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -36,10 +63,10 @@ pub struct EncodingContext<'a> {
 }
 
 /// Encode all lines in a source, returning (text_bytes, data_bytes, bss_size)
-#[allow(dead_code)]
 pub fn encode_source(
     source: &Source,
     eval_context: &mut EvaluationContext,
+    relax: &Relax,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
@@ -53,12 +80,12 @@ pub fn encode_source(
             match line.segment {
                 Segment::Text => {
                     let bytes =
-                        encode_line(line, &mut context, source.relax_gp)?;
+                        encode_line(line, &mut context, relax)?;
                     text_bytes.extend_from_slice(&bytes);
                 }
                 Segment::Data => {
                     let bytes =
-                        encode_line(line, &mut context, source.relax_gp)?;
+                        encode_line(line, &mut context, relax)?;
                     data_bytes.extend_from_slice(&bytes);
                 }
                 Segment::Bss => {
@@ -81,6 +108,7 @@ pub fn encode_source(
 pub fn encode_source_with_size_tracking(
     source: &mut Source,
     eval_context: &mut EvaluationContext,
+    relax: &Relax,
     any_changed: &mut bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     let mut text_bytes = Vec::new();
@@ -107,7 +135,7 @@ pub fn encode_source_with_size_tracking(
             let (bytes, actual_size) = match segment {
                 Segment::Text | Segment::Data => {
                     let bytes =
-                        encode_line(line, &mut context, source.relax_gp)?;
+                        encode_line(line, &mut context, relax)?;
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
@@ -143,7 +171,7 @@ pub fn encode_source_with_size_tracking(
 pub fn encode_line(
     line: &Line,
     context: &mut EncodingContext,
-    relax_gp: bool,
+    relax: &Relax,
 ) -> Result<Vec<u8>> {
     // BSS segment should be handled separately in encode_source
     assert!(
@@ -156,7 +184,7 @@ pub fn encode_line(
         LineContent::Label(_) => Ok(Vec::new()), // Labels don't generate code
 
         LineContent::Instruction(inst) => {
-            encode_instruction(inst, line, context, relax_gp)
+            encode_instruction(inst, line, context, relax)
         }
 
         LineContent::Directive(dir) => encode_directive(dir, line, context),
@@ -553,12 +581,12 @@ fn encode_instruction(
     inst: &Instruction,
     line: &Line,
     context: &mut EncodingContext,
-    relax_gp: bool,
+    relax: &Relax,
 ) -> Result<Vec<u8>> {
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
             // Try to relax to compressed instruction if enabled
-            if context.source.relax_compressed
+            if relax.compressed
                 && let Some((c_op, c_operands)) =
                     try_compress_instruction(inst, None)
             {
@@ -581,7 +609,7 @@ fn encode_instruction(
             let imm = require_integer(val, "I-type immediate", &line.location)?;
 
             // Try to relax to compressed instruction if enabled
-            if context.source.relax_compressed
+            if relax.compressed
                 && let Some((c_op, c_operands)) =
                     try_compress_instruction(inst, Some(imm))
             {
@@ -668,7 +696,7 @@ fn encode_instruction(
         }
 
         Instruction::Pseudo(pseudo) => {
-            encode_pseudo(pseudo, line, context, relax_gp)
+            encode_pseudo(pseudo, line, context, relax)
         }
     }
 }
@@ -1138,7 +1166,7 @@ fn encode_pseudo(
     pseudo: &PseudoOp,
     line: &Line,
     context: &mut EncodingContext,
-    relax_gp: bool,
+    relax: &Relax,
 ) -> Result<Vec<u8>> {
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
@@ -1159,7 +1187,7 @@ fn encode_pseudo(
             let current_pc = get_line_address(line, context);
             let gp = (context.eval_context.data_start as i64) + 2048;
 
-            expand_la(*rd, addr, current_pc, gp, &line.location, relax_gp)
+            expand_la(*rd, addr, current_pc, gp, &line.location, relax.gp)
         }
 
         PseudoOp::Call(target_expr) => {
@@ -1176,7 +1204,7 @@ fn encode_pseudo(
                 target,
                 current_pc,
                 &line.location,
-                context.source.relax_pseudo,
+                relax.pseudo,
             )
         }
 
@@ -1194,7 +1222,7 @@ fn encode_pseudo(
                 target,
                 current_pc,
                 &line.location,
-                context.source.relax_pseudo,
+                relax.pseudo,
             )
         }
 

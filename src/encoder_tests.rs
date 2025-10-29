@@ -5,6 +5,7 @@
 
 use crate::assembler::{NoOpCallback, converge_and_encode};
 use crate::ast::{Source, SourceFile};
+use crate::encoder::Relax;
 use crate::parser::parse;
 use crate::symbols::resolve_symbols;
 use crate::tokenizer::tokenize;
@@ -72,18 +73,22 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax_gp: true,
-        relax_pseudo: true,
-        relax_compressed: false, // Disable compression in tests to keep instruction sizes predictable
     };
 
     // Resolve symbols
     resolve_symbols(&mut source)
         .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
 
+    // Create relaxation settings (disable compression in tests to keep instruction sizes predictable)
+    let relax = Relax {
+        gp: true,
+        pseudo: true,
+        compressed: false,
+    };
+
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    converge_and_encode(&mut source, 0x10000, &NoOpCallback, false)
+    converge_and_encode(&mut source, 0x10000, &relax, &NoOpCallback, false)
         .map_err(|e| e.with_source_context())
 }
 
@@ -259,17 +264,16 @@ addi a1, a1, -10
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax_gp: true,
-        relax_pseudo: true,
-        relax_compressed: true,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
         .and_then(|_| {
             let callback = assembler::NoOpCallback;
+            let relax = Relax { gp: true, pseudo: true, compressed: true };
             assembler::converge_and_encode(
                 &mut source_struct,
                 0x10000,
+                &relax,
                 &callback,
                 false,
             )
@@ -347,17 +351,16 @@ add a0, a0, a1
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax_gp: true,
-        relax_pseudo: true,
-        relax_compressed: true,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
         .and_then(|_| {
             let callback = assembler::NoOpCallback;
+            let relax = Relax { gp: true, pseudo: true, compressed: true };
             assembler::converge_and_encode(
                 &mut source_struct,
                 0x10000,
+                &relax,
                 &callback,
                 false,
             )
@@ -431,17 +434,16 @@ addi a0, a0, 50
         bss_size: 0,
         global_symbols: vec![],
         uses_global_pointer: false,
-        relax_gp: true,
-        relax_pseudo: true,
-        relax_compressed: true,
     };
 
     let text = symbols::resolve_symbols(&mut source_struct)
         .and_then(|_| {
             let callback = assembler::NoOpCallback;
+            let relax = Relax { gp: true, pseudo: true, compressed: true };
             assembler::converge_and_encode(
                 &mut source_struct,
                 0x10000,
+                &relax,
                 &callback,
                 false,
             )

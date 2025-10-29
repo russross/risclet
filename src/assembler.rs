@@ -6,7 +6,7 @@ use crate::ast::{
     self, Directive, Instruction, LineContent, PseudoOp, Segment, Source,
 };
 use crate::elf::compute_header_size;
-use crate::encoder::encode_source_with_size_tracking;
+use crate::encoder::{encode_source_with_size_tracking, Relax};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
 
@@ -153,6 +153,7 @@ impl ConvergenceCallback for NoOpCallback {
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
     text_start: u32,
+    relax: &Relax,
     callback: &C,
     show_progress: bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
@@ -203,12 +204,13 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // Track if any size changed
         let mut any_changed = false;
 
-        // Encode and collect results
-        let encode_result = encode_source_with_size_tracking(
-            source,
-            &mut eval_context,
-            &mut any_changed,
-        );
+         // Encode and collect results
+         let encode_result = encode_source_with_size_tracking(
+             source,
+             &mut eval_context,
+             relax,
+             &mut any_changed,
+         );
 
         let (text_bytes, data_bytes, bss_size) = encode_result?;
 

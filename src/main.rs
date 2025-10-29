@@ -1,4 +1,5 @@
 use ast::{Line, Segment, Source, SourceFile};
+use encoder::Relax;
 use error::AssemblerError;
 use std::env;
 use std::fs::File;
@@ -23,9 +24,7 @@ struct Config {
     text_start: u32,
     verbose: bool,
     dump: dump::DumpConfig,
-    relax_gp: bool,
-    relax_pseudo: bool,
-    relax_compressed: bool,
+    relax: Relax,
 }
 
 fn process_cli_args() -> Result<Config, String> {
@@ -40,9 +39,7 @@ fn process_cli_args() -> Result<Config, String> {
     let mut text_start = 0x10000u32;
     let mut verbose = false;
     let mut dump_config = dump::DumpConfig::new();
-    let mut relax_gp = true;
-    let mut relax_pseudo = true;
-    let mut relax_compressed = true;
+    let mut relax = Relax::all();
     let mut i = 1;
 
     while i < args.len() {
@@ -114,27 +111,25 @@ fn process_cli_args() -> Result<Config, String> {
                     verbose = true;
                 }
                 "--no-relax" => {
-                    relax_gp = false;
-                    relax_pseudo = false;
-                    relax_compressed = false;
+                    relax = Relax::none();
                 }
                 "--relax-gp" => {
-                    relax_gp = true;
+                    relax.gp = true;
                 }
                 "--no-relax-gp" => {
-                    relax_gp = false;
+                    relax.gp = false;
                 }
                 "--relax-pseudo" => {
-                    relax_pseudo = true;
+                    relax.pseudo = true;
                 }
                 "--no-relax-pseudo" => {
-                    relax_pseudo = false;
+                    relax.pseudo = false;
                 }
                 "--relax-compressed" => {
-                    relax_compressed = true;
+                    relax.compressed = true;
                 }
                 "--no-relax-compressed" => {
-                    relax_compressed = false;
+                    relax.compressed = false;
                 }
                 "-h" | "--help" => {
                     return Err(print_help(&args[0]));
@@ -160,9 +155,7 @@ fn process_cli_args() -> Result<Config, String> {
         text_start,
         verbose,
         dump: dump_config,
-        relax_gp,
-        relax_pseudo,
-        relax_compressed,
+        relax,
     })
 }
 
@@ -343,14 +336,9 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
 fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 1: Parse source files into AST
-    // ========================================================================
-    let mut source =
-        process_files(config.input_files.clone(), config.relax_compressed)?;
-
-    // Set relaxation flags from config
-    source.relax_gp = config.relax_gp;
-    source.relax_pseudo = config.relax_pseudo;
-    // relax_compressed already set during process_files
+     // ========================================================================
+     let mut source =
+         process_files(config.input_files.clone())?;
 
     // Checkpoint: dump AST if requested
     if should_dump_phase(&config, Phase::Parse) {
@@ -393,6 +381,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             assembler::converge_and_encode(
                 &mut source,
                 config.text_start,
+                &config.relax,
                 &dump_callback,
                 config.verbose,
             )?
@@ -401,6 +390,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             assembler::converge_and_encode(
                 &mut source,
                 config.text_start,
+                &config.relax,
                 &assembler::NoOpCallback,
                 config.verbose,
             )?
@@ -551,7 +541,6 @@ fn print_input_statistics(source: &Source) {
 
 fn process_files(
     files: Vec<String>,
-    relax_compressed: bool,
 ) -> Result<Source, error::AssemblerError> {
     let mut source = Source {
         files: Vec::new(),
@@ -561,9 +550,6 @@ fn process_files(
         bss_size: 0,
         global_symbols: Vec::new(),
         uses_global_pointer: false,
-        relax_gp: false,
-        relax_pseudo: false,
-        relax_compressed,
     };
 
     for file_path in &files {
