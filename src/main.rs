@@ -441,6 +441,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Build symbol table
     elf::build_symbol_table(
         &source,
+        &symbols,
         &mut elf_builder,
         eval_context.text_start as u32,
         eval_context.data_start as u32,
