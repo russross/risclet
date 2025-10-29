@@ -42,7 +42,7 @@ pub fn compute_offsets(source: &mut Source) {
             if let LineContent::Directive(Directive::Balign(_expr)) =
                 &line.content
             {
-                let align = 8; // Placeholder: should evaluate expr
+                let align = 8; // TODO: evaluate expr
                 let padding = (align - (current_offset % align)) % align;
                 line.size = padding;
             }
@@ -53,19 +53,19 @@ pub fn compute_offsets(source: &mut Source) {
             let advance = line.size;
             match line.segment {
                 Segment::Text => {
-                    text_offset = text_offset.wrapping_add(advance)
+                    text_offset += advance
                 }
                 Segment::Data => {
-                    data_offset = data_offset.wrapping_add(advance)
+                    data_offset += advance
                 }
-                Segment::Bss => bss_offset = bss_offset.wrapping_add(advance),
+                Segment::Bss => bss_offset += advance,
             }
         }
 
         // Update source_file sizes (size contributed by this file in each segment)
-        source_file.text_size = text_offset.wrapping_sub(file_text_start);
-        source_file.data_size = data_offset.wrapping_sub(file_data_start);
-        source_file.bss_size = bss_offset.wrapping_sub(file_bss_start);
+        source_file.text_size = text_offset - file_text_start;
+        source_file.data_size = data_offset - file_data_start;
+        source_file.bss_size = bss_offset - file_bss_start;
 
         // Update global offsets to continue in the next file
         global_text_offset = text_offset;

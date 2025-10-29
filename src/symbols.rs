@@ -50,8 +50,34 @@ pub struct UnresolvedReference {
 
 /// Resolves all symbols in the source, linking references to definitions.
 /// Returns an error on the first issue encountered.
-/// Also builds the new Symbols struct in parallel with the existing data structures.
+/// Calls resolve_symbols_future to get the Symbols object, then distributes
+/// the data into the Source structure for backward compatibility.
 pub fn resolve_symbols(source: &mut Source) -> Result<Symbols, AssemblerError> {
+    let symbols = resolve_symbols_future(source)?;
+    
+    // Distribute line references to Source structure
+    for (file_index, file_refs) in symbols.line_refs.iter().enumerate() {
+        for (line_index, refs) in file_refs.iter().enumerate() {
+            if file_index < source.files.len() && line_index < source.files[file_index].lines.len() {
+                source.files[file_index].lines[line_index].outgoing_refs = refs.clone();
+            }
+        }
+    }
+    
+    // Distribute local symbols to Source structure
+    for (file_index, local_symbols) in symbols.local_symbols_by_file.iter().enumerate() {
+        if file_index < source.files.len() {
+            source.files[file_index].local_symbols = local_symbols.clone();
+        }
+    }
+    
+    // Distribute global symbols to Source structure
+    source.global_symbols = symbols.global_symbols.clone();
+    
+    Ok(symbols)
+}
+
+pub fn resolve_symbols_future(source: &Source) -> Result<Symbols, AssemblerError> {
     let mut globals: HashMap<String, GlobalDefinition> = HashMap::new();
     let mut unresolved: Vec<UnresolvedReference> = Vec::new();
     
@@ -59,13 +85,11 @@ pub fn resolve_symbols(source: &mut Source) -> Result<Symbols, AssemblerError> {
     let mut line_refs: Vec<Vec<Vec<SymbolReference>>> = Vec::new();
     let mut local_symbols_by_file: Vec<Vec<SymbolDefinition>> = Vec::new();
 
-    for (file_index, file) in source.files.iter_mut().enumerate() {
-        let (file_globals, file_unresolved, file_local_symbols) = resolve_file(file_index, file)?;
+    for (file_index, file) in source.files.iter().enumerate() {
+        let (file_globals, file_unresolved, file_local_symbols, file_line_refs) = 
+            resolve_file(file_index, file)?;
         
-        // Build line_refs for this file
-        let file_line_refs: Vec<Vec<SymbolReference>> = file.lines.iter()
-            .map(|line| line.outgoing_refs.clone())
-            .collect();
+        // Store line references for this file
         line_refs.push(file_line_refs);
         
         // Store local symbols
@@ -101,40 +125,25 @@ pub fn resolve_symbols(source: &mut Source) -> Result<Symbols, AssemblerError> {
                 ));
             }
             globals.insert(gd.symbol.clone(), gd.clone());
-            source.global_symbols.push(gd);
         }
 
         // Merge unresolved
         for u_r in file_unresolved {
-            if u_r.symbol == SPECIAL_GLOBAL_POINTER {
-                // Allow __global_pointer$ to be used in expressions, but don't enable
-                // GP-relative addressing automatically. The relax_gp flag controls that.
-                file.lines[u_r.referencing_pointer.line_index]
-                    .outgoing_refs
-                    .push(SymbolReference {
-                        symbol: SPECIAL_GLOBAL_POINTER.to_string(),
-                        pointer: LinePointer {
-                            file_index: usize::MAX,
-                            line_index: usize::MAX,
-                        },
-                    });
-            } else {
-                unresolved.push(u_r);
-            }
+            unresolved.push(u_r);
         }
     }
 
-    // Now resolve cross-file references
-    resolve_cross_file(source, &globals, unresolved)?;
+    // Now resolve cross-file references and collect final line references
+    let cross_file_refs = resolve_cross_file(source, &globals, unresolved)?;
     
-    // Update line_refs with the final resolved cross-file references
-    for (file_index, file) in source.files.iter().enumerate() {
-        for (line_index, line) in file.lines.iter().enumerate() {
-            line_refs[file_index][line_index] = line.outgoing_refs.clone();
+    // Merge cross-file references into line_refs
+    for (file_index, line_index, sym_ref) in cross_file_refs {
+        if file_index < line_refs.len() && line_index < line_refs[file_index].len() {
+            line_refs[file_index][line_index].push(sym_ref);
         }
     }
     
-    let global_symbols = source.global_symbols.clone();
+    let global_symbols: Vec<GlobalDefinition> = globals.into_values().collect();
     
     Ok(Symbols {
         line_refs,
@@ -202,11 +211,12 @@ fn flush_numeric_labels(
 }
 
 /// Processes a single file for symbol resolution.
-/// Returns global definitions, unresolved references, and local symbol definitions
+/// Returns global definitions, unresolved references, local symbol definitions, and line references.
+/// Does not mutate the SourceFile.
 fn resolve_file(
     file_index: usize,
-    file: &mut SourceFile,
-) -> Result<(Vec<GlobalDefinition>, Vec<UnresolvedReference>, Vec<SymbolDefinition>), AssemblerError> {
+    file: &SourceFile,
+) -> Result<(Vec<GlobalDefinition>, Vec<UnresolvedReference>, Vec<SymbolDefinition>, Vec<Vec<SymbolReference>>), AssemblerError> {
     let locations: Vec<Location> =
         file.lines.iter().map(|line| line.location.clone()).collect();
     let mut definitions: HashMap<String, LinePointer> = HashMap::new();
@@ -214,10 +224,14 @@ fn resolve_file(
     let mut unfinalized_globals: HashMap<String, UnfinalizedGlobal> =
         HashMap::new();
 
+    // Track symbol references for each line
+    let mut line_outgoing_refs: Vec<Vec<SymbolReference>> = 
+        vec![Vec::new(); file.lines.len()];
+
     // Track resolved references that need to be added after the loop
     let mut patches: Vec<(usize, SymbolReference)> = Vec::new();
 
-    for (line_index, line) in file.lines.iter_mut().enumerate() {
+    for (line_index, line) in file.lines.iter().enumerate() {
         let line_ptr = LinePointer { file_index, line_index };
 
         // Extract symbol references from the line
@@ -227,7 +241,7 @@ fn resolve_file(
             if let Some(_num) = is_numeric_backward_ref(&symbol) {
                 // Backward reference
                 if let Some(def_ptr) = definitions.get(&symbol) {
-                    line.outgoing_refs.push(SymbolReference {
+                    line_outgoing_refs[line_index].push(SymbolReference {
                         symbol: symbol.clone(),
                         pointer: def_ptr.clone(),
                     });
@@ -249,8 +263,17 @@ fn resolve_file(
                 });
             } else {
                 // Regular symbol
-                if let Some(def_ptr) = definitions.get(&symbol) {
-                    line.outgoing_refs.push(SymbolReference {
+                if symbol == SPECIAL_GLOBAL_POINTER {
+                    // Add special global pointer reference with sentinel pointer
+                    line_outgoing_refs[line_index].push(SymbolReference {
+                        symbol: SPECIAL_GLOBAL_POINTER.to_string(),
+                        pointer: LinePointer {
+                            file_index: usize::MAX,
+                            line_index: usize::MAX,
+                        },
+                    });
+                } else if let Some(def_ptr) = definitions.get(&symbol) {
+                    line_outgoing_refs[line_index].push(SymbolReference {
                         symbol: symbol.clone(),
                         pointer: def_ptr.clone(),
                     });
@@ -398,7 +421,7 @@ fn resolve_file(
 
     // Apply all the patches now that we're done iterating
     for (line_index, sym_ref) in patches {
-        file.lines[line_index].outgoing_refs.push(sym_ref);
+        line_outgoing_refs[line_index].push(sym_ref);
     }
 
     // Convert unfinalized globals to GlobalDefinition with validation
@@ -430,7 +453,7 @@ fn resolve_file(
         .map(|(symbol, pointer)| SymbolDefinition { symbol, pointer })
         .collect();
 
-    Ok((global_definitions, unresolved, local_symbols))
+    Ok((global_definitions, unresolved, local_symbols, line_outgoing_refs))
 }
 
 /// Extracts all symbol references from a line's AST
@@ -607,20 +630,24 @@ fn extract_from_expression(expr: &Expression) -> Vec<String> {
 }
 
 /// Resolves cross-file references using the global symbols map.
+/// Returns a list of (file_index, line_index, SymbolReference) tuples to be added.
 fn resolve_cross_file(
-    source: &mut Source,
+    source: &Source,
     globals: &HashMap<String, GlobalDefinition>,
     unresolved: Vec<UnresolvedReference>,
-) -> Result<(), AssemblerError> {
+) -> Result<Vec<(usize, usize, SymbolReference)>, AssemblerError> {
+    let mut cross_file_refs = Vec::new();
+    
     for unref in unresolved {
         if let Some(gd) = globals.get(&unref.symbol) {
-            // Find the line and add the reference
-            let file = &mut source.files[unref.referencing_pointer.file_index];
-            let line = &mut file.lines[unref.referencing_pointer.line_index];
-            line.outgoing_refs.push(SymbolReference {
-                symbol: unref.symbol.clone(),
-                pointer: gd.definition_pointer.clone(),
-            });
+            cross_file_refs.push((
+                unref.referencing_pointer.file_index,
+                unref.referencing_pointer.line_index,
+                SymbolReference {
+                    symbol: unref.symbol.clone(),
+                    pointer: gd.definition_pointer.clone(),
+                },
+            ));
         } else {
             // Get the location of the referencing line for the error
             let file = &source.files[unref.referencing_pointer.file_index];
@@ -631,7 +658,7 @@ fn resolve_cross_file(
             ));
         }
     }
-    Ok(())
+    Ok(cross_file_refs)
 }
 
 #[cfg(test)]
