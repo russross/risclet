@@ -7,6 +7,7 @@
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
 use crate::ast::{LineContent, Segment, Source};
+use crate::symbols::Symbols;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -798,7 +799,7 @@ impl ElfBuilder {
 // Symbol Table Generation
 // ============================================================================
 
-/// Build symbol table from Source AST
+/// Build symbol table from Source and Symbols
 ///
 /// Symbol ordering matches GNU toolchain:
 /// 1. Null symbol (entry 0)
@@ -810,6 +811,7 @@ impl ElfBuilder {
 /// 4. Global symbols (including linker-provided symbols)
 pub fn build_symbol_table(
     source: &Source,
+    symbols: &Symbols,
     builder: &mut ElfBuilder,
     text_start: u32,
     data_start: u32,
@@ -873,7 +875,7 @@ pub fn build_symbol_table(
         for (line_index, line) in source_file.lines.iter().enumerate() {
             if let LineContent::Label(name) = &line.content {
                 // Skip if this label is declared global
-                let is_global = source.global_symbols.iter().any(|g| {
+                let is_global = symbols.global_symbols.iter().any(|g| {
                     &g.symbol == name
                         && g.definition_pointer.file_index == file_index
                         && g.definition_pointer.line_index == line_index
@@ -947,7 +949,7 @@ pub fn build_symbol_table(
     }
 
     // Add user-defined global symbols
-    for global in &source.global_symbols {
+    for global in &symbols.global_symbols {
         let file_index = global.definition_pointer.file_index;
         let line_index = global.definition_pointer.line_index;
         let line = &source.files[file_index].lines[line_index];
