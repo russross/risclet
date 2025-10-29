@@ -64,7 +64,6 @@ mod tests {
             bss_size: 0,
             global_symbols: Vec::new(),
             header_size: 0,
-            uses_global_pointer: false,
         };
 
         for (filename, content) in files {

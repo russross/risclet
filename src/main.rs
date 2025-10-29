@@ -353,7 +353,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 2: Resolve symbols (create references from uses to definitions)
     // ========================================================================
-    symbols::resolve_symbols(&mut source)?;
+    let _symbols = symbols::resolve_symbols(&mut source)?;
 
     // Checkpoint: dump symbol resolution if requested
     if should_dump_phase(&config, Phase::SymbolResolution) {
@@ -549,7 +549,6 @@ fn process_files(
         data_size: 0,
         bss_size: 0,
         global_symbols: Vec::new(),
-        uses_global_pointer: false,
     };
 
     for file_path in &files {

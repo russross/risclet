@@ -8,6 +8,20 @@ use crate::ast::*;
 use crate::error::AssemblerError;
 use std::collections::HashMap;
 
+/// New symbol resolution result structure.
+/// Contains all symbol-related information extracted from the Source during resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Symbols {
+    /// Outgoing symbol references for each line, indexed by (file_index, line_index).
+    pub line_refs: Vec<Vec<Vec<SymbolReference>>>,
+    
+    /// Local symbols per file, indexed by file_index.
+    pub local_symbols_by_file: Vec<Vec<SymbolDefinition>>,
+    
+    /// Cross-file global symbols.
+    pub global_symbols: Vec<GlobalDefinition>,
+}
+
 /// Temporary struct for building global symbols during file processing.
 #[derive(Debug, Clone)]
 pub struct UnfinalizedGlobal {
@@ -25,12 +39,27 @@ pub struct UnresolvedReference {
 
 /// Resolves all symbols in the source, linking references to definitions.
 /// Returns an error on the first issue encountered.
-pub fn resolve_symbols(source: &mut Source) -> Result<(), AssemblerError> {
+/// Also builds the new Symbols struct in parallel with the existing data structures.
+pub fn resolve_symbols(source: &mut Source) -> Result<Symbols, AssemblerError> {
     let mut globals: HashMap<String, GlobalDefinition> = HashMap::new();
     let mut unresolved: Vec<UnresolvedReference> = Vec::new();
+    
+    // Build parallel Symbols structures
+    let mut line_refs: Vec<Vec<Vec<SymbolReference>>> = Vec::new();
+    let mut local_symbols_by_file: Vec<Vec<SymbolDefinition>> = Vec::new();
 
     for (file_index, file) in source.files.iter_mut().enumerate() {
-        let (file_globals, file_unresolved) = resolve_file(file_index, file)?;
+        let (file_globals, file_unresolved, file_local_symbols) = resolve_file(file_index, file)?;
+        
+        // Build line_refs for this file
+        let file_line_refs: Vec<Vec<SymbolReference>> = file.lines.iter()
+            .map(|line| line.outgoing_refs.clone())
+            .collect();
+        line_refs.push(file_line_refs);
+        
+        // Store local symbols
+        local_symbols_by_file.push(file_local_symbols);
+        
         // Merge globals
         for gd in file_globals {
             // not allowed to export __global_pointer$
@@ -86,7 +115,21 @@ pub fn resolve_symbols(source: &mut Source) -> Result<(), AssemblerError> {
 
     // Now resolve cross-file references
     resolve_cross_file(source, &globals, unresolved)?;
-    Ok(())
+    
+    // Update line_refs with the final resolved cross-file references
+    for (file_index, file) in source.files.iter().enumerate() {
+        for (line_index, line) in file.lines.iter().enumerate() {
+            line_refs[file_index][line_index] = line.outgoing_refs.clone();
+        }
+    }
+    
+    let global_symbols = source.global_symbols.clone();
+    
+    Ok(Symbols {
+        line_refs,
+        local_symbols_by_file,
+        global_symbols,
+    })
 }
 
 /// Helper function to check if a symbol is a backward numeric label reference (e.g., "1b").
@@ -148,11 +191,11 @@ fn flush_numeric_labels(
 }
 
 /// Processes a single file for symbol resolution.
-/// Returns global definitions and unresolved references
+/// Returns global definitions, unresolved references, and local symbol definitions
 fn resolve_file(
     file_index: usize,
     file: &mut SourceFile,
-) -> Result<(Vec<GlobalDefinition>, Vec<UnresolvedReference>), AssemblerError> {
+) -> Result<(Vec<GlobalDefinition>, Vec<UnresolvedReference>, Vec<SymbolDefinition>), AssemblerError> {
     let locations: Vec<Location> =
         file.lines.iter().map(|line| line.location.clone()).collect();
     let mut definitions: HashMap<String, LinePointer> = HashMap::new();
@@ -370,7 +413,13 @@ fn resolve_file(
         flush_numeric_labels(&locations, &mut definitions, &mut unresolved)?;
     }
 
-    Ok((global_definitions, unresolved))
+    // Convert definitions HashMap to Vec<SymbolDefinition> for local symbols
+    let local_symbols: Vec<SymbolDefinition> = definitions
+        .into_iter()
+        .map(|(symbol, pointer)| SymbolDefinition { symbol, pointer })
+        .collect();
+
+    Ok((global_definitions, unresolved, local_symbols))
 }
 
 /// Extracts all symbol references from a line's AST
@@ -572,4 +621,86 @@ fn resolve_cross_file(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod symbols_struct_tests {
+    use crate::ast::*;
+    use crate::parser::parse;
+    use crate::symbols::resolve_symbols;
+    use crate::tokenizer::tokenize;
+
+    #[test]
+    fn test_symbols_struct_populated() {
+        let source_text = r#"
+.text
+loop: addi x1, x1, 1
+      beq x1, x2, loop
+      "#;
+
+        let mut all_lines = Vec::new();
+        for (line_num, line_text) in source_text.lines().enumerate() {
+            let line_text = line_text.trim();
+            if line_text.is_empty() || line_text.starts_with('#') {
+                continue;
+            }
+
+            let tokens = tokenize(line_text).unwrap();
+            if tokens.is_empty() {
+                continue;
+            }
+
+            let lines = parse(&tokens, "test.s".to_string(), line_num + 1).unwrap();
+            for mut line in lines {
+                line.segment = Segment::Text;
+                all_lines.push(line);
+            }
+        }
+
+        let mut source = Source {
+            files: vec![SourceFile {
+                file: "test.s".to_string(),
+                lines: all_lines,
+                text_size: 0,
+                data_size: 0,
+                bss_size: 0,
+                local_symbols: vec![],
+            }],
+            header_size: 0,
+            text_size: 0,
+            data_size: 0,
+            bss_size: 0,
+            global_symbols: vec![],
+        };
+
+        // Resolve symbols and get the Symbols struct
+        let symbols = resolve_symbols(&mut source).expect("Resolution should succeed");
+
+        // Verify Symbols struct is populated
+        assert_eq!(symbols.line_refs.len(), 1, "Should have one file");
+        assert!(symbols.line_refs[0].len() > 0, "File should have lines");
+
+        // Verify the local_symbols_by_file
+        assert_eq!(
+            symbols.local_symbols_by_file.len(),
+            1,
+            "Should have symbols for one file"
+        );
+        assert!(
+            symbols.local_symbols_by_file[0].len() > 0,
+            "File should have local symbols"
+        );
+
+        // Verify global_symbols matches what's in Source
+        assert_eq!(
+            symbols.global_symbols.len(),
+            source.global_symbols.len(),
+            "Global symbols should match"
+        );
+
+        // Verify that the loop label is in local symbols
+        let local_syms = &symbols.local_symbols_by_file[0];
+        let has_loop = local_syms.iter().any(|sym| sym.symbol == "loop");
+        assert!(has_loop, "Should have 'loop' label in local symbols");
+    }
 }
