@@ -206,9 +206,9 @@ fn resolve_symbol_dependencies(
             EvaluatedValue::Address(absolute_addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
-            // .equ: First resolve all referenced symbols (via outgoing_refs), then evaluate
+            // .equ: First resolve all referenced symbols (via Symbols struct), then evaluate
             // Clone everything to avoid borrow conflicts during recursive resolution
-            let sym_refs = line.outgoing_refs.clone();
+            let sym_refs = context.symbols.get_line_refs(&key.pointer).to_vec();
             let expr_clone = expr.clone();
             let line_clone = line.clone();
 
