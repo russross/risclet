@@ -18,13 +18,11 @@ mod tests {
                 text_size: 0,
                 data_size: 0,
                 bss_size: 0,
-                local_symbols: vec![],
             }],
             header_size: 0,
             text_size: 0,
             data_size: 0,
             bss_size: 0,
-            global_symbols: vec![],
         }
     }
 
@@ -53,7 +51,6 @@ mod tests {
             segment,
             offset,
             size: 0,
-            outgoing_refs: vec![],
         }
     }
 
@@ -757,7 +754,6 @@ mod tests {
             text_size: 1000, // Will cause data to be boundary
             data_size: 500,
             bss_size: 200,
-            global_symbols: vec![],
             header_size: 0,
         };
 

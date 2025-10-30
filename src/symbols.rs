@@ -55,41 +55,6 @@ struct UnresolvedReference {
     pub referencing_pointer: LinePointer,
 }
 
-/// Links all symbols in the source, connecting references with definition.
-/// The linking happening here is at the source/AST level, not at the concrete
-/// value level.
-/// Calls link_symbols to get the Symbols object, then distributes
-/// the data into the Source structure for backward compatibility.
-pub fn link_symbols_old(source: &mut Source) -> Result<Symbols, AssemblerError> {
-    let symbols = link_symbols(source)?;
-
-    // Distribute line references to Source structure
-    for (file_index, file_refs) in symbols.line_refs.iter().enumerate() {
-        for (line_index, refs) in file_refs.iter().enumerate() {
-            if file_index < source.files.len()
-                && line_index < source.files[file_index].lines.len()
-            {
-                source.files[file_index].lines[line_index].outgoing_refs =
-                    refs.clone();
-            }
-        }
-    }
-
-    // Distribute local symbols to Source structure
-    for (file_index, local_symbols) in
-        symbols.local_symbols_by_file.iter().enumerate()
-    {
-        if file_index < source.files.len() {
-            source.files[file_index].local_symbols = local_symbols.clone();
-        }
-    }
-
-    // Distribute global symbols to Source structure
-    source.global_symbols = symbols.global_symbols.clone();
-
-    Ok(symbols)
-}
-
 pub fn link_symbols(
     source: &Source,
 ) -> Result<Symbols, AssemblerError> {
