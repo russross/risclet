@@ -3,10 +3,11 @@
 // Core assembly pipeline functions shared between main.rs and tests
 
 use crate::ast::{
-    self, Directive, Instruction, LineContent, PseudoOp, Segment, Source, LinePointer,
+    self, Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment,
+    Source,
 };
 use crate::elf::compute_header_size;
-use crate::encoder::{encode_source, Relax};
+use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
 use crate::symbols::Symbols;
@@ -15,12 +16,17 @@ use crate::symbols::Symbols;
 ///
 /// This assigns each line an offset within its segment based on the
 /// current size guesses for all preceding lines.
+///
+/// The builtin file (last file) is skipped as its offsets are pre-set.
 pub fn compute_offsets(source: &mut Source) {
     let mut global_text_offset: u32 = 0;
     let mut global_data_offset: u32 = 0;
     let mut global_bss_offset: u32 = 0;
 
-    for source_file in &mut source.files {
+    // Skip the last file (builtin symbols file) - its offsets are hardcoded
+    let num_user_files = source.files.len().saturating_sub(1);
+
+    for source_file in source.files.iter_mut().take(num_user_files) {
         // Track the starting offset for this file in each segment
         let file_text_start = global_text_offset;
         let file_data_start = global_data_offset;
@@ -52,12 +58,8 @@ pub fn compute_offsets(source: &mut Source) {
             // Advance offset
             let advance = line.size;
             match line.segment {
-                Segment::Text => {
-                    text_offset += advance
-                }
-                Segment::Data => {
-                    data_offset += advance
-                }
+                Segment::Text => text_offset += advance,
+                Segment::Data => data_offset += advance,
                 Segment::Bss => bss_offset += advance,
             }
         }
@@ -184,14 +186,21 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         }
 
         // Step 2 & 3: Calculate symbol values and evaluate expressions
-        let mut eval_context =
-            expressions::new_evaluation_context(source.clone(), symbols.clone(), text_start);
+        let mut eval_context = expressions::new_evaluation_context(
+            source.clone(),
+            symbols.clone(),
+            text_start,
+        );
 
         // Evaluate all line symbols to populate the expression evaluation context
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, line) in file.lines.iter().enumerate() {
                 let pointer = LinePointer { file_index, line_index };
-                expressions::evaluate_line_symbols(line, &pointer, &mut eval_context)?;
+                expressions::evaluate_line_symbols(
+                    line,
+                    &pointer,
+                    &mut eval_context,
+                )?;
             }
         }
 
@@ -207,13 +216,9 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // Track if any size changed
         let mut any_changed = false;
 
-         // Encode and collect results
-         let encode_result = encode_source(
-             source,
-             &mut eval_context,
-             relax,
-             &mut any_changed,
-         );
+        // Encode and collect results
+        let encode_result =
+            encode_source(source, &mut eval_context, relax, &mut any_changed);
 
         let (text_bytes, data_bytes, bss_size) = encode_result?;
 

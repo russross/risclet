@@ -4,7 +4,7 @@
 // These tests compare our encoder output against GNU assembler output
 
 use crate::assembler::{NoOpCallback, converge_and_encode};
-use crate::ast::{Source, SourceFile};
+use crate::ast::{Source, SourceFile, create_builtin_symbols_file};
 use crate::encoder::Relax;
 use crate::parser::parse;
 use crate::symbols::resolve_symbols;
@@ -74,21 +74,27 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
         global_symbols: vec![],
     };
 
+    // Add builtin symbols file (provides __global_pointer$ definition)
+    source.files.push(create_builtin_symbols_file());
+
     // Resolve symbols
     let symbols = resolve_symbols(&mut source)
         .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
 
     // Create relaxation settings (disable compression in tests to keep instruction sizes predictable)
-    let relax = Relax {
-        gp: true,
-        pseudo: true,
-        compressed: false,
-    };
+    let relax = Relax { gp: true, pseudo: true, compressed: false };
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    converge_and_encode(&mut source, &symbols, 0x10000, &relax, &NoOpCallback, false)
-        .map_err(|e| e.with_source_context())
+    converge_and_encode(
+        &mut source,
+        &symbols,
+        0x10000,
+        &relax,
+        &NoOpCallback,
+        false,
+    )
+    .map_err(|e| e.with_source_context())
 }
 
 /// Helper to format bytes as hex for debugging

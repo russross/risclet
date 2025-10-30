@@ -91,30 +91,14 @@ pub fn new_evaluation_context(
     // bss_start = immediately after data
     let bss_start = data_start + data_size;
 
-    // seed with __global_pointer$
-    let mut symbol_values = HashMap::new();
-    symbol_values.insert(
-        SymbolReference {
-            symbol: SPECIAL_GLOBAL_POINTER.to_string(),
-            pointer: LinePointer {
-                file_index: usize::MAX,
-                line_index: usize::MAX,
-            },
-        },
-        EvaluatedValue::Address(data_start + 2048),
-    );
-
     EvaluationContext {
         source,
         symbols,
-        symbol_values,
+        symbol_values: HashMap::new(),
         text_start: text_first_instruction,
         data_start,
         bss_start,
-        current_line_pointer: LinePointer {
-            file_index: 0,
-            line_index: 0,
-        },
+        current_line_pointer: LinePointer { file_index: 0, line_index: 0 },
     }
 }
 
@@ -253,7 +237,8 @@ fn evaluate_expression(
 
         Expression::Identifier(name) => {
             // Find symbol in Symbols using current line context and look up cached value
-            let sym_refs = context.symbols.get_line_refs(&context.current_line_pointer);
+            let sym_refs =
+                context.symbols.get_line_refs(&context.current_line_pointer);
             let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == *name)
@@ -291,7 +276,8 @@ fn evaluate_expression(
                 nlr.num,
                 if nlr.is_forward { "f" } else { "b" }
             );
-            let sym_refs = context.symbols.get_line_refs(&context.current_line_pointer);
+            let sym_refs =
+                context.symbols.get_line_refs(&context.current_line_pointer);
             let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == label_name)

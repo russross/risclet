@@ -3,7 +3,7 @@
 // This file defines the AssemblerError type for the RISC-V assembler.
 // It provides error handling with location and source context.
 
-use crate::ast::{LinePointer, Location, Source};
+use crate::ast::{BUILTIN_FILE_NAME, LinePointer, Location, Source};
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead};
@@ -38,6 +38,11 @@ impl AssemblerError {
 
     pub fn with_source_context(&self) -> String {
         if let Some(location) = &self.location {
+            // Special handling for builtin file - don't try to read it
+            if location.file == BUILTIN_FILE_NAME {
+                return format!("Error at {}: {}", location, self.message);
+            }
+
             let file = fs::File::open(&location.file);
             if let Ok(file) = file {
                 let reader = io::BufReader::new(file);

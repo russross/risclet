@@ -70,8 +70,11 @@ pub struct LinePointer {
     pub line_index: usize,
 }
 
-/// Special symbol that should be ignored during symbol resolution.
+/// Special symbol for the global pointer
 pub const SPECIAL_GLOBAL_POINTER: &str = "__global_pointer$";
+
+/// Name of the builtin symbols file
+pub const BUILTIN_FILE_NAME: &str = "<builtin>";
 
 /// A struct representing a resolved symbol reference in a line.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -1210,5 +1213,73 @@ impl fmt::Display for Expression {
             Expression::CurrentAddress => write!(f, "."),
             Expression::NumericLabelRef(nlr) => write!(f, "{}", nlr),
         }
+    }
+}
+
+// ==============================================================================
+// Builtin Symbols File Generation
+// ==============================================================================
+
+/// Creates a synthetic source file containing builtin symbol definitions.
+/// This file is appended to the source file list after parsing and provides
+/// definitions for linker-provided symbols like __global_pointer$.
+///
+/// The builtin file contains:
+/// - .data directive to switch to data segment
+/// - .global declaration for __global_pointer$
+/// - Label definition for __global_pointer$ at offset 2048 (data_start + 0x800)
+///
+/// This file is excluded from normal processing in several places:
+/// - compute_offsets: skipped to preserve hardcoded offset
+/// - convergence loop: skipped as it generates no code
+/// - ELF symbol table: filtered out, symbols emitted specially
+/// - dump output: hidden from user
+pub fn create_builtin_symbols_file() -> SourceFile {
+    SourceFile {
+        file: BUILTIN_FILE_NAME.to_string(),
+        lines: vec![
+            // .data directive
+            Line {
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 1,
+                },
+                content: LineContent::Directive(Directive::Data),
+                segment: Segment::Data,
+                offset: 0,
+                size: 0,
+                outgoing_refs: vec![],
+            },
+            // .global __global_pointer$
+            Line {
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 2,
+                },
+                content: LineContent::Directive(Directive::Global(vec![
+                    SPECIAL_GLOBAL_POINTER.to_string(),
+                ])),
+                segment: Segment::Data,
+                offset: 0,
+                size: 0,
+                outgoing_refs: vec![],
+            },
+            // __global_pointer$: label at offset 2048
+            Line {
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 3,
+                },
+                content: LineContent::Label(SPECIAL_GLOBAL_POINTER.to_string()),
+                segment: Segment::Data,
+                offset: 2048, // Hardcoded: data_start + 0x800
+                size: 0,
+                outgoing_refs: vec![],
+            },
+        ],
+        text_size: 0,
+        data_size: 0,
+        bss_size: 0,
+        local_symbols: vec![],
     }
 }

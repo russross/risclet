@@ -840,7 +840,11 @@ pub fn build_symbol_table(
     }
 
     // For each source file, add FILE symbol and local labels
-    for (file_index, source_file) in source.files.iter().enumerate() {
+    // Skip the builtin file (last file) as it's not a real source file
+    let num_user_files = source.files.len().saturating_sub(1);
+    for (file_index, source_file) in
+        source.files.iter().enumerate().take(num_user_files)
+    {
         // FILE symbol (basename of source file)
         let file_name = std::path::Path::new(&source_file.file)
             .file_name()
@@ -950,6 +954,11 @@ pub fn build_symbol_table(
 
     // Add user-defined global symbols
     for global in &symbols.global_symbols {
+        // Skip __global_pointer$ - it's already emitted above as a linker-provided symbol
+        if global.symbol == "__global_pointer$" {
+            continue;
+        }
+
         let file_index = global.definition_pointer.file_index;
         let line_index = global.definition_pointer.line_index;
         let line = &source.files[file_index].lines[line_index];

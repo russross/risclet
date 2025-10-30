@@ -7,6 +7,11 @@ use crate::ast::*;
 use crate::elf::ElfBuilder;
 use crate::expressions::{self, EvaluatedValue, EvaluationContext};
 
+/// Check if a file is the builtin symbols file that should be hidden from dumps
+fn is_builtin_file(file: &SourceFile) -> bool {
+    file.file == BUILTIN_FILE_NAME
+}
+
 // ============================================================================
 // Configuration Data Structures
 // ============================================================================
@@ -268,6 +273,9 @@ pub fn dump_ast(source: &Source, spec: &DumpSpec) {
     println!("AST Dump:\n");
 
     for (i, file) in source.files.iter().enumerate() {
+        if is_builtin_file(file) {
+            continue;
+        }
         if matches_file_selection(&spec.files, &file.file, i) {
             println!("File: {}", file.file);
             println!("{}", "=".repeat(79));
@@ -559,6 +567,9 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
     for (i, file) in source.files.iter().enumerate() {
+        if is_builtin_file(file) {
+            continue;
+        }
         if matches_file_selection(&spec.files, &file.file, i) {
             println!("File: {}", file.file);
             println!("{}", "=".repeat(79));
@@ -639,6 +650,9 @@ pub fn dump_values(
     let addr_width = calculate_address_width(eval_context.text_start);
 
     for (file_index, file) in source.files.iter().enumerate() {
+        if is_builtin_file(file) {
+            continue;
+        }
         if !should_include_file(&file.file, &spec.files) {
             continue;
         }
@@ -665,7 +679,8 @@ pub fn dump_values(
 
             // Collect and show evaluated expression values
             let pointer = LinePointer { file_index, line_index };
-            let expr_values = collect_expression_values(line, &pointer, eval_context);
+            let expr_values =
+                collect_expression_values(line, &pointer, eval_context);
             if !expr_values.is_empty() {
                 print!("  # ");
                 for (i, val_str) in expr_values.iter().enumerate() {
@@ -709,6 +724,9 @@ pub fn dump_code(
     let addr_width = calculate_address_width(eval_context.text_start);
 
     for file in &source.files {
+        if is_builtin_file(file) {
+            continue;
+        }
         if !should_include_file(&file.file, &spec.files) {
             continue;
         }
@@ -727,11 +745,8 @@ pub fn dump_code(
             match &line.content {
                 LineContent::Label(name) => {
                     // For labels, print with location and address prefix
-                    let formatted_addr = format_address(
-                        abs_addr,
-                        addr_width,
-                        line.segment,
-                    );
+                    let formatted_addr =
+                        format_address(abs_addr, addr_width, line.segment);
                     let (loc_str, padding) =
                         format_location_aligned(&line.location, max_line_width);
                     println!(
@@ -741,11 +756,8 @@ pub fn dump_code(
                 }
                 LineContent::Instruction(inst) => {
                     // For instructions: print location, address, first 4 bytes, then instruction at column 16
-                    let formatted_addr = format_address(
-                        abs_addr,
-                        addr_width,
-                        line.segment,
-                    );
+                    let formatted_addr =
+                        format_address(abs_addr, addr_width, line.segment);
                     let (loc_str, padding) =
                         format_location_aligned(&line.location, max_line_width);
                     // print 2 spaces to offset bytes from labels
@@ -803,11 +815,8 @@ pub fn dump_code(
                         format_location_aligned(&line.location, max_line_width);
                     if encoded_bytes.is_empty() {
                         // Directives with no encoded bytes (e.g., .text, .data, .global)
-                        let formatted_addr = format_address(
-                            abs_addr,
-                            addr_width,
-                            line.segment,
-                        );
+                        let formatted_addr =
+                            format_address(abs_addr, addr_width, line.segment);
                         println!(
                             "{}{} {}: {}",
                             loc_str, padding, formatted_addr, line.content
@@ -818,11 +827,7 @@ pub fn dump_code(
                             "{}{} {}: {}",
                             loc_str,
                             padding,
-                            format_address(
-                                abs_addr,
-                                addr_width,
-                                line.segment
-                            ),
+                            format_address(abs_addr, addr_width, line.segment),
                             line.content
                         );
 
@@ -836,7 +841,7 @@ pub fn dump_code(
 
                         let mut byte_offset = 0;
 
-                         // First line: print bytes until we reach 8-byte alignment or run out
+                        // First line: print bytes until we reach 8-byte alignment or run out
                         if byte_offset < encoded_bytes.len() {
                             let first_line_count = std::cmp::min(
                                 bytes_to_align as usize,

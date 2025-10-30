@@ -15,8 +15,8 @@
 
 use crate::ast::{
     BTypeOp, CompressedOp, CompressedOperands, Directive, Expression, ITypeOp,
-    Instruction, JTypeOp, Line, LineContent, LinePointer, LoadStoreOp, PseudoOp, RTypeOp,
-    Register, Segment, Source, SpecialOp, UTypeOp,
+    Instruction, JTypeOp, Line, LineContent, LinePointer, LoadStoreOp,
+    PseudoOp, RTypeOp, Register, Segment, Source, SpecialOp, UTypeOp,
 };
 use crate::encoder_compressed;
 use crate::error::AssemblerError;
@@ -100,8 +100,7 @@ pub fn encode_source(
             // Encode the line
             let (bytes, actual_size) = match segment {
                 Segment::Text | Segment::Data => {
-                    let bytes =
-                        encode_line(line, &mut context, relax)?;
+                    let bytes = encode_line(line, &mut context, relax)?;
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
@@ -124,9 +123,9 @@ pub fn encode_source(
                     Segment::Data => data_bytes.extend_from_slice(&bytes),
                     Segment::Bss => unreachable!(),
                 }
-             } else {
-                 bss_size += actual_size;
-             }
+            } else {
+                bss_size += actual_size;
+            }
         }
     }
 
@@ -169,7 +168,15 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<u32> {
 
         LineContent::Directive(directive) => match directive {
             Directive::Space(expr) => {
-                let val = eval_expr(expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+                let val = eval_expr(
+                    expr,
+                    line,
+                    &LinePointer {
+                        file_index: context.file_index,
+                        line_index: context.line_index,
+                    },
+                    context.eval_context,
+                )?;
                 let size =
                     require_integer(val, ".space in .bss", &line.location)?;
                 if size < 0 {
@@ -571,7 +578,15 @@ fn encode_instruction(
 
         Instruction::IType(op, rd, rs1, imm_expr) => {
             // Evaluate immediate and check type
-            let val = eval_expr(imm_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                imm_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let imm = require_integer(val, "I-type immediate", &line.location)?;
 
             // Try to relax to compressed instruction if enabled
@@ -595,7 +610,15 @@ fn encode_instruction(
 
         Instruction::BType(op, rs1, rs2, target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(target_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                target_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let target = require_address(val, "Branch target", &line.location)?;
 
             // Calculate PC-relative offset
@@ -609,7 +632,15 @@ fn encode_instruction(
 
         Instruction::UType(op, rd, imm_expr) => {
             // Evaluate immediate and check type
-            let val = eval_expr(imm_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                imm_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let imm = require_integer(val, "U-type immediate", &line.location)?;
 
             let encoded = encode_u_type_inst(op, *rd, imm, &line.location)?;
@@ -618,7 +649,15 @@ fn encode_instruction(
 
         Instruction::JType(op, rd, target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(target_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                target_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let target = require_address(val, "Jump target", &line.location)?;
 
             // Calculate PC-relative offset
@@ -636,7 +675,15 @@ fn encode_instruction(
 
         Instruction::LoadStore(op, rd, offset_expr, rs) => {
             // Evaluate offset and check type
-            let val = eval_expr(offset_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let offset =
                 require_integer(val, "Load/Store offset", &line.location)?;
 
@@ -768,7 +815,15 @@ fn eval_compressed_operands(
     match operands {
         // CI format - evaluate immediate expression
         CI { rd, imm } => {
-            let val = eval_expr(imm, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                imm,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let imm_val =
                 require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CI {
@@ -779,7 +834,15 @@ fn eval_compressed_operands(
 
         // CIW format - evaluate immediate expression
         CIW { rd_prime, imm } => {
-            let val = eval_expr(imm, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                imm,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let imm_val =
                 require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CIW {
@@ -790,7 +853,15 @@ fn eval_compressed_operands(
 
         // CIStackLoad - evaluate offset expression
         CIStackLoad { rd, offset } => {
-            let val = eval_expr(offset, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let offset_val =
                 require_integer(val, "Stack offset", &line.location)?;
             Ok(CIStackLoad {
@@ -801,7 +872,15 @@ fn eval_compressed_operands(
 
         // CSSStackStore - evaluate offset expression
         CSSStackStore { rs2, offset } => {
-            let val = eval_expr(offset, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let offset_val =
                 require_integer(val, "Stack offset", &line.location)?;
             Ok(CSSStackStore {
@@ -812,7 +891,15 @@ fn eval_compressed_operands(
 
         // CL format - evaluate offset expression
         CL { rd_prime, rs1_prime, offset } => {
-            let val = eval_expr(offset, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let offset_val =
                 require_integer(val, "Load offset", &line.location)?;
             Ok(CL {
@@ -824,7 +911,15 @@ fn eval_compressed_operands(
 
         // CS format - evaluate offset expression
         CS { rs2_prime, rs1_prime, offset } => {
-            let val = eval_expr(offset, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let offset_val =
                 require_integer(val, "Store offset", &line.location)?;
             Ok(CS {
@@ -836,7 +931,15 @@ fn eval_compressed_operands(
 
         // CBImm format - evaluate immediate expression
         CBImm { rd_prime, imm } => {
-            let val = eval_expr(imm, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                imm,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let imm_val =
                 require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CBImm {
@@ -847,7 +950,15 @@ fn eval_compressed_operands(
 
         // CBBranch format - evaluate PC-relative offset
         CBBranch { rs1_prime, offset } => {
-            let val = eval_expr(offset, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let target = require_address(val, "Branch target", &line.location)?;
             let current_pc = get_line_address(line, context);
             let offset_val = target - current_pc;
@@ -859,7 +970,15 @@ fn eval_compressed_operands(
 
         // CJOpnd format - evaluate PC-relative offset
         CJOpnd { offset } => {
-            let val = eval_expr(offset, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                offset,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let target = require_address(val, "Jump target", &line.location)?;
             let current_pc = get_line_address(line, context);
             let offset_val = target - current_pc;
@@ -1137,7 +1256,15 @@ fn encode_pseudo(
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
             // Evaluate immediate and check type
-            let val = eval_expr(imm_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                imm_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let imm =
                 require_integer(val, "li pseudo-instruction", &line.location)?;
 
@@ -1146,7 +1273,15 @@ fn encode_pseudo(
 
         PseudoOp::La(rd, addr_expr) => {
             // Evaluate address and check type
-            let val = eval_expr(addr_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                addr_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let addr =
                 require_address(val, "la pseudo-instruction", &line.location)?;
 
@@ -1158,7 +1293,15 @@ fn encode_pseudo(
 
         PseudoOp::Call(target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(target_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                target_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let target = require_address(
                 val,
                 "call pseudo-instruction",
@@ -1166,17 +1309,20 @@ fn encode_pseudo(
             )?;
 
             let current_pc = get_line_address(line, context);
-            expand_call(
-                target,
-                current_pc,
-                &line.location,
-                relax.pseudo,
-            )
+            expand_call(target, current_pc, &line.location, relax.pseudo)
         }
 
         PseudoOp::Tail(target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(target_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                target_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let target = require_address(
                 val,
                 "tail pseudo-instruction",
@@ -1184,17 +1330,20 @@ fn encode_pseudo(
             )?;
 
             let current_pc = get_line_address(line, context);
-            expand_tail(
-                target,
-                current_pc,
-                &line.location,
-                relax.pseudo,
-            )
+            expand_tail(target, current_pc, &line.location, relax.pseudo)
         }
 
         PseudoOp::LoadGlobal(op, rd, addr_expr) => {
             // Evaluate address and check type
-            let val = eval_expr(addr_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                addr_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let addr = require_address(
                 val,
                 "load global pseudo-instruction",
@@ -1207,7 +1356,15 @@ fn encode_pseudo(
 
         PseudoOp::StoreGlobal(op, rs, addr_expr, temp) => {
             // Evaluate address and check type
-            let val = eval_expr(addr_expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                addr_expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let addr = require_address(
                 val,
                 "store global pseudo-instruction",
@@ -1505,7 +1662,15 @@ fn encode_directive(
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+                let val = eval_expr(
+                    expr,
+                    line,
+                    &LinePointer {
+                        file_index: context.file_index,
+                        line_index: context.line_index,
+                    },
+                    context.eval_context,
+                )?;
                 // Allow both Integer and Address types, use the numeric value
                 let byte_val = match val {
                     EvaluatedValue::Integer(i) => i as u8,
@@ -1519,7 +1684,15 @@ fn encode_directive(
         Directive::TwoByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+                let val = eval_expr(
+                    expr,
+                    line,
+                    &LinePointer {
+                        file_index: context.file_index,
+                        line_index: context.line_index,
+                    },
+                    context.eval_context,
+                )?;
                 let short_val = match val {
                     EvaluatedValue::Integer(i) => i as u16,
                     EvaluatedValue::Address(a) => a as u16,
@@ -1532,7 +1705,15 @@ fn encode_directive(
         Directive::FourByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+                let val = eval_expr(
+                    expr,
+                    line,
+                    &LinePointer {
+                        file_index: context.file_index,
+                        line_index: context.line_index,
+                    },
+                    context.eval_context,
+                )?;
                 let word_val = match val {
                     EvaluatedValue::Integer(i) => i as u32,
                     EvaluatedValue::Address(a) => a,
@@ -1560,7 +1741,15 @@ fn encode_directive(
         }
 
         Directive::Space(expr) => {
-            let val = eval_expr(expr, line, &LinePointer { file_index: context.file_index, line_index: context.line_index }, context.eval_context)?;
+            let val = eval_expr(
+                expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
             let size =
                 require_integer(val, ".space directive", &line.location)?;
 
