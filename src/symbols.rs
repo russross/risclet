@@ -8,9 +8,9 @@ use crate::ast::*;
 use crate::error::AssemblerError;
 use std::collections::HashMap;
 
-/// New symbol linking result structure.
+/// Symbol linking result structure.
 /// Contains all symbol-related information extracted from the Source during
-/// resolution.
+/// symbol linking.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbols {
     /// Outgoing symbol references for each line, indexed by (file_index, line_index).
@@ -102,8 +102,8 @@ pub fn link_symbols(
         }
     }
 
-    // Now resolve cross-file references and collect final line references
-    let cross_file_refs = resolve_cross_file(source, &globals, unresolved)?;
+     // Now link cross-file references and collect final line references
+     let cross_file_refs = link_cross_file(source, &globals, unresolved)?;
 
     // Merge cross-file references into line_refs
     for (file_index, line_index, sym_ref) in cross_file_refs {
@@ -595,13 +595,13 @@ fn extract_from_expression(expr: &Expression) -> Vec<String> {
     refs
 }
 
-/// Resolves cross-file references using the global symbols map.
+/// Links cross-file references using the global symbols map.
 /// Returns a list of (file_index, line_index, SymbolReference) tuples to be added.
-fn resolve_cross_file(
-    source: &Source,
-    globals: &HashMap<String, GlobalDefinition>,
-    unresolved: Vec<UnresolvedReference>,
-) -> Result<Vec<(usize, usize, SymbolReference)>, AssemblerError> {
+fn link_cross_file(
+     source: &Source,
+     globals: &HashMap<String, GlobalDefinition>,
+     unresolved: Vec<UnresolvedReference>,
+ ) -> Result<Vec<(usize, usize, SymbolReference)>, AssemblerError> {
     let mut cross_file_refs = Vec::new();
 
     for unref in unresolved {
