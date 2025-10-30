@@ -70,6 +70,9 @@ mod tests {
             source.files.push(parse_source_file(filename, content)?);
         }
 
+        // Add builtin symbols file (provides __global_pointer$ definition)
+        source.files.push(create_builtin_symbols_file());
+
         Ok(source)
     }
 
@@ -1627,12 +1630,16 @@ mod tests {
         );
 
         // Verify global points to the label
+        // Note: We have 2 globals: "main" and "__global_pointer$" (from builtin file)
         assert_eq!(
             source.global_symbols.len(),
-            1,
-            "Should have 1 global symbol"
+            2,
+            "Should have 2 global symbols (main + __global_pointer$)"
         );
-        assert_eq!(source.global_symbols[0].symbol, "main");
+        // Find the "main" symbol (could be at index 0 or 1)
+        let main_symbol =
+            source.global_symbols.iter().find(|g| g.symbol == "main");
+        assert!(main_symbol.is_some(), "Should have 'main' global symbol");
     }
 
     #[test]
@@ -1650,12 +1657,16 @@ mod tests {
         assert!(result.is_ok(), "Global declared after definition should work");
 
         // Verify global points to the label
+        // Note: We have 2 globals: "main" and "__global_pointer$" (from builtin file)
         assert_eq!(
             source.global_symbols.len(),
-            1,
-            "Should have 1 global symbol"
+            2,
+            "Should have 2 global symbols (main + __global_pointer$)"
         );
-        assert_eq!(source.global_symbols[0].symbol, "main");
+        // Find the "main" symbol (could be at index 0 or 1)
+        let main_symbol =
+            source.global_symbols.iter().find(|g| g.symbol == "main");
+        assert!(main_symbol.is_some(), "Should have 'main' global symbol");
     }
 
     #[test]
@@ -1784,12 +1795,18 @@ mod tests {
         let result = resolve_symbols(&mut source);
 
         assert!(result.is_ok(), "Unreferenced global should be OK");
+        // Note: We have 2 globals: "unused_func" and "__global_pointer$" (from builtin file)
         assert_eq!(
             source.global_symbols.len(),
-            1,
-            "Should have 1 global symbol"
+            2,
+            "Should have 2 global symbols (unused_func + __global_pointer$)"
         );
-        assert_eq!(source.global_symbols[0].symbol, "unused_func");
+        let unused_func =
+            source.global_symbols.iter().find(|g| g.symbol == "unused_func");
+        assert!(
+            unused_func.is_some(),
+            "Should have 'unused_func' global symbol"
+        );
     }
 
     #[test]
@@ -1816,10 +1833,11 @@ mod tests {
         let result = resolve_symbols(&mut source);
 
         assert!(result.is_ok(), "Both .equ and label globals should work");
+        // Note: We have 3 globals: "BUFFER_SIZE", "main", and "__global_pointer$" (from builtin file)
         assert_eq!(
             source.global_symbols.len(),
-            2,
-            "Should have 2 global symbols"
+            3,
+            "Should have 3 global symbols (BUFFER_SIZE + main + __global_pointer$)"
         );
 
         // Verify both globals exist
@@ -1941,10 +1959,11 @@ mod tests {
         );
 
         // Verify all three symbols are exported as globals
+        // Note: We have 4 globals: "_start", "exit", "helper", and "__global_pointer$" (from builtin file)
         assert_eq!(
             source.global_symbols.len(),
-            3,
-            "Should have 3 global symbols"
+            4,
+            "Should have 4 global symbols (_start + exit + helper + __global_pointer$)"
         );
 
         let global_names: Vec<&str> =
@@ -1999,12 +2018,13 @@ mod tests {
 
         assert!(
             result.is_err(),
-            "Should reject attempt to define __global_pointer$ as a label"
+            "Should reject attempt to export __global_pointer$ as global (conflicts with builtin)"
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("__global_pointer$") && err.contains("is reserved"),
-            "Error should mention symbol is reserved: {}",
+            err.contains("__global_pointer$")
+                && err.contains("Duplicate global symbol"),
+            "Error should mention duplicate global symbol: {}",
             err
         );
     }
@@ -2021,12 +2041,13 @@ mod tests {
 
         assert!(
             result.is_err(),
-            "Should reject attempt to define __global_pointer$ in .equ"
+            "Should reject attempt to export __global_pointer$ as global (conflicts with builtin)"
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("__global_pointer$") && err.contains("is reserved"),
-            "Error should mention symbol being reserved: {}",
+            err.contains("__global_pointer$")
+                && err.contains("Duplicate global symbol"),
+            "Error should mention duplicate global symbol: {}",
             err
         );
     }
@@ -2058,7 +2079,8 @@ mod tests {
                 && name == "label_offset"
             {
                 // This .equ should have an outgoing reference to my_label
-                found_equ_with_ref = line.outgoing_refs.iter().any(|r| r.symbol == "my_label");
+                found_equ_with_ref =
+                    line.outgoing_refs.iter().any(|r| r.symbol == "my_label");
             }
         }
 

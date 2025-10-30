@@ -1,4 +1,4 @@
-use ast::{Line, Segment, Source, SourceFile, LinePointer};
+use ast::{Line, LinePointer, Segment, Source, SourceFile};
 use encoder::Relax;
 use error::AssemblerError;
 use std::env;
@@ -336,9 +336,8 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
 fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 1: Parse source files into AST
-     // ========================================================================
-     let mut source =
-         process_files(config.input_files.clone())?;
+    // ========================================================================
+    let mut source = process_files(config.input_files.clone())?;
 
     // Checkpoint: dump AST if requested
     if should_dump_phase(&config, Phase::Parse) {
@@ -411,14 +410,21 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
 
     // Create evaluation context for symbol values and ELF generation
-    let mut eval_context =
-        expressions::new_evaluation_context(source.clone(), symbols.clone(), config.text_start);
+    let mut eval_context = expressions::new_evaluation_context(
+        source.clone(),
+        symbols.clone(),
+        config.text_start,
+    );
 
     // Evaluate all symbols to populate the context
     for (file_index, file) in source.files.iter().enumerate() {
         for (line_index, line) in file.lines.iter().enumerate() {
             let pointer = LinePointer { file_index, line_index };
-            let _ = expressions::evaluate_line_symbols(line, &pointer, &mut eval_context);
+            let _ = expressions::evaluate_line_symbols(
+                line,
+                &pointer,
+                &mut eval_context,
+            );
         }
     }
 
@@ -531,8 +537,11 @@ fn print_input_statistics(source: &Source) {
 
     let num_globals = source.global_symbols.len();
 
+    // Don't count the builtin file
+    let num_files = source.files.len().saturating_sub(1);
+
     eprintln!("Input:");
-    eprintln!("  Files:        {}", source.files.len());
+    eprintln!("  Files:        {}", num_files);
     eprintln!("  Lines:        {}", total_lines);
     eprintln!("  Labels:       {}", total_labels);
     eprintln!("  Instructions: {}", total_instructions);
@@ -543,9 +552,7 @@ fn print_input_statistics(source: &Source) {
     eprintln!();
 }
 
-fn process_files(
-    files: Vec<String>,
-) -> Result<Source, error::AssemblerError> {
+fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
     let mut source = Source {
         files: Vec::new(),
         header_size: 0,
@@ -562,6 +569,9 @@ fn process_files(
         source.bss_size += source_file.bss_size;
         source.files.push(source_file);
     }
+
+    // Add builtin symbols file (provides __global_pointer$ definition)
+    source.files.push(ast::create_builtin_symbols_file());
 
     Ok(source)
 }
