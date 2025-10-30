@@ -152,12 +152,10 @@ mod tests {
         // Verify no outgoing references
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, _line) in file.lines.iter().enumerate() {
-                let line_ptr = crate::ast::LinePointer { file_index, line_index };
+                let line_ptr =
+                    crate::ast::LinePointer { file_index, line_index };
                 let refs = symbols.get_line_refs(&line_ptr);
-                assert!(
-                    refs.is_empty(),
-                    "No references should exist"
-                );
+                assert!(refs.is_empty(), "No references should exist");
             }
         }
     }
@@ -181,10 +179,7 @@ mod tests {
 
         // Verify no outgoing references on the label
         let refs = symbols.get_line_refs(&label_ptr);
-        assert!(
-            refs.is_empty(),
-            "Label should have no outgoing references"
-        );
+        assert!(refs.is_empty(), "Label should have no outgoing references");
     }
 
     #[test]
@@ -260,7 +255,8 @@ mod tests {
         let file = &source.files[0];
         let mut ref_count = 0;
         for (line_index, _line) in file.lines.iter().enumerate() {
-            let line_ptr = crate::ast::LinePointer { file_index: 0, line_index };
+            let line_ptr =
+                crate::ast::LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 if sym_ref.symbol == "target" {
@@ -304,7 +300,8 @@ mod tests {
         // Check that references are correct
         let file = &source.files[0];
         for (line_index, _line) in file.lines.iter().enumerate() {
-            let line_ptr = crate::ast::LinePointer { file_index: 0, line_index };
+            let line_ptr =
+                crate::ast::LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 match sym_ref.symbol.as_str() {
@@ -628,9 +625,8 @@ mod tests {
             let has_start = refs
                 .iter()
                 .any(|r| r.symbol == "start" && r.pointer == start_ptr);
-            let has_end = refs
-                .iter()
-                .any(|r| r.symbol == "end" && r.pointer == end_ptr);
+            let has_end =
+                refs.iter().any(|r| r.symbol == "end" && r.pointer == end_ptr);
             if has_start && has_end {
                 found_both = true;
                 break;
@@ -699,9 +695,8 @@ mod tests {
 
         let instr_ptr = LinePointer { file_index: 0, line_index: 1 };
         let refs = symbols.get_line_refs(&instr_ptr);
-        let has_ref = refs
-            .iter()
-            .any(|r| r.symbol == "loop" && r.pointer == label_ptr);
+        let has_ref =
+            refs.iter().any(|r| r.symbol == "loop" && r.pointer == label_ptr);
         assert!(
             has_ref,
             "Instruction should have reference back to its own label"
@@ -1009,7 +1004,8 @@ mod tests {
         let symbols = result.unwrap();
 
         // Second .equ should have reference to first
-        let second_line_ptr = LinePointer { file_index: 0, line_index: equ_line_indices[1] };
+        let second_line_ptr =
+            LinePointer { file_index: 0, line_index: equ_line_indices[1] };
         let second_refs = symbols.get_line_refs(&second_line_ptr);
         let has_ref_to_first = second_refs.iter().any(|r| {
             r.symbol == "counter" && r.pointer.line_index == equ_line_indices[0]
@@ -1017,7 +1013,8 @@ mod tests {
         assert!(has_ref_to_first, "Second .equ should reference first");
 
         // Third .equ should have reference to second
-        let third_line_ptr = LinePointer { file_index: 0, line_index: equ_line_indices[2] };
+        let third_line_ptr =
+            LinePointer { file_index: 0, line_index: equ_line_indices[2] };
         let third_refs = symbols.get_line_refs(&third_line_ptr);
         let has_ref_to_second = third_refs.iter().any(|r| {
             r.symbol == "counter" && r.pointer.line_index == equ_line_indices[1]
@@ -1094,8 +1091,7 @@ mod tests {
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
         let refs = symbols.get_line_refs(&ref_ptr);
-        let ref_to_value =
-            refs.iter().find(|r| r.symbol == "value").unwrap();
+        let ref_to_value = refs.iter().find(|r| r.symbol == "value").unwrap();
         assert_eq!(
             ref_to_value.pointer.line_index, equ_indices[0],
             "Forward reference should resolve to first .equ definition"
@@ -1140,7 +1136,8 @@ mod tests {
         let mut li_refs = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Instruction(_) = line.content {
-                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+                let line_ptr =
+                    LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(&line_ptr);
                 for sym_ref in refs {
                     if sym_ref.symbol == "value" {
@@ -1515,14 +1512,13 @@ mod tests {
         assert!(equ_line.is_some());
 
         let symbols = result.unwrap();
-        let equ_ptr = LinePointer { file_index: 0, line_index: equ_line.unwrap() };
+        let equ_ptr =
+            LinePointer { file_index: 0, line_index: equ_line.unwrap() };
         let refs = symbols.get_line_refs(&equ_ptr);
-        let has_start = refs
-            .iter()
-            .any(|r| r.symbol == "start" && r.pointer == start_ptr);
-        let has_end = refs
-            .iter()
-            .any(|r| r.symbol == "end" && r.pointer == end_ptr);
+        let has_start =
+            refs.iter().any(|r| r.symbol == "start" && r.pointer == start_ptr);
+        let has_end =
+            refs.iter().any(|r| r.symbol == "end" && r.pointer == end_ptr);
         assert!(
             has_start && has_end,
             ".equ should reference both start and end"
@@ -1623,10 +1619,8 @@ mod tests {
         assert_eq!(ref_ptr.file_index, 1, "Reference should be in file2");
 
         let refs = symbols.get_line_refs(&ref_ptr);
-        let ref_to_counter = refs
-            .iter()
-            .find(|r| r.symbol == "counter")
-            .unwrap();
+        let ref_to_counter =
+            refs.iter().find(|r| r.symbol == "counter").unwrap();
         assert_eq!(
             ref_to_counter.pointer.file_index, 0,
             "Should point to file1"
@@ -2146,7 +2140,8 @@ mod tests {
                 && name == "label_offset"
             {
                 // This .equ should have an outgoing reference to my_label
-                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+                let line_ptr =
+                    LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(&line_ptr);
                 found_equ_with_ref =
                     refs.iter().any(|r| r.symbol == "my_label");
@@ -2178,7 +2173,11 @@ mod tests {
             link_symbols(&mut source).expect("Resolution should succeed");
 
         // Verify Symbols struct is populated
-        assert_eq!(symbols.line_refs.len(), 2, "Should have two files (test.s + builtin)");
+        assert_eq!(
+            symbols.line_refs.len(),
+            2,
+            "Should have two files (test.s + builtin)"
+        );
         assert!(symbols.line_refs[0].len() > 0, "First file should have lines");
 
         // Verify the local_symbols_by_file

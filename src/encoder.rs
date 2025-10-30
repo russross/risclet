@@ -199,12 +199,18 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<u32> {
                     },
                     context.eval_context,
                 )?;
-                let alignment =
-                    require_integer(val, ".balign directive in .bss", &line.location)?;
+                let alignment = require_integer(
+                    val,
+                    ".balign directive in .bss",
+                    &line.location,
+                )?;
 
                 if alignment <= 0 {
                     return Err(AssemblerError::from_context(
-                        format!(".balign alignment must be positive: {}", alignment),
+                        format!(
+                            ".balign alignment must be positive: {}",
+                            alignment
+                        ),
                         line.location.clone(),
                     ));
                 }
@@ -1803,7 +1809,10 @@ fn encode_directive(
 
             if alignment <= 0 {
                 return Err(AssemblerError::from_context(
-                    format!(".balign alignment must be positive: {}", alignment),
+                    format!(
+                        ".balign alignment must be positive: {}",
+                        alignment
+                    ),
                     line.location.clone(),
                 ));
             }

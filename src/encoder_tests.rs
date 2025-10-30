@@ -2304,3 +2304,34 @@ c.ebreak
 
     assert_instructions_match(source, expected);
 }
+
+#[test]
+fn test_equ_referencing_label_in_expression() {
+    // Regression test for bug where .equ could not reference labels
+    // in expressions. The issue was that context.current_line_pointer
+    // was not being updated when evaluating .equ expressions.
+    let source = r#"
+.text
+start_func:
+    nop
+    nop
+end_func:
+    nop
+
+.equ func_size, end_func - start_func
+
+_start:
+    li a0, func_size
+"#;
+
+    // func_size = end_func - start_func = 0x8 - 0x0 = 8
+    // li a0, 8 expands to: addi a0, zero, 8
+    let expected = &[
+        0x13, 0x00, 0x00, 0x00, // nop (addi zero, zero, 0)
+        0x13, 0x00, 0x00, 0x00, // nop (addi zero, zero, 0)
+        0x13, 0x00, 0x00, 0x00, // nop (addi zero, zero, 0)
+        0x13, 0x05, 0x80, 0x00, // li a0, 8 (addi a0, zero, 8)
+    ];
+
+    assert_instructions_match(source, expected);
+}
