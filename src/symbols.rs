@@ -1,24 +1,31 @@
 // symbols.rs
 //
-// This file implements the symbol resolution phase for the RISC-V assembler.
-// It resolves symbol references to their definitions, handling local and global symbols,
+// This file implements the symbol linking phase for the RISC-V assembler.
+// It connects symbol references to their definitions, handling local and global symbols,
 // numeric labels, and cross-file references.
 
 use crate::ast::*;
 use crate::error::AssemblerError;
 use std::collections::HashMap;
 
-/// New symbol resolution result structure.
-/// Contains all symbol-related information extracted from the Source during resolution.
+/// New symbol linking result structure.
+/// Contains all symbol-related information extracted from the Source during
+/// resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbols {
     /// Outgoing symbol references for each line, indexed by (file_index, line_index).
+    ///
     pub line_refs: Vec<Vec<Vec<SymbolReference>>>,
 
     /// Local symbols per file, indexed by file_index.
+    /// Includes non-numeric (non-local) labels
+    /// and the final value of .equ symbols
     pub local_symbols_by_file: Vec<Vec<SymbolDefinition>>,
 
     /// Cross-file global symbols.
+    /// Includes exported symbols, which must be globally unique
+    /// These are the symbols that are recorded in the global section of the ELF
+    /// binary
     pub global_symbols: Vec<GlobalDefinition>,
 }
 
@@ -35,7 +42,7 @@ impl Symbols {
 
 /// Temporary struct for building global symbols during file processing.
 #[derive(Debug, Clone)]
-pub struct UnfinalizedGlobal {
+struct UnfinalizedGlobal {
     pub _symbol: String,
     pub definition: Option<LinePointer>,
     pub declaration_pointer: LinePointer,
@@ -43,17 +50,18 @@ pub struct UnfinalizedGlobal {
 
 /// Temporary struct for unresolved references during file processing.
 #[derive(Debug, Clone)]
-pub struct UnresolvedReference {
+struct UnresolvedReference {
     pub symbol: String,
     pub referencing_pointer: LinePointer,
 }
 
-/// Resolves all symbols in the source, linking references to definitions.
-/// Returns an error on the first issue encountered.
-/// Calls resolve_symbols_future to get the Symbols object, then distributes
+/// Links all symbols in the source, connecting references with definition.
+/// The linking happening here is at the source/AST level, not at the concrete
+/// value level.
+/// Calls link_symbols to get the Symbols object, then distributes
 /// the data into the Source structure for backward compatibility.
-pub fn resolve_symbols(source: &mut Source) -> Result<Symbols, AssemblerError> {
-    let symbols = resolve_symbols_future(source)?;
+pub fn link_symbols_old(source: &mut Source) -> Result<Symbols, AssemblerError> {
+    let symbols = link_symbols(source)?;
 
     // Distribute line references to Source structure
     for (file_index, file_refs) in symbols.line_refs.iter().enumerate() {
@@ -82,7 +90,7 @@ pub fn resolve_symbols(source: &mut Source) -> Result<Symbols, AssemblerError> {
     Ok(symbols)
 }
 
-pub fn resolve_symbols_future(
+pub fn link_symbols(
     source: &Source,
 ) -> Result<Symbols, AssemblerError> {
     let mut globals: HashMap<String, GlobalDefinition> = HashMap::new();
@@ -94,7 +102,7 @@ pub fn resolve_symbols_future(
 
     for (file_index, file) in source.files.iter().enumerate() {
         let (file_globals, file_unresolved, file_local_symbols, file_line_refs) =
-            resolve_file(file_index, file)?;
+            link_file(file_index, file)?;
 
         // Store line references for this file
         line_refs.push(file_line_refs);
@@ -204,10 +212,10 @@ fn flush_numeric_labels(
     Ok(())
 }
 
-/// Processes a single file for symbol resolution.
+/// Processes a single file for symbol linking.
 /// Returns global definitions, unresolved references, local symbol definitions, and line references.
 /// Does not mutate the SourceFile.
-fn resolve_file(
+fn link_file(
     file_index: usize,
     file: &SourceFile,
 ) -> Result<
@@ -658,7 +666,7 @@ fn resolve_cross_file(
 mod symbols_struct_tests {
     use crate::ast::*;
     use crate::parser::parse;
-    use crate::symbols::resolve_symbols;
+    use crate::symbols::link_symbols_old;
     use crate::tokenizer::tokenize;
 
     #[test]
@@ -707,7 +715,7 @@ loop: addi x1, x1, 1
 
         // Resolve symbols and get the Symbols struct
         let symbols =
-            resolve_symbols(&mut source).expect("Resolution should succeed");
+            link_symbols_old(&mut source).expect("Resolution should succeed");
 
         // Verify Symbols struct is populated
         assert_eq!(symbols.line_refs.len(), 1, "Should have one file");

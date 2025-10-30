@@ -7,7 +7,7 @@ use crate::assembler::{NoOpCallback, converge_and_encode};
 use crate::ast::{Source, SourceFile, create_builtin_symbols_file};
 use crate::encoder::Relax;
 use crate::parser::parse;
-use crate::symbols::resolve_symbols;
+use crate::symbols::link_symbols_old;
 use crate::tokenizer::tokenize;
 
 /// Helper function to assemble a source string and return the encoded bytes
@@ -78,7 +78,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     source.files.push(create_builtin_symbols_file());
 
     // Resolve symbols
-    let symbols = resolve_symbols(&mut source)
+    let symbols = link_symbols_old(&mut source)
         .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
 
     // Create relaxation settings (disable compression in tests to keep instruction sizes predictable)
@@ -270,7 +270,7 @@ addi a1, a1, -10
         global_symbols: vec![],
     };
 
-    let text = symbols::resolve_symbols(&mut source_struct)
+    let text = symbols::link_symbols_old(&mut source_struct)
         .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
@@ -357,7 +357,7 @@ add a0, a0, a1
         global_symbols: vec![],
     };
 
-    let text = symbols::resolve_symbols(&mut source_struct)
+    let text = symbols::link_symbols_old(&mut source_struct)
         .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
@@ -440,7 +440,7 @@ addi a0, a0, 50
         global_symbols: vec![],
     };
 
-    let text = symbols::resolve_symbols(&mut source_struct)
+    let text = symbols::link_symbols_old(&mut source_struct)
         .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
