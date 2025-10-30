@@ -896,11 +896,9 @@ pub fn dump_code(
                             byte_offset += 8;
                         }
 
-                        // Last line: print remaining bytes (if any) on next 8-byte aligned address
+                        // Last line: print remaining bytes (if any)
                         if byte_offset < encoded_bytes.len() {
-                            // Round up to next 8-byte boundary for the address
-                            let aligned_offset = byte_offset.div_ceil(8) * 8;
-                            let last_addr = abs_addr + aligned_offset as u32;
+                            let last_addr = abs_addr + byte_offset as u32;
                             let last_formatted_addr = format_address(
                                 last_addr,
                                 addr_width,

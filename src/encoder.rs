@@ -188,9 +188,33 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<u32> {
                 Ok(size as u32)
             }
 
-            Directive::Balign(_) => {
-                // Return the already-computed size (padding)
-                Ok(line.size)
+            Directive::Balign(expr) => {
+                // Evaluate the alignment boundary expression
+                let val = eval_expr(
+                    expr,
+                    line,
+                    &LinePointer {
+                        file_index: context.file_index,
+                        line_index: context.line_index,
+                    },
+                    context.eval_context,
+                )?;
+                let alignment =
+                    require_integer(val, ".balign directive in .bss", &line.location)?;
+
+                if alignment <= 0 {
+                    return Err(AssemblerError::from_context(
+                        format!(".balign alignment must be positive: {}", alignment),
+                        line.location.clone(),
+                    ));
+                }
+
+                // Calculate padding needed to reach the next alignment boundary
+                // Use absolute address, not segment-relative offset
+                let abs_addr = get_line_address(line, context);
+                let padding = (alignment - (abs_addr % alignment)) % alignment;
+
+                Ok(padding as u32)
             }
 
             // Non-data directives are allowed but generate no bytes
@@ -1763,10 +1787,33 @@ fn encode_directive(
             Ok(vec![0; size as usize])
         }
 
-        Directive::Balign(_expr) => {
-            // Padding size is already computed in line.size
-            // Just emit that many zero bytes
-            Ok(vec![0; line.size as usize])
+        Directive::Balign(expr) => {
+            // Evaluate the alignment boundary expression
+            let val = eval_expr(
+                expr,
+                line,
+                &LinePointer {
+                    file_index: context.file_index,
+                    line_index: context.line_index,
+                },
+                context.eval_context,
+            )?;
+            let alignment =
+                require_integer(val, ".balign directive", &line.location)?;
+
+            if alignment <= 0 {
+                return Err(AssemblerError::from_context(
+                    format!(".balign alignment must be positive: {}", alignment),
+                    line.location.clone(),
+                ));
+            }
+
+            // Calculate padding needed to reach the next alignment boundary
+            // Use absolute address, not segment-relative offset
+            let abs_addr = get_line_address(line, context);
+            let padding = (alignment - (abs_addr % alignment)) % alignment;
+
+            Ok(vec![0; padding as usize])
         }
     }
 }
