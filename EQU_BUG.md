@@ -2,7 +2,7 @@
 
 ## Problem Summary
 
-The `.equ` directive cannot reference labels. When a `.equ` tries to use a label name (whether defined before or after), symbol resolution fails to populate the reference in the Symbols struct.
+The `.equ` directive cannot reference labels. When a `.equ` tries to use a label name (whether defined before or after), symbol linking fails to populate the reference in the Symbols struct.
 
 ### Example That Fails
 ```asm
@@ -29,11 +29,11 @@ Error at line: Unresolved symbol 'mylabel' (internal error - should have been ca
 - **Working:** Commit 161b235 (`splitting symbol linkage from source data`)
 - **Broken:** Commit cc047f5 and later (ELF refactoring onwards)
 
-Testing shows the regression happened between these commits, likely in one of the intermediate refactorings that modified symbol resolution.
+Testing shows the regression happened between these commits, likely in one of the intermediate refactorings that modified symbol linking.
 
-### How Symbol References Should Be Resolved
+### How Symbol References Should Be Linked
 
-During symbol resolution (`symbols.rs::resolve_file`), for each line:
+During symbol linking (`symbols.rs::link_file`), for each line:
 
 1. **Extract references** from expressions using `extract_references_from_line(line)`
 2. **For each symbol reference** found:
@@ -57,7 +57,7 @@ Line 2:     nop
 Line 3: .equ val, mylabel     ← Should extract "mylabel" reference
 ```
 
-**What should happen in resolve_file:**
+**What should happen in link_file:**
 
 **Processing Line 1:**
 - Content: `LineContent::Label("mylabel")`
@@ -73,7 +73,7 @@ Line 3: .equ val, mylabel     ← Should extract "mylabel" reference
 - Handle definition: `definitions.insert("val", ptr_to_line_3)`
 - Line 3's `outgoing_refs`: `[SymbolReference { "mylabel", ... }]`
 
-**After symbol resolution:**
+**After symbol linking:**
 - `Symbols.line_refs[0][2]` (line 3) should contain the reference to `"mylabel"`
 
 **During convergence (in expressions.rs):**
@@ -100,7 +100,7 @@ The issue is likely in one of these areas:
    - The loop at 226-264 should handle this
    - Checks `definitions.get()` and adds if found
 
-3. **Symbol resolution modified to skip label references in .equ**
+3. **Symbol linking modified to skip label references in .equ**
    - Possible that intermediate refactoring added a filter
 
 4. **Symbols struct not being populated correctly from line.outgoing_refs**
@@ -109,15 +109,15 @@ The issue is likely in one of these areas:
 
 ### The Most Likely Cause (REVISED)
 
-**PREVIOUS HYPOTHESIS (INCORRECT):** Symbol resolution not populating refs
+**PREVIOUS HYPOTHESIS (INCORRECT):** Symbol linking not populating refs
 
-**CURRENT FINDING:** The bug is **NOT in symbol resolution**. Unit test `test_equ_referencing_label` PASSES, confirming that:
+**CURRENT FINDING:** The bug is **NOT in symbol linking**. Unit test `test_equ_referencing_label` PASSES, confirming that:
 - `extract_references_from_line()` correctly extracts label identifiers
 - Reference matching logic correctly finds labels in `definitions`
 - `line.outgoing_refs` is correctly populated with the label reference
 
 **NEW HYPOTHESIS:** The bug is in **expression evaluation or Symbols struct usage** during convergence:
-- Symbol resolution correctly populates `line.outgoing_refs`
+- Symbol linking correctly populates `line.outgoing_refs`
 - Symbols struct is built from `line.outgoing_refs` (should be correct)
 - But during convergence, when evaluating `.equ` expressions, the reference lookup fails
 - This suggests either:
@@ -126,24 +126,24 @@ The issue is likely in one of these areas:
 
 ## Evidence
 
-1. Error occurs during **convergence**, not symbol resolution
+1. Error occurs during **convergence**, not symbol linking
 2. Error message comes from `evaluate_expression()` which can't find symbol in `Symbols.get_line_refs()`
 3. Working commit (161b235) successfully evaluates `.equ` with numeric values
 4. Broken commit (cc047f5+) fails on `.equ` with label values
 5. The failure happens specifically when `.equ` references a label (identifier), not a literal
 6. **Oct 28 UPDATE:** Unit test `test_equ_referencing_label` PASSES
-   - Confirms symbol resolution correctly populates `line.outgoing_refs`
+   - Confirms symbol linking correctly populates `line.outgoing_refs`
    - End-to-end assembly still fails during convergence
-   - **Bug is NOT in symbol resolution, but in expression evaluation phase**
+   - **Bug is NOT in symbol linking, but in expression evaluation phase**
 
 ## Next Steps to Fix
 
-1. Add debug logging to `resolve_file()` to see:
+1. Add debug logging to `link_file()` to see:
    - What references are extracted from `.equ` lines
    - Whether those references are being found in `definitions`
    - Whether they're being added to `line.outgoing_refs`
 
-2. Compare symbol resolution logic between working (161b235) and broken (cc047f5) commits
+2. Compare symbol linking logic between working (161b235) and broken (cc047f5) commits
 
 3. Check if there's a filter that excludes certain symbol types during reference extraction
 

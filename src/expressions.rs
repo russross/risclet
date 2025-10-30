@@ -28,10 +28,10 @@ impl fmt::Display for EvaluatedValue {
 }
 
 pub struct EvaluationContext {
-    /// The complete source with all files, lines, and resolved symbols
+    /// The complete source with all files, lines, and linked symbols
     source: Source,
 
-    /// Symbol information extracted during resolution
+    /// Symbol information extracted during linking
     symbols: Symbols,
 
     /// Memoization table: (symbol, definition location) -> evaluated value

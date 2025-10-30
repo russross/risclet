@@ -74,7 +74,7 @@ pub const SPECIAL_GLOBAL_POINTER: &str = "__global_pointer$";
 /// Name of the builtin symbols file
 pub const BUILTIN_FILE_NAME: &str = "<builtin>";
 
-/// A struct representing a resolved symbol reference in a line.
+/// A struct representing a symbol reference that has been linked to its definition.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct SymbolReference {
     pub symbol: String,

@@ -70,7 +70,7 @@ This assembler has several unique design choices that distinguish it from typica
    - Complex forward references
    - Address-dependent code size
 
-3. **Integrated Symbol Resolution**: Symbol resolution happens before code generation and uses back-patching to handle forward references. All symbols must be resolved before encoding begins.
+3. **Integrated Symbol Linking**: Symbol linking happens before code generation and uses back-patching to handle forward references. All symbols must be linked before encoding begins.
 
 4. **Typed Expression System**: Expressions have types (Integer vs. Address) enforced at evaluation time, preventing common assembly errors like adding two addresses.
 
@@ -105,7 +105,7 @@ Use `--no-relax` to disable all three optimizations at once.
 If you're used to GNU assembler, note these differences:
 
 - **No `.o` files**: This assembler doesn't create relocatable object files
-- **No separate linking**: All files are assembled together; `.global` symbols are resolved immediately
+- **No separate linking phase**: All files are assembled together; `.global` symbols are linked immediately
 - **No relocations**: All addresses are concrete after assembly
 - **Strict expression typing**: `label1 + label2` is a type error (can't add two addresses)
 - **Three configurable relaxations**: GP-relative addressing, pseudo-instruction optimization, and compressed instruction encoding
@@ -129,7 +129,7 @@ Command-line args → process_cli_args → Config
                                          ↓
 Input files → process_files → tokenize → parse → Source
                                                    ↓
-                             resolve_symbols (symbols.rs)
+                              link_symbols (symbols.rs)
                                                    ↓
                          converge_and_encode (assembler.rs)
                                                    ↓
@@ -239,17 +239,17 @@ loop {
 - `call` uses `auipc + jalr` (8 bytes) otherwise
 - Changing from 8→4 bytes shifts subsequent addresses, which might enable more relaxations
 
-### `src/symbols.rs` - Symbol Resolution
+### `src/symbols.rs` - Symbol Linking
 **What it does**: Links symbol references to their definitions using back-patching
 
-**Resolution strategy**:
-1. **Local pass**: Resolve symbols within each file
+**Linking strategy**:
+1. **Local pass**: Link symbols within each file
    - Build a `definitions` map as symbols are encountered
    - For backward references, immediately link to definition
    - For forward references, add to `unresolved` list
-   - When a definition appears, resolve all pending forward references
-2. **Global pass**: Resolve cross-file references using `.global` symbols
-3. **Validation**: Ensure all references are resolved (or error)
+   - When a definition appears, link all pending forward references
+2. **Global pass**: Link cross-file references using `.global` symbols
+3. **Validation**: Ensure all references are linked (or error)
 
 **Key features**:
 - Numeric labels (`1:`, `2:`) have special scoping rules:
@@ -469,20 +469,20 @@ Initial size estimates:
 - `call` → 8 bytes (conservative)
 - `.byte 1, 2, 3` → 3 bytes
 
-### 4. **Symbol Resolution** (`main.rs:main`)
+### 4. **Symbol Linking** (`main.rs:main`)
 ```rust
-symbols::resolve_symbols(&mut source)?;
+symbols::link_symbols(&mut source)?;
 ```
 
 **Per-file pass**:
 - Build `definitions` map while scanning lines
-- Resolve backward references immediately
+- Link backward references immediately
 - Accumulate forward references in `unresolved` list
 - When definition appears, patch all pending references
 
 **Cross-file pass**:
 - Collect `.global` symbols into `source.global_symbols`
-- Resolve cross-file references
+- Link cross-file references
 
 **Output**: Every `Line` has `outgoing_refs` populated with pointers to definitions.
 

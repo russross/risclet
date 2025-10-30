@@ -195,7 +195,7 @@ Output Behavior:
 
 Debug Dump Options:
   --dump-ast[=PASSES[:FILES]]     Dump AST after parsing (s-expression format)
-  --dump-symbols[=PASSES[:FILES]] Dump after symbol resolution with references
+  --dump-symbols[=PASSES[:FILES]] Dump after symbol linking with references
   --dump-values[=PASSES[:FILES]]  Dump symbol values for specific passes/files
   --dump-code[=PASSES[:FILES]]    Dump generated code for specific passes/files
   --dump-elf[=PARTS]              Dump detailed ELF info
@@ -258,7 +258,7 @@ fn main() {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Parse,            // After parsing source files into AST
-    SymbolResolution, // After resolving all symbols
+    SymbolLinking,    // After linking all symbols
     Convergence,      // During/after code generation convergence
     Elf,              // After ELF generation
 }
@@ -312,7 +312,7 @@ fn main_process(config: Config) -> Result<(), AssemblerError> {
 fn should_dump_phase(config: &Config, phase: Phase) -> bool {
     match phase {
         Phase::Parse => config.dump.dump_ast.is_some(),
-        Phase::SymbolResolution => config.dump.dump_symbols.is_some(),
+        Phase::SymbolLinking => config.dump.dump_symbols.is_some(),
         Phase::Convergence => {
             config.dump.dump_values.is_some() || config.dump.dump_code.is_some()
         }
@@ -329,11 +329,11 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
 
     match phase {
         Phase::Parse => {
-            !should_dump_phase(config, Phase::SymbolResolution)
+            !should_dump_phase(config, Phase::SymbolLinking)
                 && !should_dump_phase(config, Phase::Convergence)
                 && !should_dump_phase(config, Phase::Elf)
         }
-        Phase::SymbolResolution => {
+        Phase::SymbolLinking => {
             !should_dump_phase(config, Phase::Convergence)
                 && !should_dump_phase(config, Phase::Elf)
         }
@@ -363,14 +363,14 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     }
 
     // ========================================================================
-    // Phase 2: Resolve symbols (create references from uses to definitions)
+    // Phase 2: Link symbols (connect symbol uses to their definitions)
     // ========================================================================
     let symbols = symbols::link_symbols(&mut source)?;
 
-    // Checkpoint: dump symbol resolution if requested
-    if should_dump_phase(&config, Phase::SymbolResolution) {
+    // Checkpoint: dump symbol linking if requested
+    if should_dump_phase(&config, Phase::SymbolLinking) {
         dump::dump_symbols(&source, &symbols, config.dump.dump_symbols.as_ref().unwrap());
-        if is_terminal_phase(&config, Phase::SymbolResolution) {
+        if is_terminal_phase(&config, Phase::SymbolLinking) {
             println!("\n(No output file generated)");
             return Ok(());
         }

@@ -144,7 +144,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with no symbols"
+            "Symbol linking should succeed with no symbols"
         );
 
         let symbols = result.unwrap();
@@ -172,7 +172,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed");
+        assert!(result.is_ok(), "Symbol linking should succeed");
 
         let symbols = result.unwrap();
 
@@ -198,7 +198,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed");
+        assert!(result.is_ok(), "Symbol linking should succeed");
 
         let symbols = result.unwrap();
 
@@ -224,7 +224,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with forward reference"
+            "Symbol linking should succeed with forward reference"
         );
 
         let symbols = result.unwrap();
@@ -251,7 +251,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed");
+        assert!(result.is_ok(), "Symbol linking should succeed");
 
         let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "target").unwrap();
@@ -294,7 +294,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed");
+        assert!(result.is_ok(), "Symbol linking should succeed");
 
         let symbols = result.unwrap();
         let start_ptr = find_line_by_label(&source, "start").unwrap();
@@ -334,7 +334,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with numeric forward reference"
+            "Symbol linking should succeed with numeric forward reference"
         );
 
         let symbols = result.unwrap();
@@ -361,7 +361,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with numeric backward reference"
+            "Symbol linking should succeed with numeric backward reference"
         );
 
         let symbols = result.unwrap();
@@ -391,7 +391,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with reused numeric labels"
+            "Symbol linking should succeed with reused numeric labels"
         );
 
         let symbols = result.unwrap();
@@ -467,7 +467,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with reused numeric labels"
+            "Symbol linking should succeed with reused numeric labels"
         );
 
         let symbols = result.unwrap();
@@ -542,7 +542,7 @@ mod tests {
         // Should fail because numeric label reference crosses a non-numeric label
         assert!(
             result.is_err(),
-            "Symbol resolution should fail when numeric reference crosses non-numeric label"
+            "Symbol linking should fail when numeric reference crosses non-numeric label"
         );
 
         let err_msg = result.unwrap_err().to_string();
@@ -567,7 +567,7 @@ mod tests {
         // Should fail because numeric forward reference crosses a non-numeric label
         assert!(
             result.is_err(),
-            "Symbol resolution should fail when numeric forward reference crosses non-numeric label"
+            "Symbol linking should fail when numeric forward reference crosses non-numeric label"
         );
 
         let err_msg = result.unwrap_err().to_string();
@@ -593,7 +593,7 @@ mod tests {
         // Should fail because segment changes flush numeric labels
         assert!(
             result.is_err(),
-            "Symbol resolution should fail when numeric reference crosses segment boundary"
+            "Symbol linking should fail when numeric reference crosses segment boundary"
         );
     }
 
@@ -612,7 +612,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with multiple symbols in one expression"
+            "Symbol linking should succeed with multiple symbols in one expression"
         );
 
         let symbols = result.unwrap();
@@ -651,7 +651,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed");
+        assert!(result.is_ok(), "Symbol linking should succeed");
 
         // Should have two lines: label and instruction
         let file = &source.files[0];
@@ -684,7 +684,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed");
+        assert!(result.is_ok(), "Symbol linking should succeed");
 
         let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "loop").unwrap();
@@ -718,7 +718,7 @@ mod tests {
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&mut source);
 
-        assert!(result.is_ok(), "Symbol resolution should succeed with .equ");
+        assert!(result.is_ok(), "Symbol linking should succeed with .equ");
 
         let symbols = result.unwrap();
 
@@ -756,7 +756,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with .equ redefinition"
+            "Symbol linking should succeed with .equ redefinition"
         );
 
         // Find all .equ lines
@@ -803,7 +803,7 @@ mod tests {
 
         assert!(
             result.is_err(),
-            "Symbol resolution should fail with undefined symbol"
+            "Symbol linking should fail with undefined symbol"
         );
 
         let err_msg = result.unwrap_err().to_string();
@@ -827,7 +827,7 @@ mod tests {
 
         assert!(
             result.is_err(),
-            "Symbol resolution should fail with backward reference to non-existent label"
+            "Symbol linking should fail with backward reference to non-existent label"
         );
 
         let err_msg = result.unwrap_err().to_string();
@@ -856,7 +856,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with interleaved numeric labels"
+            "Symbol linking should succeed with interleaved numeric labels"
         );
 
         let symbols = result.unwrap();
@@ -889,7 +889,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with current address"
+            "Symbol linking should succeed with current address"
         );
 
         let symbols = result.unwrap();
@@ -2132,7 +2132,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Symbol resolution should succeed with .equ referencing a label"
+            "Symbol linking should succeed with .equ referencing a label"
         );
 
         let symbols = result.unwrap();
