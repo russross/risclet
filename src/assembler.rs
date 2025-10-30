@@ -3,7 +3,7 @@
 // Core assembly pipeline functions shared between main.rs and tests
 
 use crate::ast::{
-    self, Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment,
+    self, Instruction, LinePointer, PseudoOp, Segment,
     Source,
 };
 use crate::elf::compute_header_size;
@@ -24,9 +24,12 @@ pub fn compute_offsets(source: &mut Source) {
     let mut global_bss_offset: u32 = 0;
 
     // Skip the last file (builtin symbols file) - its offsets are hardcoded
-    let num_user_files = source.files.len().saturating_sub(1);
+    let skip = source.files.len() - 1;
+    for (file_index, source_file) in source.files.iter_mut().enumerate() {
+        if file_index == skip {
+            continue;
+        }
 
-    for source_file in source.files.iter_mut().take(num_user_files) {
         // Track the starting offset for this file in each segment
         let file_text_start = global_text_offset;
         let file_data_start = global_data_offset;
@@ -38,22 +41,11 @@ pub fn compute_offsets(source: &mut Source) {
         let mut bss_offset: u32 = global_bss_offset;
 
         for line in &mut source_file.lines {
-            let current_offset = match line.segment {
+            line.offset = match line.segment {
                 Segment::Text => text_offset,
                 Segment::Data => data_offset,
                 Segment::Bss => bss_offset,
             };
-
-            // For .balign, compute actual size based on offset
-            if let LineContent::Directive(Directive::Balign(_expr)) =
-                &line.content
-            {
-                let align = 8; // TODO: evaluate expr
-                let padding = (align - (current_offset % align)) % align;
-                line.size = padding;
-            }
-
-            line.offset = current_offset;
 
             // Advance offset
             let advance = line.size;

@@ -841,10 +841,12 @@ pub fn build_symbol_table(
 
     // For each source file, add FILE symbol and local labels
     // Skip the builtin file (last file) as it's not a real source file
-    let num_user_files = source.files.len().saturating_sub(1);
-    for (file_index, source_file) in
-        source.files.iter().enumerate().take(num_user_files)
-    {
+    let skip = source.files.len() - 1;
+    for (file_index, source_file) in source.files.iter().enumerate() {
+        if file_index == skip {
+            continue;
+        }
+
         // FILE symbol (basename of source file)
         let file_name = std::path::Path::new(&source_file.file)
             .file_name()
