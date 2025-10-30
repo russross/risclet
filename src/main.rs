@@ -18,6 +18,19 @@ mod parser;
 mod symbols;
 mod tokenizer;
 
+#[cfg(test)]
+mod encoder_tests;
+#[cfg(test)]
+mod encoder_compressed_tests;
+#[cfg(test)]
+mod expressions_tests;
+#[cfg(test)]
+mod parser_tests;
+#[cfg(test)]
+mod symbols_tests;
+#[cfg(test)]
+mod tokenizer_tests;
+
 struct Config {
     input_files: Vec<String>,
     output_file: String,
