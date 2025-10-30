@@ -365,7 +365,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 2: Resolve symbols (create references from uses to definitions)
     // ========================================================================
-    let symbols = symbols::link_symbols_old(&mut source)?;
+    let symbols = symbols::link_symbols(&mut source)?;
 
     // Checkpoint: dump symbol resolution if requested
     if should_dump_phase(&config, Phase::SymbolResolution) {
@@ -572,7 +572,6 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
         text_size: 0,
         data_size: 0,
         bss_size: 0,
-        global_symbols: Vec::new(),
     };
 
     for file_path in &files {
@@ -650,6 +649,5 @@ fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
         text_size: 0, // Will be set in compute_offsets
         data_size: 0,
         bss_size: 0,
-        local_symbols: Vec::new(),
     })
 }

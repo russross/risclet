@@ -355,7 +355,6 @@ impl<'a> Parser<'a> {
                 segment: Segment::Text, // Default, will be overridden
                 offset: 0,              // Default, will be overridden
                 size: 0,                // Default, will be set
-                outgoing_refs: Vec::new(),
             });
         }
         if let Some(c) = content {
@@ -365,7 +364,6 @@ impl<'a> Parser<'a> {
                 segment: Segment::Text, // Default, will be overridden
                 offset: 0,              // Default, will be overridden
                 size: 0,                // Default, will be set
-                outgoing_refs: Vec::new(),
             });
         }
         if lines.is_empty() {
