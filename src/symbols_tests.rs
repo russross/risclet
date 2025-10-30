@@ -2089,4 +2089,50 @@ mod tests {
             ".equ label_offset should have a reference to my_label"
         );
     }
+
+    // ============================================================================
+    // Symbols Struct Tests
+    // ============================================================================
+
+    #[test]
+    fn test_symbols_struct_populated() {
+        let source_text = "
+            .text
+            loop: addi x1, x1, 1
+                  beq x1, x2, loop
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+
+        // Resolve symbols and get the Symbols struct
+        let symbols =
+            link_symbols_old(&mut source).expect("Resolution should succeed");
+
+        // Verify Symbols struct is populated
+        assert_eq!(symbols.line_refs.len(), 2, "Should have two files (test.s + builtin)");
+        assert!(symbols.line_refs[0].len() > 0, "First file should have lines");
+
+        // Verify the local_symbols_by_file
+        assert_eq!(
+            symbols.local_symbols_by_file.len(),
+            2,
+            "Should have symbols for two files (test.s + builtin)"
+        );
+        assert!(
+            symbols.local_symbols_by_file[0].len() > 0,
+            "First file should have local symbols"
+        );
+
+        // Verify global_symbols matches what's in Source
+        assert_eq!(
+            symbols.global_symbols.len(),
+            source.global_symbols.len(),
+            "Global symbols should match"
+        );
+
+        // Verify that the loop label is in local symbols
+        let local_syms = &symbols.local_symbols_by_file[0];
+        let has_loop = local_syms.iter().any(|sym| sym.symbol == "loop");
+        assert!(has_loop, "Should have 'loop' label in local symbols");
+    }
 }
