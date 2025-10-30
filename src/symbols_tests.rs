@@ -2,7 +2,7 @@
 mod tests {
     use crate::ast::*;
     use crate::parser;
-    use crate::symbols::{extract_references_from_line, resolve_symbols};
+    use crate::symbols::{extract_references_from_line, link_symbols_old};
     use crate::tokenizer;
 
     /// Helper: Parse source lines into a SourceFile
@@ -144,7 +144,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -170,7 +170,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
@@ -195,7 +195,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
@@ -217,7 +217,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -244,7 +244,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
@@ -284,7 +284,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
@@ -319,7 +319,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -346,7 +346,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -376,7 +376,7 @@ mod tests {
          ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -448,7 +448,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -518,7 +518,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         // Should fail because numeric label reference crosses a non-numeric label
         assert!(
@@ -543,7 +543,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         // Should fail because numeric forward reference crosses a non-numeric label
         assert!(
@@ -569,7 +569,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         // Should fail because segment changes flush numeric labels
         assert!(
@@ -589,7 +589,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -629,7 +629,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
@@ -662,7 +662,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
@@ -695,7 +695,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Symbol resolution should succeed with .equ");
 
@@ -729,7 +729,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -772,7 +772,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -796,7 +796,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -825,7 +825,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -854,7 +854,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -881,7 +881,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), ".equ should be allowed to redefine .equ");
 
@@ -908,7 +908,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         // This should be allowed in the current implementation since .equ just creates
         // a new definition. Let's verify both exist in the definitions
@@ -931,7 +931,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         // Should fail with duplicate label error
         assert!(result.is_err(), "Should fail with duplicate label error");
@@ -953,7 +953,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -996,7 +996,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Forward reference to .equ should work");
 
@@ -1030,7 +1030,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -1073,7 +1073,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -1140,7 +1140,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_err(), "Should fail with undefined symbol");
         let err = result.unwrap_err().to_string();
@@ -1158,7 +1158,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_err(), "Should fail with undefined symbol");
         let err = result.unwrap_err().to_string();
@@ -1177,7 +1177,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1204,7 +1204,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1231,7 +1231,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1254,7 +1254,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1281,7 +1281,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1306,7 +1306,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1337,7 +1337,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1382,7 +1382,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -1444,7 +1444,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), ".equ can use complex expressions");
 
@@ -1505,7 +1505,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -1546,7 +1546,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -1597,7 +1597,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1622,7 +1622,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -1652,7 +1652,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Global declared after definition should work");
 
@@ -1702,7 +1702,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1735,7 +1735,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1765,7 +1765,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -1792,7 +1792,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Unreferenced global should be OK");
         // Note: We have 2 globals: "unused_func" and "__global_pointer$" (from builtin file)
@@ -1830,7 +1830,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Both .equ and label globals should work");
         // Note: We have 3 globals: "BUFFER_SIZE", "main", and "__global_pointer$" (from builtin file)
@@ -1884,7 +1884,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Multiple cross-file references should work");
 
@@ -1951,7 +1951,7 @@ mod tests {
         let mut source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),
@@ -2014,7 +2014,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -2037,7 +2037,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_err(),
@@ -2063,7 +2063,7 @@ mod tests {
         ";
 
         let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = resolve_symbols(&mut source);
+        let result = link_symbols_old(&mut source);
 
         assert!(
             result.is_ok(),

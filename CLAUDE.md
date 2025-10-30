@@ -1,6 +1,6 @@
 # CLAUDE.md - RISC-V Assembler Project
 
-This is a single-pass RISC-V RV64IM assembler written in Rust. Unlike traditional assemblers that separate assembly and linking, this assembler directly produces executable ELF binaries from assembly source.
+This is a single-pass RISC-V RV32IMAC assembler written in Rust. Unlike traditional assemblers that separate assembly and linking, this assembler directly produces executable ELF binaries from assembly source.
 
 ## Quick Reference
 
@@ -17,24 +17,32 @@ cargo clippy                         # Lint code
 ./target/debug/assembler program.s                        # Outputs to a.out
 ./target/debug/assembler -o prog program.s                # Outputs to prog
 ./target/debug/assembler -t 0x10000 program.s             # Set text start address
-./target/debug/assembler -v program.s                     # Verbose output with listing
+./target/debug/assembler -v program.s                     # Show input stats and convergence progress
 ./target/debug/assembler --no-relax program.s             # Disable all relaxations
 ./target/debug/assembler --no-relax-gp program.s          # Disable GP-relative addressing
 ./target/debug/assembler --no-relax-pseudo program.s      # Disable call/tail optimization
 ./target/debug/assembler --no-relax-compressed program.s  # Disable RV32C auto-encoding
+./target/debug/assembler --dump-ast program.s             # Dump AST in s-expression format
+./target/debug/assembler --dump-symbols program.s         # Dump symbol table
+./target/debug/assembler --dump-code program.s            # Dump generated machine code
 
 # Options
--o <file>              Write output to <file> (default: a.out)
--t <address>           Set text start address (default: 0x10000)
--v, --verbose          Show detailed assembly listing
---no-relax             Disable all relaxations
---relax-gp             Enable GP-relative 'la' optimization (default: on)
---no-relax-gp          Disable GP-relative 'la' optimization
---relax-pseudo         Enable 'call'/'tail' pseudo-instruction optimization (default: on)
---no-relax-pseudo      Disable 'call'/'tail' pseudo-instruction optimization
---relax-compressed     Enable automatic RV32C compressed encoding (default: on)
---no-relax-compressed  Disable automatic RV32C compressed encoding
--h, --help             Show help message
+-o <file>                Write output to <file> (default: a.out)
+-t <address>             Set text start address (default: 0x10000)
+-v, --verbose            Show input statistics and convergence progress
+--no-relax               Disable all relaxations
+--relax-gp               Enable GP-relative 'la' optimization (default: on)
+--no-relax-gp            Disable GP-relative 'la' optimization
+--relax-pseudo           Enable 'call'/'tail' pseudo-instruction optimization (default: on)
+--no-relax-pseudo        Disable 'call'/'tail' pseudo-instruction optimization
+--relax-compressed       Enable automatic RV32C compressed encoding (default: on)
+--no-relax-compressed    Disable automatic RV32C compressed encoding
+--dump-ast[=PASSES[:FILES]] Dump AST after parsing (s-expression format)
+--dump-symbols[=PASSES[:FILES]] Dump after symbol resolution with references
+--dump-values[=PASSES[:FILES]]  Dump symbol values for specific passes/files
+--dump-code[=PASSES[:FILES]]    Dump generated code for specific passes/files
+--dump-elf[=PARTS]       Dump detailed ELF info
+-h, --help               Show help message
 
 # Verify output with GNU binutils
 riscv64-unknown-elf-objdump -d a.out
@@ -85,10 +93,10 @@ The assembler supports three independent relaxation optimizations, all enabled b
    - Can be disabled with `--no-relax-pseudo` if you need predictable instruction sizes
 
 3. **Compressed Instruction Auto-Encoding** (`--relax-compressed`)
-   - Eligible base instructions (RV32I) are automatically encoded as RV32C compressed equivalents
-   - Reduces code size by ~25% for compatible code
-   - Only works on platforms that support the C extension
-   - Can be disabled with `--no-relax-compressed` for incompatible targets
+    - Eligible 32-bit base instructions are automatically encoded as 16-bit RV32C compressed equivalents
+    - Reduces code size by ~25% through automatic instruction compression
+    - Only applies to instructions with valid compressed equivalents
+    - Can be disabled with `--no-relax-compressed` for debugging or predictable code size
 
 Use `--no-relax` to disable all three optimizations at once.
 
@@ -110,25 +118,39 @@ The assembler is organized into focused modules with clear responsibilities:
 
 ### `src/main.rs` - Entry Point and Orchestration
 **What it does**: Coordinates the overall assembly pipeline
-- Parses command-line arguments (-o, -t, -v flags)
+- Parses command-line arguments (options for output, text start, relaxations, dumps, etc.)
 - Reads source files and tokenizes each line
 - Orchestrates parsing, symbol resolution, convergence, and ELF generation
-- Formats and displays the final assembled output (concise or verbose)
+- Handles dump options for debugging (--dump-ast, --dump-symbols, --dump-code, --dump-elf)
 
 **Key data flow**:
 ```
-Command-line args → parse_args → Config
-                                    ↓
+Command-line args → process_cli_args → Config
+                                         ↓
 Input files → process_files → tokenize → parse → Source
-                                                    ↓
-                              resolve_symbols (symbols.rs)
-                                                    ↓
-                          converge_and_encode (assembler.rs)
-                                                    ↓
-                           ELF generation (elf.rs)
-                                                    ↓
-                         Output binary + summary/listing
+                                                   ↓
+                             resolve_symbols (symbols.rs)
+                                                   ↓
+                         converge_and_encode (assembler.rs)
+                                                   ↓
+                          ELF generation (elf.rs)
+                                                   ↓
+                    Output binary or debug dumps
 ```
+
+### `src/dump.rs` - Debug Output and Introspection
+**What it does**: Provides visibility into intermediate assembly states for debugging
+- Dumps AST in s-expression format (--dump-ast)
+- Dumps symbol table with cross-references (--dump-symbols)
+- Dumps expression values at specific convergence passes (--dump-values)
+- Dumps generated machine code bytes (--dump-code)
+- Dumps ELF binary structure (--dump-elf)
+
+**Key features**:
+- Pass filtering: Can dump specific passes or ranges (e.g., `--dump-ast=1-3:file.s`)
+- File filtering: Can filter output to specific source files
+- Doesn't generate output file when dump options are used (for clean debugging)
+- Supports detailed inspection of symbol resolution, expression evaluation, and code generation
 
 ### `src/ast.rs` - Data Structures
 **What it does**: Defines the core type system for the entire assembler
@@ -324,8 +346,7 @@ Strict bounds checking before encoding:
 - 13-bit signed even: ±4 KiB (branches)
 - 21-bit signed even: ±1 MiB (jal)
 - 20-bit unsigned: 0 to 0xFFFFF (U-type)
-- 6-bit unsigned: 0-63 (RV64 shifts)
-- 5-bit unsigned: 0-31 (RV64W shifts)
+- 5-bit unsigned: 0-31 (shift amounts for slli, srli, srai)
 
 #### Pseudo-Instruction Expansion
 
@@ -366,6 +387,25 @@ BSS can only contain:
 - Non-data directives (`.global`, `.equ`)
 
 Data directives (`.byte`, `.string`, etc.) in `.bss` → error
+
+### `src/encoder_compressed.rs` - Compressed Instruction Encoding
+**What it does**: Encodes 16-bit (2-byte) RV32C compressed instructions
+
+**Key responsibilities**:
+- Encodes all RV32C instruction formats (CR, CI, CL, CS, CA, CB, CJ, CIW)
+- Handles compressed register constraints (x8-x15 for most formats)
+- Validates immediates within smaller compressed ranges (6-bit, 9-bit, etc.)
+- Separates instruction formatting logic from relaxation mechanisms
+
+**Supported instruction families**:
+- CR format: add, mv, jr, jalr (full register set)
+- CI format: li, addi, addi16sp, slli, lwsp (various immediate ranges)
+- CL/CS formats: lw, sw operations with compressed registers
+- CA format: and, or, xor, sub on compressed registers
+- CB format: beqz, bnez, srli, srai, andi with conditional logic
+- CJ format: j, jal with limited range
+
+**Note**: This module is separate from encoder.rs to isolate compressed instruction logic and ease maintenance of the expanding C extension support.
 
 ### `src/error.rs` - Error Reporting
 **What it does**: Provides rich, contextual error messages with source context
@@ -446,47 +486,48 @@ symbols::resolve_symbols(&mut source)?;
 
 **Output**: Every `Line` has `outgoing_refs` populated with pointers to definitions.
 
-### 5. **Convergence Loop** (`main.rs:main`)
+### 5. **Convergence Loop** (`assembler.rs:converge_and_encode`)
 ```rust
 let (text_bytes, data_bytes, bss_size) =
-    assembler::converge_and_encode(&mut source, text_start)?;
+    assembler::converge_and_encode(&mut source, &symbols, text_start, &relax, &callback, show_progress)?;
 ```
+
+The convergence loop iteratively refines instruction sizes until stable:
 
 ```rust
 for iteration in 0..MAX_ITERATIONS {
-    compute_offsets(source);                    // Step A
-    let mut eval_context = new_evaluation_context(source, text_start);  // Step B
-    let (encoded, any_changed) = encode_source_with_size_tracking(source, eval_context);  // Step C
-    if !any_changed { return encoded; }         // Step D
+    compute_offsets(source);                     // Step 1: Assign addresses
+    let mut eval_context = new_evaluation_context(...);  // Step 2: Set up evaluation
+    evaluate_line_symbols(source, &eval_context)?;       // Step 3: Compute symbol values
+    callback.on_values_computed(...);                    // Step 3b: Debug callback
+    encode_source(&source, &eval_context, &relax)?;     // Step 4: Generate code
+    callback.on_code_generated(...);                     // Step 4b: Debug callback
+    if !any_sizes_changed { return (text_bytes, data_bytes, bss_size); }  // Step 5
 }
 ```
 
-**Step A: compute_offsets**
-```rust
-// Assign addresses based on current size guesses
-text_offset = 0
-for line in lines {
-    line.offset = text_offset
-    text_offset += line.size
-}
-```
+**Step 1: compute_offsets**
+Assigns addresses to every line within its segment, based on current size guesses.
 
-**Step B: create evaluation context**
-```rust
-// Set up segment addresses
-text_start = 0x10000  (user-provided)
+**Step 2: Create evaluation context**
+Sets up symbol lookup and expression evaluation. Segments are computed as:
+```
+text_start = (user-provided, default 0x10000)
 data_start = align_to_4k(text_start + text_size)
 bss_start = data_start + data_size
 ```
 
-**Step C: encode and track changes**
-For each line:
-1. Encode instruction/directive
-2. Compare actual byte count to `line.size`
-3. If different: update `line.size`, set `any_changed = true`
+**Step 3: Evaluate symbol values**
+Computes concrete addresses for all labels in all files based on current offsets.
 
-**Step D: check convergence**
-If any sizes changed, discard the encoded bytes and loop again with updated sizes.
+**Step 4: Encode and track size changes**
+For each line:
+1. Encode instruction/directive using final expression values
+2. Compare actual byte count to `line.size` estimate
+3. If different: update `line.size`, set `any_sizes_changed = true`
+
+**Step 5: Check convergence**
+If any sizes changed, loop again with updated sizes. Otherwise, return the final code.
 
 **Example convergence**:
 ```
@@ -562,9 +603,10 @@ SourceFile: program.s (text: 24, data: 0, bss: 0)
 ```rust
 struct Source {
     files: Vec<SourceFile>,        // All input files
-    text_size: i64,                // Total .text size
-    data_size: i64,                // Total .data size
-    bss_size: i64,                 // Total .bss size
+    header_size: u32,              // ELF header size estimate
+    text_size: u32,                // Total .text size
+    data_size: u32,                // Total .data size
+    bss_size: u32,                 // Total .bss size
     global_symbols: Vec<GlobalDefinition>,  // Cross-file symbols
 }
 ```
@@ -574,9 +616,9 @@ struct Source {
 struct SourceFile {
     file: String,                  // Filename
     lines: Vec<Line>,              // All lines from this file
-    text_size: i64,                // This file's contribution to .text
-    data_size: i64,                // This file's contribution to .data
-    bss_size: i64,                 // This file's contribution to .bss
+    text_size: u32,                // This file's contribution to .text
+    data_size: u32,                // This file's contribution to .data
+    bss_size: u32,                 // This file's contribution to .bss
     local_symbols: Vec<SymbolDefinition>,  // (currently unused)
 }
 ```
@@ -587,8 +629,8 @@ struct Line {
     location: Location,            // file.s:42
     content: LineContent,          // Label | Instruction | Directive
     segment: Segment,              // Text | Data | Bss
-    offset: i64,                   // Byte offset within segment
-    size: i64,                     // Byte size of generated code/data
+    offset: u32,                   // Byte offset within segment
+    size: u32,                     // Byte size of generated code/data
     outgoing_refs: Vec<SymbolReference>,  // Symbols this line references
 }
 ```
@@ -597,10 +639,11 @@ struct Line {
 ```rust
 struct EvaluationContext {
     source: Source,                             // Complete program (for symbol lookup)
-    symbol_values: HashMap<SymbolKey, EvaluatedValue>,  // Memoization cache
-    text_start: i64,                            // Segment addresses
-    data_start: i64,
-    bss_start: i64,
+    symbols: Symbols,                           // Symbol information from resolution
+    symbol_values: HashMap<SymbolReference, EvaluatedValue>,  // Memoization cache
+    text_start: u32,                            // Segment start addresses
+    data_start: u32,
+    bss_start: u32,
 }
 ```
 

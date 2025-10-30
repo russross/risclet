@@ -352,7 +352,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 2: Resolve symbols (create references from uses to definitions)
     // ========================================================================
-    let symbols = symbols::resolve_symbols(&mut source)?;
+    let symbols = symbols::link_symbols_old(&mut source)?;
 
     // Checkpoint: dump symbol resolution if requested
     if should_dump_phase(&config, Phase::SymbolResolution) {
