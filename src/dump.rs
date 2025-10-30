@@ -6,6 +6,7 @@
 use crate::ast::*;
 use crate::elf::ElfBuilder;
 use crate::expressions::{self, EvaluatedValue, EvaluationContext};
+use crate::symbols::Symbols;
 
 /// Check if a file is the builtin symbols file that should be hidden from dumps
 fn is_builtin_file(file: &SourceFile) -> bool {
@@ -563,7 +564,7 @@ fn dump_expression_ast(expr: &Expression) {
 // Symbol Resolution Dump
 // ============================================================================
 
-pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
+pub fn dump_symbols(source: &Source, symbols: &Symbols, spec: &DumpSpec) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
     for (i, file) in source.files.iter().enumerate() {
@@ -576,16 +577,18 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
 
             let max_line_width = calculate_max_line_width_for_file(file);
 
-            for line in file.lines.iter() {
+            for (line_index, line) in file.lines.iter().enumerate() {
                 // Format: [file:line] content
                 let (loc_str, padding) =
                     format_location_aligned(&line.location, max_line_width);
                 print!("{}{} {}", loc_str, padding, line.content);
 
                 // If this line has outgoing references, show them
-                if !line.outgoing_refs.is_empty() {
+                let line_pointer = LinePointer { file_index: i, line_index };
+                let outgoing_refs = symbols.get_line_refs(&line_pointer);
+                if !outgoing_refs.is_empty() {
                     print!("  →");
-                    for (j, ref_item) in line.outgoing_refs.iter().enumerate() {
+                    for (j, ref_item) in outgoing_refs.iter().enumerate() {
                         if j > 0 {
                             print!(",");
                         }
@@ -605,10 +608,10 @@ pub fn dump_symbols(source: &Source, spec: &DumpSpec) {
     }
 
     // Show global symbols
-    if !source.global_symbols.is_empty() {
+    if !symbols.global_symbols.is_empty() {
         println!("Global Symbols:");
         println!("{}", "=".repeat(79));
-        for global in &source.global_symbols {
+        for global in &symbols.global_symbols {
             let def_file = &source.files[global.definition_pointer.file_index];
             let def_line =
                 &def_file.lines[global.definition_pointer.line_index];

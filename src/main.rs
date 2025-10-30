@@ -369,7 +369,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
 
     // Checkpoint: dump symbol resolution if requested
     if should_dump_phase(&config, Phase::SymbolResolution) {
-        dump::dump_symbols(&source, config.dump.dump_symbols.as_ref().unwrap());
+        dump::dump_symbols(&source, &symbols, config.dump.dump_symbols.as_ref().unwrap());
         if is_terminal_phase(&config, Phase::SymbolResolution) {
             println!("\n(No output file generated)");
             return Ok(());
@@ -383,7 +383,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
 
     // Show input statistics before convergence if verbose
     if config.verbose {
-        print_input_statistics(&source);
+        print_input_statistics(&source, &symbols);
     }
 
     let (text_bytes, data_bytes, bss_size) =
@@ -496,7 +496,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Find entry point (_start symbol is required for executables)
     let entry_point = {
         if let Some(g) =
-            source.global_symbols.iter().find(|g| g.symbol == "_start")
+            symbols.global_symbols.iter().find(|g| g.symbol == "_start")
         {
             let line = &source.files[g.definition_pointer.file_index].lines
                 [g.definition_pointer.line_index];
@@ -531,7 +531,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     Ok(())
 }
 
-fn print_input_statistics(source: &Source) {
+fn print_input_statistics(source: &Source, symbols: &symbols::Symbols) {
     let mut total_lines = 0;
     let mut total_labels = 0;
     let mut total_instructions = 0;
@@ -548,7 +548,7 @@ fn print_input_statistics(source: &Source) {
         }
     }
 
-    let num_globals = source.global_symbols.len();
+    let num_globals = symbols.global_symbols.len();
 
     // Don't count the builtin file
     let num_files = source.files.len().saturating_sub(1);

@@ -132,6 +132,29 @@ mod tests {
         );
     }
 
+    /// Helper: Assert that a line has a specific outgoing reference using Symbols object
+    fn assert_reference_symbols(
+        symbols: &crate::symbols::Symbols,
+        line_ptr: &LinePointer,
+        expected_symbol: &str,
+        expected_def_ptr: &LinePointer,
+    ) {
+        let refs = symbols.get_line_refs(line_ptr);
+        let matching_ref = refs.iter().find(|r| {
+            r.symbol == expected_symbol && r.pointer == *expected_def_ptr
+        });
+
+        assert!(
+            matching_ref.is_some(),
+            "Expected reference from line {}:{} to symbol '{}' at {}:{}, but it was not found",
+            line_ptr.file_index,
+            line_ptr.line_index,
+            expected_symbol,
+            expected_def_ptr.file_index,
+            expected_def_ptr.line_index
+        );
+    }
+
     // ============================================================================
     // Single-File Tests
     // ============================================================================
@@ -151,11 +174,15 @@ mod tests {
             "Symbol resolution should succeed with no symbols"
         );
 
+        let symbols = result.unwrap();
+
         // Verify no outgoing references
-        for file in &source.files {
-            for line in &file.lines {
+        for (file_index, file) in source.files.iter().enumerate() {
+            for (line_index, _line) in file.lines.iter().enumerate() {
+                let line_ptr = crate::ast::LinePointer { file_index, line_index };
+                let refs = symbols.get_line_refs(&line_ptr);
                 assert!(
-                    line.outgoing_refs.is_empty(),
+                    refs.is_empty(),
                     "No references should exist"
                 );
             }
@@ -174,14 +201,15 @@ mod tests {
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
+        let symbols = result.unwrap();
+
         // Find the label line
         let label_ptr = find_line_by_label(&source, "start").unwrap();
 
         // Verify no outgoing references on the label
-        let file = &source.files[label_ptr.file_index];
-        let line = &file.lines[label_ptr.line_index];
+        let refs = symbols.get_line_refs(&label_ptr);
         assert!(
-            line.outgoing_refs.is_empty(),
+            refs.is_empty(),
             "Label should have no outgoing references"
         );
     }
@@ -248,13 +276,16 @@ mod tests {
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
+        let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "target").unwrap();
 
         // Both references should point to the same label
         let file = &source.files[0];
         let mut ref_count = 0;
-        for line in &file.lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_index, _line) in file.lines.iter().enumerate() {
+            let line_ptr = crate::ast::LinePointer { file_index: 0, line_index };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "target" {
                     assert_eq!(
                         sym_ref.pointer, label_ptr,
@@ -288,14 +319,17 @@ mod tests {
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
+        let symbols = result.unwrap();
         let start_ptr = find_line_by_label(&source, "start").unwrap();
         let middle_ptr = find_line_by_label(&source, "middle").unwrap();
         let end_ptr = find_line_by_label(&source, "end").unwrap();
 
         // Check that references are correct
         let file = &source.files[0];
-        for line in &file.lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_index, _line) in file.lines.iter().enumerate() {
+            let line_ptr = crate::ast::LinePointer { file_index: 0, line_index };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 match sym_ref.symbol.as_str() {
                     "start" => assert_eq!(sym_ref.pointer, start_ptr),
                     "middle" => assert_eq!(sym_ref.pointer, middle_ptr),
@@ -326,13 +360,13 @@ mod tests {
             "Symbol resolution should succeed with numeric forward reference"
         );
 
+        let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "1").unwrap();
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
 
         // The reference should use "1f" but point to the label "1"
-        let file = &source.files[ref_ptr.file_index];
-        let line = &file.lines[ref_ptr.line_index];
-        let matching_ref = line.outgoing_refs.iter().find(|r| r.symbol == "1f");
+        let refs = symbols.get_line_refs(&ref_ptr);
+        let matching_ref = refs.iter().find(|r| r.symbol == "1f");
         assert!(matching_ref.is_some(), "Should have a reference to '1f'");
         assert_eq!(matching_ref.unwrap().pointer, label_ptr);
     }
@@ -353,13 +387,13 @@ mod tests {
             "Symbol resolution should succeed with numeric backward reference"
         );
 
+        let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "1").unwrap();
         let ref_ptr = find_referencing_line(&source, "1b").unwrap();
 
         // The reference should use "1b" and point to the label "1"
-        let file = &source.files[ref_ptr.file_index];
-        let line = &file.lines[ref_ptr.line_index];
-        let matching_ref = line.outgoing_refs.iter().find(|r| r.symbol == "1b");
+        let refs = symbols.get_line_refs(&ref_ptr);
+        let matching_ref = refs.iter().find(|r| r.symbol == "1b");
         assert!(matching_ref.is_some(), "Should have a reference to '1b'");
         assert_eq!(matching_ref.unwrap().pointer, label_ptr);
     }
@@ -383,6 +417,8 @@ mod tests {
             "Symbol resolution should succeed with reused numeric labels"
         );
 
+        let symbols = result.unwrap();
+
         // Find both labels named "1"
         let file = &source.files[0];
         let mut label_positions = Vec::new();
@@ -402,8 +438,10 @@ mod tests {
 
         // First reference should point to first label, second to second label
         let mut ref_positions = Vec::new();
-        for (line_idx, line) in file.lines.iter().enumerate() {
-            for sym_ref in &line.outgoing_refs {
+        for (line_idx, _line) in file.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "1f" {
                     ref_positions.push((line_idx, sym_ref.pointer.clone()));
                 }
@@ -455,6 +493,8 @@ mod tests {
             "Symbol resolution should succeed with reused numeric labels"
         );
 
+        let symbols = result.unwrap();
+
         // Find both labels named "1"
         let file = &source.files[0];
         let mut label_positions = Vec::new();
@@ -474,8 +514,10 @@ mod tests {
 
         // Collect all backward references
         let mut ref_positions = Vec::new();
-        for (line_idx, line) in file.lines.iter().enumerate() {
-            for sym_ref in &line.outgoing_refs {
+        for (line_idx, _line) in file.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "1b" {
                     ref_positions.push((line_idx, sym_ref.pointer.clone()));
                 }
@@ -596,19 +638,20 @@ mod tests {
             "Symbol resolution should succeed with multiple symbols in one expression"
         );
 
+        let symbols = result.unwrap();
         let start_ptr = find_line_by_label(&source, "start").unwrap();
         let end_ptr = find_line_by_label(&source, "end").unwrap();
 
         // Find the line with the expression
         let file = &source.files[0];
         let mut found_both = false;
-        for line in &file.lines {
-            let has_start = line
-                .outgoing_refs
+        for (line_index, _line) in file.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index };
+            let refs = symbols.get_line_refs(&line_ptr);
+            let has_start = refs
                 .iter()
                 .any(|r| r.symbol == "start" && r.pointer == start_ptr);
-            let has_end = line
-                .outgoing_refs
+            let has_end = refs
                 .iter()
                 .any(|r| r.symbol == "end" && r.pointer == end_ptr);
             if has_start && has_end {
@@ -666,6 +709,7 @@ mod tests {
 
         assert!(result.is_ok(), "Symbol resolution should succeed");
 
+        let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "loop").unwrap();
 
         // The instruction line should have a reference to the label
@@ -676,9 +720,9 @@ mod tests {
             "Label + instruction should create 2 lines"
         );
 
-        let instr_line = &file.lines[1];
-        let has_ref = instr_line
-            .outgoing_refs
+        let instr_ptr = LinePointer { file_index: 0, line_index: 1 };
+        let refs = symbols.get_line_refs(&instr_ptr);
+        let has_ref = refs
             .iter()
             .any(|r| r.symbol == "loop" && r.pointer == label_ptr);
         assert!(
@@ -752,10 +796,14 @@ mod tests {
             "Should have 3 .equ definitions for 'counter'"
         );
 
+        let symbols = result.unwrap();
+
         // The second and third .equ should reference previous definitions
         let mut ref_count = 0;
-        for line in &file.lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_index, _line) in file.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "counter" {
                     ref_count += 1;
                 }
@@ -832,10 +880,14 @@ mod tests {
             "Symbol resolution should succeed with interleaved numeric labels"
         );
 
+        let symbols = result.unwrap();
+
         // Verify all references resolve correctly
         let file = &source.files[0];
-        for line in &file.lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_index, _line) in file.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 // Each reference should point to a valid label
                 let target_line = &file.lines[sym_ref.pointer.line_index];
                 assert!(
@@ -973,16 +1025,20 @@ mod tests {
         }
         assert_eq!(equ_line_indices.len(), 3);
 
+        let symbols = result.unwrap();
+
         // Second .equ should have reference to first
-        let second_line = &file.lines[equ_line_indices[1]];
-        let has_ref_to_first = second_line.outgoing_refs.iter().any(|r| {
+        let second_line_ptr = LinePointer { file_index: 0, line_index: equ_line_indices[1] };
+        let second_refs = symbols.get_line_refs(&second_line_ptr);
+        let has_ref_to_first = second_refs.iter().any(|r| {
             r.symbol == "counter" && r.pointer.line_index == equ_line_indices[0]
         });
         assert!(has_ref_to_first, "Second .equ should reference first");
 
         // Third .equ should have reference to second
-        let third_line = &file.lines[equ_line_indices[2]];
-        let has_ref_to_second = third_line.outgoing_refs.iter().any(|r| {
+        let third_line_ptr = LinePointer { file_index: 0, line_index: equ_line_indices[2] };
+        let third_refs = symbols.get_line_refs(&third_line_ptr);
+        let has_ref_to_second = third_refs.iter().any(|r| {
             r.symbol == "counter" && r.pointer.line_index == equ_line_indices[1]
         });
         assert!(has_ref_to_second, "Third .equ should reference second");
@@ -1050,11 +1106,13 @@ mod tests {
         }
         assert_eq!(equ_indices.len(), 3);
 
+        let symbols = result.unwrap();
+
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
-        let li_line = &file.lines[ref_ptr.line_index];
+        let refs = symbols.get_line_refs(&ref_ptr);
         let ref_to_value =
-            li_line.outgoing_refs.iter().find(|r| r.symbol == "value").unwrap();
+            refs.iter().find(|r| r.symbol == "value").unwrap();
         assert_eq!(
             ref_to_value.pointer.line_index, equ_indices[0],
             "Forward reference should resolve to first .equ definition"
@@ -1093,11 +1151,15 @@ mod tests {
         }
         assert_eq!(equ_indices.len(), 3);
 
+        let symbols = result.unwrap();
+
         // Find all li instructions and check their references
         let mut li_refs = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Instruction(_) = line.content {
-                for sym_ref in &line.outgoing_refs {
+                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+                let refs = symbols.get_line_refs(&line_ptr);
+                for sym_ref in refs {
                     if sym_ref.symbol == "value" {
                         li_refs.push((line_idx, sym_ref.pointer.line_index));
                     }
@@ -1408,12 +1470,16 @@ mod tests {
             }
         }
 
+        let symbols = result.unwrap();
+
         assert!(label_3_idx.is_some(), "Should find label 3 after named");
         assert!(label_4_idx.is_some(), "Should find label 4 after named");
 
         // Check that backward references point to the right labels
-        for line in &file.lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_idx, _line) in file.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "3b" {
                     assert_eq!(
                         sym_ref.pointer.line_index,
@@ -1465,13 +1531,13 @@ mod tests {
         }
         assert!(equ_line.is_some());
 
-        let equ = &file.lines[equ_line.unwrap()];
-        let has_start = equ
-            .outgoing_refs
+        let symbols = result.unwrap();
+        let equ_ptr = LinePointer { file_index: 0, line_index: equ_line.unwrap() };
+        let refs = symbols.get_line_refs(&equ_ptr);
+        let has_start = refs
             .iter()
             .any(|r| r.symbol == "start" && r.pointer == start_ptr);
-        let has_end = equ
-            .outgoing_refs
+        let has_end = refs
             .iter()
             .any(|r| r.symbol == "end" && r.pointer == end_ptr);
         assert!(
@@ -1567,13 +1633,12 @@ mod tests {
         assert_eq!(equ_indices.len(), 3, "Should have 3 .equ definitions");
 
         // The reference in file2 should point to the last .equ (index 2)
+        let symbols = result.unwrap();
         let ref_ptr = find_referencing_line(&source, "counter").unwrap();
         assert_eq!(ref_ptr.file_index, 1, "Reference should be in file2");
 
-        let file2 = &source.files[1];
-        let li_line = &file2.lines[ref_ptr.line_index];
-        let ref_to_counter = li_line
-            .outgoing_refs
+        let refs = symbols.get_line_refs(&ref_ptr);
+        let ref_to_counter = refs
             .iter()
             .find(|r| r.symbol == "counter")
             .unwrap();
@@ -1629,16 +1694,18 @@ mod tests {
             "Global declared before definition should work"
         );
 
+        let symbols = result.unwrap();
+
         // Verify global points to the label
         // Note: We have 2 globals: "main" and "__global_pointer$" (from builtin file)
         assert_eq!(
-            source.global_symbols.len(),
+            symbols.global_symbols.len(),
             2,
             "Should have 2 global symbols (main + __global_pointer$)"
         );
         // Find the "main" symbol (could be at index 0 or 1)
         let main_symbol =
-            source.global_symbols.iter().find(|g| g.symbol == "main");
+            symbols.global_symbols.iter().find(|g| g.symbol == "main");
         assert!(main_symbol.is_some(), "Should have 'main' global symbol");
     }
 
@@ -1656,16 +1723,18 @@ mod tests {
 
         assert!(result.is_ok(), "Global declared after definition should work");
 
+        let symbols = result.unwrap();
+
         // Verify global points to the label
         // Note: We have 2 globals: "main" and "__global_pointer$" (from builtin file)
         assert_eq!(
-            source.global_symbols.len(),
+            symbols.global_symbols.len(),
             2,
             "Should have 2 global symbols (main + __global_pointer$)"
         );
         // Find the "main" symbol (could be at index 0 or 1)
         let main_symbol =
-            source.global_symbols.iter().find(|g| g.symbol == "main");
+            symbols.global_symbols.iter().find(|g| g.symbol == "main");
         assert!(main_symbol.is_some(), "Should have 'main' global symbol");
     }
 
@@ -1795,14 +1864,15 @@ mod tests {
         let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Unreferenced global should be OK");
+        let symbols = result.unwrap();
         // Note: We have 2 globals: "unused_func" and "__global_pointer$" (from builtin file)
         assert_eq!(
-            source.global_symbols.len(),
+            symbols.global_symbols.len(),
             2,
             "Should have 2 global symbols (unused_func + __global_pointer$)"
         );
         let unused_func =
-            source.global_symbols.iter().find(|g| g.symbol == "unused_func");
+            symbols.global_symbols.iter().find(|g| g.symbol == "unused_func");
         assert!(
             unused_func.is_some(),
             "Should have 'unused_func' global symbol"
@@ -1833,16 +1903,17 @@ mod tests {
         let result = link_symbols_old(&mut source);
 
         assert!(result.is_ok(), "Both .equ and label globals should work");
+        let symbols = result.unwrap();
         // Note: We have 3 globals: "BUFFER_SIZE", "main", and "__global_pointer$" (from builtin file)
         assert_eq!(
-            source.global_symbols.len(),
+            symbols.global_symbols.len(),
             3,
             "Should have 3 global symbols (BUFFER_SIZE + main + __global_pointer$)"
         );
 
         // Verify both globals exist
         let global_names: Vec<&str> =
-            source.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
+            symbols.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
         assert!(
             global_names.contains(&"BUFFER_SIZE"),
             "Should have BUFFER_SIZE global"
@@ -1900,11 +1971,14 @@ mod tests {
         let file1_lines = &source.files[0].lines;
         let file2_lines = &source.files[1].lines;
 
+        let symbols = result.unwrap();
         let mut found_a_to_c = false;
         let mut found_c_to_b = false;
 
-        for line in file1_lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_idx, _line) in file1_lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "func_c" {
                     assert_eq!(sym_ref.pointer, func_c_ptr);
                     found_a_to_c = true;
@@ -1912,8 +1986,10 @@ mod tests {
             }
         }
 
-        for line in file2_lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_idx, _line) in file2_lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "func_b" {
                     assert_eq!(sym_ref.pointer, func_b_ptr);
                     found_c_to_b = true;
@@ -1958,16 +2034,18 @@ mod tests {
             "Multiple symbols in single .global directive should work"
         );
 
+        let symbols = result.unwrap();
+
         // Verify all three symbols are exported as globals
         // Note: We have 4 globals: "_start", "exit", "helper", and "__global_pointer$" (from builtin file)
         assert_eq!(
-            source.global_symbols.len(),
+            symbols.global_symbols.len(),
             4,
             "Should have 4 global symbols (_start + exit + helper + __global_pointer$)"
         );
 
         let global_names: Vec<&str> =
-            source.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
+            symbols.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
         assert!(global_names.contains(&"_start"), "Should have _start global");
         assert!(global_names.contains(&"exit"), "Should have exit global");
         assert!(global_names.contains(&"helper"), "Should have helper global");
@@ -1982,8 +2060,10 @@ mod tests {
         let mut found_exit = false;
         let mut found_helper = false;
 
-        for line in &file2.lines {
-            for sym_ref in &line.outgoing_refs {
+        for (line_idx, _line) in file2.lines.iter().enumerate() {
+            let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
+            let refs = symbols.get_line_refs(&line_ptr);
+            for sym_ref in refs {
                 if sym_ref.symbol == "_start" && sym_ref.pointer == start_ptr {
                     found_start = true;
                 }
@@ -2070,17 +2150,21 @@ mod tests {
             "Symbol resolution should succeed with .equ referencing a label"
         );
 
+        let symbols = result.unwrap();
+
         // Find the .equ line and verify it has a reference to my_label
         let file = &source.files[0];
         let mut found_equ_with_ref = false;
-        for line in &file.lines {
+        for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Directive(Directive::Equ(ref name, _)) =
                 line.content
                 && name == "label_offset"
             {
                 // This .equ should have an outgoing reference to my_label
+                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
+                let refs = symbols.get_line_refs(&line_ptr);
                 found_equ_with_ref =
-                    line.outgoing_refs.iter().any(|r| r.symbol == "my_label");
+                    refs.iter().any(|r| r.symbol == "my_label");
             }
         }
 
