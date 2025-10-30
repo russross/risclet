@@ -2,10 +2,7 @@
 //
 // Core assembly pipeline functions shared between main.rs and tests
 
-use crate::ast::{
-    self, Instruction, LinePointer, PseudoOp, Segment,
-    Source,
-};
+use crate::ast::{self, Instruction, LinePointer, PseudoOp, Segment, Source};
 use crate::elf::compute_header_size;
 use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};

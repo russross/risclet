@@ -195,12 +195,24 @@ fn resolve_symbol_dependencies(
             let sym_refs = context.symbols.get_line_refs(&key.pointer).to_vec();
             let expr_clone = expr.clone();
             let line_clone = line.clone();
+            let equ_pointer = key.pointer.clone();
 
             for sym_ref in sym_refs {
                 resolve_symbol_dependencies(&sym_ref, context, cycle_stack)?;
             }
+            
+            // Set current_line_pointer to the .equ line so that evaluate_expression
+            // can correctly look up symbol references from this line
+            let saved_pointer = context.current_line_pointer.clone();
+            context.current_line_pointer = equ_pointer;
+            
             // All dependencies are now resolved; evaluate the expression
-            evaluate_expression(&expr_clone, context, &line_clone)?
+            let result = evaluate_expression(&expr_clone, context, &line_clone)?;
+            
+            // Restore the previous current_line_pointer
+            context.current_line_pointer = saved_pointer;
+            
+            result
         }
         _ => {
             return Err(AssemblerError::from_context(

@@ -19,9 +19,9 @@ mod symbols;
 mod tokenizer;
 
 #[cfg(test)]
-mod encoder_tests;
-#[cfg(test)]
 mod encoder_compressed_tests;
+#[cfg(test)]
+mod encoder_tests;
 #[cfg(test)]
 mod expressions_tests;
 #[cfg(test)]
@@ -257,10 +257,10 @@ fn main() {
 // Assembly phases - each phase has a checkpoint where we can dump and optionally exit
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
-    Parse,            // After parsing source files into AST
-    SymbolLinking,    // After linking all symbols
-    Convergence,      // During/after code generation convergence
-    Elf,              // After ELF generation
+    Parse,         // After parsing source files into AST
+    SymbolLinking, // After linking all symbols
+    Convergence,   // During/after code generation convergence
+    Elf,           // After ELF generation
 }
 
 // Callback for convergence dumps - implements assembler::ConvergenceCallback
@@ -369,7 +369,11 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
 
     // Checkpoint: dump symbol linking if requested
     if should_dump_phase(&config, Phase::SymbolLinking) {
-        dump::dump_symbols(&source, &symbols, config.dump.dump_symbols.as_ref().unwrap());
+        dump::dump_symbols(
+            &source,
+            &symbols,
+            config.dump.dump_symbols.as_ref().unwrap(),
+        );
         if is_terminal_phase(&config, Phase::SymbolLinking) {
             println!("\n(No output file generated)");
             return Ok(());
