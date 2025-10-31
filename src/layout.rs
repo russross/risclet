@@ -200,16 +200,12 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
                 }
             }
 
-            // Get the size: prefer line.size from source (updated during encoding),
-            // fall back to layout, fall back to guess
-            let size = if line.size > 0 {
-                line.size
-            } else {
-                layout
-                    .get(&pointer)
-                    .map(|l| l.size)
-                    .unwrap_or_else(|| guess_line_size(&line.content))
-            };
+            // Get the size: use layout if available (which may have been updated during encoding),
+            // otherwise fall back to guess
+            let size = layout
+                .get(&pointer)
+                .map(|l| l.size)
+                .unwrap_or_else(|| guess_line_size(&line.content));
 
             // Compute offset based on current segment
             let offset = match current_segment {

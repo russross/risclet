@@ -39,8 +39,7 @@ mod tests {
                     }
                 }
 
-                parsed_line.segment = current_segment;
-                parsed_line.size = 4; // Simplified size guess for tests
+                // Segment and size will be set in the layout phase
                 lines.push(parsed_line);
             }
         }
@@ -48,9 +47,6 @@ mod tests {
         Ok(SourceFile {
             file: filename.to_string(),
             lines,
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
         })
     }
 
@@ -58,10 +54,6 @@ mod tests {
     fn create_source(files: Vec<(&str, &str)>) -> Result<Source, String> {
         let mut source = Source {
             files: Vec::new(),
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
-            header_size: 0,
         };
 
         for (filename, content) in files {

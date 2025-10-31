@@ -119,10 +119,8 @@ pub fn encode_source(
                 }
             };
 
-            // Update the line's size in layout and source if it changed
+            // Update the line's size in layout if it changed
             if old_size != actual_size {
-                source.files[file_idx].lines[line_idx].size = actual_size;
-                // Also update in layout
                 let mut updated_layout = line_layout;
                 updated_layout.size = actual_size;
                 layout.set(pointer, updated_layout);
@@ -151,11 +149,7 @@ pub fn encode_line(
     context: &mut EncodingContext,
     relax: &Relax,
 ) -> Result<Vec<u8>> {
-    // BSS segment should be handled separately in encode_source
-    assert!(
-        line.segment != Segment::Bss,
-        "BSS lines should be handled separately"
-    );
+    // Note: BSS segment lines are handled separately in encode_source and never reach here
 
     // Encode based on line content
     match &line.content {
@@ -1036,7 +1030,7 @@ fn eval_compressed_operands(
 }
 
 /// Get the absolute address of a line (returns i64 for compatibility with offset calculations)
-fn get_line_address(line: &Line, context: &EncodingContext) -> i64 {
+fn get_line_address(_line: &Line, context: &EncodingContext) -> i64 {
     // Get layout info for current line
     let pointer = LinePointer {
         file_index: context.file_index,

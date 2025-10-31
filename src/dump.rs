@@ -666,9 +666,15 @@ pub fn dump_values(
         let max_line_width = calculate_max_line_width_for_file(file);
 
         for (line_index, line) in file.lines.iter().enumerate() {
-            // Get absolute address
-            let segment_base = get_segment_base(line.segment, eval_context);
-            let abs_addr = segment_base + line.offset;
+            // Get absolute address from layout
+            let pointer = LinePointer { file_index, line_index };
+            let line_layout = eval_context.layout.get(&pointer);
+
+            let segment = line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
+            let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
+
+            let segment_base = get_segment_base(segment, eval_context);
+            let abs_addr = segment_base + offset;
 
             let (loc_str, padding) =
                 format_location_aligned(&line.location, max_line_width);
@@ -676,12 +682,11 @@ pub fn dump_values(
                 "{}{} {}: {}",
                 loc_str,
                 padding,
-                format_address(abs_addr, addr_width, line.segment),
+                format_address(abs_addr, addr_width, segment),
                 line.content
             );
 
             // Collect and show evaluated expression values
-            let pointer = LinePointer { file_index, line_index };
             let expr_values =
                 collect_expression_values(line, &pointer, eval_context);
             if !expr_values.is_empty() {
@@ -726,7 +731,7 @@ pub fn dump_code(
 
     let addr_width = calculate_address_width(eval_context.text_start);
 
-    for file in &source.files {
+    for (file_index, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
             continue;
         }
@@ -739,17 +744,24 @@ pub fn dump_code(
 
         let max_line_width = calculate_max_line_width_for_file(file);
 
-        for line in &file.lines {
-            // Get absolute address and encoded bytes
-            let segment_base = get_segment_base(line.segment, eval_context);
-            let abs_addr = segment_base + line.offset;
-            let encoded_bytes = get_encoded_bytes(line, text_bytes, data_bytes);
+        for (line_index, line) in file.lines.iter().enumerate() {
+            // Get absolute address and encoded bytes from layout
+            let pointer = LinePointer { file_index, line_index };
+            let line_layout = eval_context.layout.get(&pointer);
+
+            let segment = line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
+            let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
+            let size = line_layout.map(|ll| ll.size).unwrap_or(0);
+
+            let segment_base = get_segment_base(segment, eval_context);
+            let abs_addr = segment_base + offset;
+            let encoded_bytes = get_encoded_bytes_with_layout(size, segment, offset, text_bytes, data_bytes);
 
             match &line.content {
                 LineContent::Label(name) => {
                     // For labels, print with location and address prefix
                     let formatted_addr =
-                        format_address(abs_addr, addr_width, line.segment);
+                        format_address(abs_addr, addr_width, segment);
                     let (loc_str, padding) =
                         format_location_aligned(&line.location, max_line_width);
                     println!(
@@ -760,7 +772,7 @@ pub fn dump_code(
                 LineContent::Instruction(inst) => {
                     // For instructions: print location, address, first 4 bytes, then instruction at column 16
                     let formatted_addr =
-                        format_address(abs_addr, addr_width, line.segment);
+                        format_address(abs_addr, addr_width, segment);
                     let (loc_str, padding) =
                         format_location_aligned(&line.location, max_line_width);
                     // print 2 spaces to offset bytes from labels
@@ -796,7 +808,7 @@ pub fn dump_code(
                             let chunk_formatted_addr = format_address(
                                 chunk_addr,
                                 addr_width,
-                                line.segment,
+                                segment,
                             );
                             print!(
                                 "{}{} {}:   ",
@@ -819,7 +831,7 @@ pub fn dump_code(
                     if encoded_bytes.is_empty() {
                         // Directives with no encoded bytes (e.g., .text, .data, .global)
                         let formatted_addr =
-                            format_address(abs_addr, addr_width, line.segment);
+                            format_address(abs_addr, addr_width, segment);
                         println!(
                             "{}{} {}: {}",
                             loc_str, padding, formatted_addr, line.content
@@ -830,7 +842,7 @@ pub fn dump_code(
                             "{}{} {}: {}",
                             loc_str,
                             padding,
-                            format_address(abs_addr, addr_width, line.segment),
+                            format_address(abs_addr, addr_width, segment),
                             line.content
                         );
 
@@ -854,7 +866,7 @@ pub fn dump_code(
                             let first_formatted_addr = format_address(
                                 first_addr,
                                 addr_width,
-                                line.segment,
+                                segment,
                             );
                             print!(
                                 "{}{} {}:   ",
@@ -884,7 +896,7 @@ pub fn dump_code(
                             let line_formatted_addr = format_address(
                                 line_addr,
                                 addr_width,
-                                line.segment,
+                                segment,
                             );
                             print!(
                                 "{}{} {}:   ",
@@ -905,7 +917,7 @@ pub fn dump_code(
                             let last_formatted_addr = format_address(
                                 last_addr,
                                 addr_width,
-                                line.segment,
+                                segment,
                             );
                             print!(
                                 "{}{} {}:   ",
@@ -1224,19 +1236,21 @@ fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> u32 {
     }
 }
 
-fn get_encoded_bytes(
-    line: &Line,
+fn get_encoded_bytes_with_layout(
+    size: u32,
+    segment: Segment,
+    offset: u32,
     text_bytes: &[u8],
     data_bytes: &[u8],
 ) -> Vec<u8> {
-    if line.size == 0 {
+    if size == 0 {
         return Vec::new();
     }
 
-    let offset = line.offset as usize;
-    let size = line.size as usize;
+    let offset = offset as usize;
+    let size = size as usize;
 
-    match line.segment {
+    match segment {
         Segment::Text => {
             if offset + size <= text_bytes.len() {
                 text_bytes[offset..offset + size].to_vec()
@@ -1256,6 +1270,16 @@ fn get_encoded_bytes(
             Vec::new()
         }
     }
+}
+
+fn get_encoded_bytes(
+    line: &Line,
+    text_bytes: &[u8],
+    data_bytes: &[u8],
+) -> Vec<u8> {
+    // This function is now unused since we use get_encoded_bytes_with_layout
+    // Keeping it for backwards compatibility if needed
+    Vec::new()
 }
 
 fn collect_expression_values(

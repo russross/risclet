@@ -458,7 +458,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
 
     let mut elf_builder = elf::ElfBuilder::new(
         eval_context.text_start as u32,
-        source.header_size as u32,
+        eval_context.layout.header_size as u32,
     );
     elf_builder.set_segments(
         text_bytes.clone(),
@@ -472,6 +472,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     elf::build_symbol_table(
         &source,
         &symbol_links,
+        &eval_context.layout,
         &mut elf_builder,
         eval_context.text_start as u32,
         eval_context.data_start as u32,
@@ -509,9 +510,19 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
         if let Some(g) =
             symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
-            let line = &source.files[g.definition_pointer.file_index].lines
-                [g.definition_pointer.line_index];
-            Ok((eval_context.text_start + line.offset) as u64)
+            let pointer = g.definition_pointer.clone();
+            if let Some(line_layout) = eval_context.layout.get(&pointer) {
+                let offset = match line_layout.segment {
+                    ast::Segment::Text => eval_context.text_start + line_layout.offset,
+                    ast::Segment::Data => eval_context.data_start + line_layout.offset,
+                    ast::Segment::Bss => eval_context.bss_start + line_layout.offset,
+                };
+                Ok(offset as u64)
+            } else {
+                Err(AssemblerError::no_context(
+                    "_start symbol not found in layout".to_string(),
+                ))
+            }
         } else {
             Err(AssemblerError::no_context(
                 "_start symbol not defined".to_string(),
@@ -579,17 +590,10 @@ fn print_input_statistics(source: &Source, symbol_links: &symbols::SymbolLinks) 
 fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
     let mut source = Source {
         files: Vec::new(),
-        header_size: 0,
-        text_size: 0,
-        data_size: 0,
-        bss_size: 0,
     };
 
     for file_path in &files {
         let source_file = process_file(file_path)?;
-        source.text_size += source_file.text_size;
-        source.data_size += source_file.data_size;
-        source.bss_size += source_file.bss_size;
         source.files.push(source_file);
     }
 
@@ -645,11 +649,8 @@ fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
                     }
                 }
 
-                // Assign segment and set size
-                let mut new_line = parsed_line;
-                new_line.segment = current_segment;
-                new_line.size = assembler::guess_line_size(&new_line.content);
-                lines.push(new_line);
+                // Segment and size will be set in the layout phase
+                lines.push(parsed_line);
             }
         }
     }
@@ -657,8 +658,5 @@ fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
     Ok(SourceFile {
         file: file_path.to_string(),
         lines,
-        text_size: 0, // Will be set in compute_offsets
-        data_size: 0,
-        bss_size: 0,
     })
 }

@@ -352,18 +352,12 @@ impl<'a> Parser<'a> {
             lines.push(Line {
                 location: location.clone(),
                 content: LineContent::Label(l),
-                segment: Segment::Text, // Default, will be overridden
-                offset: 0,              // Default, will be overridden
-                size: 0,                // Default, will be set
             });
         }
         if let Some(c) = content {
             lines.push(Line {
                 location,
                 content: c,
-                segment: Segment::Text, // Default, will be overridden
-                offset: 0,              // Default, will be overridden
-                size: 0,                // Default, will be set
             });
         }
         if lines.is_empty() {
