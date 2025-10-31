@@ -899,24 +899,26 @@ pub fn build_symbol_table(
 
                 if !is_global {
                     let pointer = LinePointer { file_index, line_index };
-                    let (addr, section_idx) = if let Some(line_layout) = layout.get(&pointer) {
-                        match line_layout.segment {
-                            Segment::Text => {
-                                (text_start + line_layout.offset, text_section_index)
+                    let (addr, section_idx) =
+                        if let Some(line_layout) = layout.get(&pointer) {
+                            match line_layout.segment {
+                                Segment::Text => (
+                                    text_start + line_layout.offset,
+                                    text_section_index,
+                                ),
+                                Segment::Data => (
+                                    data_start + line_layout.offset,
+                                    data_section_index.unwrap(),
+                                ),
+                                Segment::Bss => (
+                                    bss_start + line_layout.offset,
+                                    bss_section_index.unwrap(),
+                                ),
                             }
-                            Segment::Data => (
-                                data_start + line_layout.offset,
-                                data_section_index.unwrap(),
-                            ),
-                            Segment::Bss => (
-                                bss_start + line_layout.offset,
-                                bss_section_index.unwrap(),
-                            ),
-                        }
-                    } else {
-                        // Default to text segment if no layout info (shouldn't happen)
-                        (text_start, text_section_index)
-                    };
+                        } else {
+                            // Default to text segment if no layout info (shouldn't happen)
+                            (text_start, text_section_index)
+                        };
                     let name_idx = builder.symbol_names.add(name);
 
                     builder.add_symbol(ElfSymbol {
@@ -980,13 +982,17 @@ pub fn build_symbol_table(
             let pointer = LinePointer { file_index, line_index };
             if let Some(line_layout) = layout.get(&pointer) {
                 match line_layout.segment {
-                    Segment::Text => (text_start + line_layout.offset, text_section_index),
-                    Segment::Data => {
-                        (data_start + line_layout.offset, data_section_index.unwrap())
+                    Segment::Text => {
+                        (text_start + line_layout.offset, text_section_index)
                     }
-                    Segment::Bss => {
-                        (bss_start + line_layout.offset, bss_section_index.unwrap())
-                    }
+                    Segment::Data => (
+                        data_start + line_layout.offset,
+                        data_section_index.unwrap(),
+                    ),
+                    Segment::Bss => (
+                        bss_start + line_layout.offset,
+                        bss_section_index.unwrap(),
+                    ),
                 }
             } else {
                 // Default to text segment if no layout info (shouldn't happen)

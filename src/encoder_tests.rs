@@ -11,10 +11,12 @@ use crate::symbols::link_symbols;
 use crate::tokenizer::tokenize;
 
 // Default relaxation settings for most tests (compression disabled for predictable sizes)
-const DEFAULT_RELAX: Relax = Relax { gp: true, pseudo: true, compressed: false };
+const DEFAULT_RELAX: Relax =
+    Relax { gp: true, pseudo: true, compressed: false };
 
 // Relaxation with compression enabled (for compression-specific tests)
-const RELAX_WITH_COMPRESSION: Relax = Relax { gp: true, pseudo: true, compressed: true };
+const RELAX_WITH_COMPRESSION: Relax =
+    Relax { gp: true, pseudo: true, compressed: true };
 
 /// Helper function to assemble a source string and return the encoded bytes
 ///
@@ -22,16 +24,14 @@ const RELAX_WITH_COMPRESSION: Relax = Relax { gp: true, pseudo: true, compressed
 /// - gp: GP-relative addressing optimization
 /// - pseudo: call/tail pseudo-instruction optimization
 /// - compressed: RV32C instruction compression
-fn assemble(source_text: &str, relax: Relax) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
+fn assemble(
+    source_text: &str,
+    relax: Relax,
+) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     // Process each line
     let mut all_lines = Vec::new();
 
     for (line_num, line_text) in source_text.lines().enumerate() {
-        let line_text = line_text.trim();
-        if line_text.is_empty() || line_text.starts_with('#') {
-            continue;
-        }
-
         // Tokenize
         let tokens = tokenize(line_text).map_err(|e| {
             format!("Tokenize error on line {}: {}", line_num + 1, e)
@@ -48,7 +48,6 @@ fn assemble(source_text: &str, relax: Relax) -> Result<(Vec<u8>, Vec<u8>, u32), 
             })?;
 
         for line in lines {
-            // Segment and size will be set in the layout phase
             all_lines.push(line);
         }
     }
@@ -202,8 +201,8 @@ addi a0, a0, 5
 addi a1, a1, -10
 "#;
 
-    let (text, _, _) =
-        assemble(source, RELAX_WITH_COMPRESSION).expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, RELAX_WITH_COMPRESSION)
+        .expect("Assembly should succeed");
 
     // With relaxation, 2 addi instructions should compile to 4 bytes (2x2) instead of 8 bytes (2x4)
     assert_eq!(
@@ -222,8 +221,8 @@ _start:
 add a0, a0, a1
 "#;
 
-    let (text, _, _) =
-        assemble(source, RELAX_WITH_COMPRESSION).expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, RELAX_WITH_COMPRESSION)
+        .expect("Assembly should succeed");
 
     // With relaxation, 1 add instruction should compile to 2 bytes instead of 4 bytes
     assert_eq!(text.len(), 2, "Relaxed add instruction should be 2 bytes");
@@ -238,8 +237,8 @@ _start:
 addi a0, a0, 50
 "#;
 
-    let (text, _, _) =
-        assemble(source, RELAX_WITH_COMPRESSION).expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, RELAX_WITH_COMPRESSION)
+        .expect("Assembly should succeed");
 
     // Should NOT be compressed because 50 doesn't fit in 6-bit signed
     // So it should be 4 bytes (base instruction)
@@ -1230,8 +1229,8 @@ nop
 nop
 "#;
 
-    let (text, _data, _bss) =
-        assemble(source, DEFAULT_RELAX).expect("Data directives in .text should be allowed");
+    let (text, _data, _bss) = assemble(source, DEFAULT_RELAX)
+        .expect("Data directives in .text should be allowed");
     assert_eq!(text.len(), 9); // 4 (nop) + 1 (byte) + 4 (nop)
 }
 
@@ -1315,8 +1314,8 @@ fn test_string_escapes() {
 .string "hello\nworld\t\"\\"
 "#;
 
-    let (text, data, _bss) =
-        assemble(source, DEFAULT_RELAX).expect("String escapes should be supported");
+    let (text, data, _bss) = assemble(source, DEFAULT_RELAX)
+        .expect("String escapes should be supported");
     assert_eq!(text.len(), 0);
 
     // Expected: h e l l o \n w o r l d \t " \
@@ -1351,8 +1350,8 @@ end:
     nop
 "#;
 
-    let (text, _data, _bss) =
-        assemble(source, DEFAULT_RELAX).expect("Cascading relaxation should converge");
+    let (text, _data, _bss) = assemble(source, DEFAULT_RELAX)
+        .expect("Cascading relaxation should converge");
 
     // All three calls should relax to 4-byte jal
     // Total: 3x(4-byte call + 4-byte nop) + 4-byte nop = 28 bytes
@@ -1509,7 +1508,8 @@ data_label:
     .4byte 0x12345678
 "#;
 
-    let (text, data, _bss) = assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
+    let (text, data, _bss) =
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     // Verify text section
     // With relax_gp enabled (default), data_label fits within ±2KiB of gp
@@ -1541,7 +1541,8 @@ end:
     .4byte end - start
 "#;
 
-    let (text, data, _bss) = assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
+    let (text, data, _bss) =
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     // All calls relax to 4 bytes
     // start at 0, middle at 8, end at 16
@@ -1583,7 +1584,8 @@ target:
     nop
 "#;
 
-    let (text, _, _) = assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
+    let (text, _, _) =
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     // Should use auipc + addi (8 bytes for la) instead of addi rd, gp, offset (4 bytes)
     assert_eq!(

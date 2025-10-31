@@ -112,7 +112,9 @@ pub fn guess_line_size(content: &LineContent) -> u32 {
             Directive::TwoByte(exprs) => exprs.len() * 2,
             Directive::FourByte(exprs) => exprs.len() * 4,
             Directive::String(strings) => strings.iter().map(|s| s.len()).sum(),
-            Directive::Asciz(strings) => strings.iter().map(|s| s.len() + 1).sum(),
+            Directive::Asciz(strings) => {
+                strings.iter().map(|s| s.len() + 1).sum()
+            }
             _ => 0, // Non-data directives like .text, .global
         },
     }) as u32
@@ -137,12 +139,15 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
     if source.files.is_empty() {
         return;
     }
-    let has_builtin = source.files.last()
+    let has_builtin = source
+        .files
+        .last()
         .map(|f| f.file == crate::ast::BUILTIN_FILE_NAME)
         .unwrap_or(false);
 
     for (file_index, source_file) in source.files.iter().enumerate() {
-        let is_builtin_file = has_builtin && file_index == source.files.len() - 1;
+        let is_builtin_file =
+            has_builtin && file_index == source.files.len() - 1;
 
         // For builtin file, we use special hardcoded offsets (not cumulative)
         // This file contains __global_pointer$ at data segment offset 2048
@@ -173,11 +178,10 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
                     0
                 };
 
-                layout.set(pointer, LineLayout {
-                    segment: current_segment,
-                    offset,
-                    size,
-                });
+                layout.set(
+                    pointer,
+                    LineLayout { segment: current_segment, offset, size },
+                );
             }
             continue;
         }
@@ -217,11 +221,7 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
             // Update layout with computed offset and segment
             layout.set(
                 pointer,
-                LineLayout {
-                    segment: current_segment,
-                    offset,
-                    size,
-                },
+                LineLayout { segment: current_segment, offset, size },
             );
 
             // Advance offset in the appropriate segment

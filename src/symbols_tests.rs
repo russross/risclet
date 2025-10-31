@@ -33,17 +33,12 @@ mod tests {
             }
         }
 
-        Ok(SourceFile {
-            file: filename.to_string(),
-            lines,
-        })
+        Ok(SourceFile { file: filename.to_string(), lines })
     }
 
     /// Helper: Create a Source from multiple file contents
     fn create_source(files: Vec<(&str, &str)>) -> Result<Source, String> {
-        let mut source = Source {
-            files: Vec::new(),
-        };
+        let mut source = Source { files: Vec::new() };
 
         for (filename, content) in files {
             source.files.push(parse_source_file(filename, content)?);

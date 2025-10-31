@@ -564,7 +564,11 @@ fn dump_expression_ast(expr: &Expression) {
 // Symbol Resolution Dump
 // ============================================================================
 
-pub fn dump_symbols(source: &Source, symbol_links: &SymbolLinks, spec: &DumpSpec) {
+pub fn dump_symbols(
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    spec: &DumpSpec,
+) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
     for (i, file) in source.files.iter().enumerate() {
@@ -670,7 +674,8 @@ pub fn dump_values(
             let pointer = LinePointer { file_index, line_index };
             let line_layout = eval_context.layout.get(&pointer);
 
-            let segment = line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
+            let segment =
+                line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
             let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
 
             let segment_base = get_segment_base(segment, eval_context);
@@ -749,13 +754,16 @@ pub fn dump_code(
             let pointer = LinePointer { file_index, line_index };
             let line_layout = eval_context.layout.get(&pointer);
 
-            let segment = line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
+            let segment =
+                line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
             let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
             let size = line_layout.map(|ll| ll.size).unwrap_or(0);
 
             let segment_base = get_segment_base(segment, eval_context);
             let abs_addr = segment_base + offset;
-            let encoded_bytes = get_encoded_bytes_with_layout(size, segment, offset, text_bytes, data_bytes);
+            let encoded_bytes = get_encoded_bytes_with_layout(
+                size, segment, offset, text_bytes, data_bytes,
+            );
 
             match &line.content {
                 LineContent::Label(name) => {
@@ -805,11 +813,8 @@ pub fn dump_code(
                             encoded_bytes[4..].chunks(4).enumerate()
                         {
                             let chunk_addr = abs_addr + ((i + 1) as u32 * 4);
-                            let chunk_formatted_addr = format_address(
-                                chunk_addr,
-                                addr_width,
-                                segment,
-                            );
+                            let chunk_formatted_addr =
+                                format_address(chunk_addr, addr_width, segment);
                             print!(
                                 "{}{} {}:   ",
                                 loc_str, padding, chunk_formatted_addr
@@ -863,11 +868,8 @@ pub fn dump_code(
                                 encoded_bytes.len(),
                             );
                             let first_addr = abs_addr;
-                            let first_formatted_addr = format_address(
-                                first_addr,
-                                addr_width,
-                                segment,
-                            );
+                            let first_formatted_addr =
+                                format_address(first_addr, addr_width, segment);
                             print!(
                                 "{}{} {}:   ",
                                 loc_str, padding, first_formatted_addr
@@ -893,11 +895,8 @@ pub fn dump_code(
                         // Middle lines: print 8 bytes per line starting on 8-byte aligned addresses
                         while byte_offset + 8 <= encoded_bytes.len() {
                             let line_addr = abs_addr + byte_offset as u32;
-                            let line_formatted_addr = format_address(
-                                line_addr,
-                                addr_width,
-                                segment,
-                            );
+                            let line_formatted_addr =
+                                format_address(line_addr, addr_width, segment);
                             print!(
                                 "{}{} {}:   ",
                                 loc_str, padding, line_formatted_addr
@@ -914,11 +913,8 @@ pub fn dump_code(
                         // Last line: print remaining bytes (if any)
                         if byte_offset < encoded_bytes.len() {
                             let last_addr = abs_addr + byte_offset as u32;
-                            let last_formatted_addr = format_address(
-                                last_addr,
-                                addr_width,
-                                segment,
-                            );
+                            let last_formatted_addr =
+                                format_address(last_addr, addr_width, segment);
                             print!(
                                 "{}{} {}:   ",
                                 loc_str, padding, last_formatted_addr
