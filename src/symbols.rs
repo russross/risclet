@@ -93,6 +93,14 @@ struct UnresolvedReference {
     pub referencing_pointer: LinePointer,
 }
 
+/// Return type for link_file function: (globals, unresolved, locals, line_refs)
+type LinkFileResult = (
+    Vec<GlobalDefinition>,
+    Vec<UnresolvedReference>,
+    Vec<SymbolDefinition>,
+    Vec<Vec<SymbolReference>>,
+);
+
 /// Links symbols across all source files.
 ///
 /// This is the main entry point for symbol linking. It performs a two-phase process:
@@ -222,15 +230,7 @@ fn flush_numeric_labels(
 fn link_file(
     file_index: usize,
     file: &SourceFile,
-) -> Result<
-    (
-        Vec<GlobalDefinition>,
-        Vec<UnresolvedReference>,
-        Vec<SymbolDefinition>,
-        Vec<Vec<SymbolReference>>,
-    ),
-    AssemblerError,
-> {
+) -> Result<LinkFileResult, AssemblerError> {
     // Precompute locations for error reporting
     let locations: Vec<Location> =
         file.lines.iter().map(|line| line.location.clone()).collect();

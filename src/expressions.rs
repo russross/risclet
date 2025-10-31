@@ -294,7 +294,7 @@ fn evaluate_expression(
             let line_layout = context.layout.get(&context.current_line_pointer)
                 .ok_or_else(|| {
                     AssemblerError::no_context(
-                        format!("Internal error: no layout info for current line")
+                        "Internal error: no layout info for current line".to_string()
                     )
                 })?;
             let addr = context.segment_start(line_layout.segment)

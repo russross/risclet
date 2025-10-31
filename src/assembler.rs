@@ -2,11 +2,15 @@
 //
 // Core assembly pipeline functions shared between main.rs and tests
 
-use crate::ast::{self, Instruction, LinePointer, PseudoOp, Source};
+use crate::ast::{LinePointer, Source};
 use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
 use crate::symbols::SymbolLinks;
+
+// Re-export from layout module for test compatibility
+#[allow(unused_imports)]
+pub use crate::layout::guess_line_size;
 
 /// Callback trait for per-iteration convergence dumps
 ///
@@ -184,41 +188,3 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
     )))
 }
 
-/// Initial size guess for a line before convergence
-///
-/// Returns a conservative estimate that will be refined during convergence.
-pub fn guess_line_size(content: &ast::LineContent) -> u32 {
-    (match content {
-        ast::LineContent::Instruction(inst) => match inst {
-            // Compressed instructions are always 2 bytes
-            Instruction::Compressed(_, _) => 2,
-
-            // Pseudo-instructions that expand to 2 base instructions (8 bytes)
-            Instruction::Pseudo(pseudo) => match pseudo {
-                PseudoOp::Li(_, _) => 8,                // lui + addi
-                PseudoOp::La(_, _) => 8,                // auipc + addi
-                PseudoOp::Call(_) => 8,                 // auipc + jalr
-                PseudoOp::Tail(_) => 8,                 // auipc + jalr
-                PseudoOp::LoadGlobal(_, _, _) => 8,     // auipc + load
-                PseudoOp::StoreGlobal(_, _, _, _) => 8, // auipc + store
-            },
-            // All other instructions start at 4 bytes (may relax to 2 with auto-relaxation)
-            _ => 4,
-        },
-        ast::LineContent::Label(_) => 0,
-        ast::LineContent::Directive(dir) => match dir {
-            ast::Directive::Space(_expr) => 0,
-            ast::Directive::Balign(_expr) => 0,
-            ast::Directive::Byte(exprs) => exprs.len(),
-            ast::Directive::TwoByte(exprs) => exprs.len() * 2,
-            ast::Directive::FourByte(exprs) => exprs.len() * 4,
-            ast::Directive::String(strings) => {
-                strings.iter().map(|s| s.len()).sum()
-            }
-            ast::Directive::Asciz(strings) => {
-                strings.iter().map(|s| s.len() + 1).sum()
-            }
-            _ => 0, // Non-data directives like .text, .global
-        },
-    }) as u32
-}

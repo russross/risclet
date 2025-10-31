@@ -57,8 +57,6 @@ impl Relax {
 
 /// Encoding context containing source and expression evaluator
 pub struct EncodingContext<'a> {
-    #[allow(dead_code)]
-    pub source: &'a Source,
     pub eval_context: &'a mut EvaluationContext,
     pub layout: &'a crate::layout::Layout,
     pub file_index: usize,
@@ -96,7 +94,6 @@ pub fn encode_source(
 
             // Create encoding context
             let mut context = EncodingContext {
-                source: &*source, // Convert &mut to & temporarily
                 eval_context,
                 layout,
                 file_index: file_idx,
@@ -768,7 +765,6 @@ fn encode_instruction(
 /// - Need to call this during instruction encoding to replace 4-byte with 2-byte versions
 /// - Need to handle register constraints (most compressed instructions need x8-x15)
 /// - Need to ensure convergence loop properly tracks size changes
-#[allow(dead_code)]
 fn try_compress_instruction(
     inst: &Instruction,
     imm_or_val: Option<i64>,

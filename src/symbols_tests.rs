@@ -11,7 +11,6 @@ mod tests {
         source: &str,
     ) -> Result<SourceFile, String> {
         let mut lines = Vec::new();
-        let mut current_segment = Segment::Text;
 
         for (line_num, line_text) in source.lines().enumerate() {
             let line_text = line_text.trim();
@@ -28,17 +27,7 @@ mod tests {
                 parser::parse(&tokens, filename.to_string(), line_num + 1)
                     .map_err(|e| e.with_source_context())?;
 
-            for mut parsed_line in parsed_lines {
-                // Update segment if directive changes it
-                if let LineContent::Directive(ref dir) = parsed_line.content {
-                    match dir {
-                        Directive::Text => current_segment = Segment::Text,
-                        Directive::Data => current_segment = Segment::Data,
-                        Directive::Bss => current_segment = Segment::Bss,
-                        _ => {}
-                    }
-                }
-
+            for parsed_line in parsed_lines {
                 // Segment and size will be set in the layout phase
                 lines.push(parsed_line);
             }

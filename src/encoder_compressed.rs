@@ -23,24 +23,6 @@ pub fn encode_compressed(
     Ok(inst.to_le_bytes().to_vec())
 }
 
-/// Encode a compressed instruction with expression evaluation support
-/// (Will be used when expression evaluation is implemented for immediates/offsets)
-#[allow(dead_code)]
-pub fn encode_compressed_with_context(
-    op: &CompressedOp,
-    operands: &CompressedOperands,
-    line: &Line,
-    eval_context: &mut EvaluationContext,
-) -> Result<Vec<u8>> {
-    let inst = encode_compressed_inst(
-        op,
-        operands,
-        &line.location,
-        Some((line, eval_context)),
-    )?;
-    Ok(inst.to_le_bytes().to_vec())
-}
-
 /// Extract the immediate value from a literal expression
 /// Expects expressions to have been evaluated to literals before encoding
 fn extract_literal(expr: &crate::ast::Expression) -> i32 {

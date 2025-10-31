@@ -809,6 +809,7 @@ impl ElfBuilder {
 ///    b. Special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
 ///    c. Local labels from that file
 /// 4. Global symbols (including linker-provided symbols)
+#[allow(clippy::too_many_arguments)]
 pub fn build_symbol_table(
     source: &Source,
     symbol_links: &SymbolLinks,
@@ -864,11 +865,11 @@ pub fn build_symbol_table(
         let mut marker_addr = text_start;
         for (line_index, _line) in source_file.lines.iter().enumerate() {
             let pointer = LinePointer { file_index, line_index };
-            if let Some(line_layout) = layout.get(&pointer) {
-                if line_layout.segment == Segment::Text {
-                    marker_addr = text_start + line_layout.offset;
-                    break;
-                }
+            if let Some(line_layout) = layout.get(&pointer)
+                && line_layout.segment == Segment::Text
+            {
+                marker_addr = text_start + line_layout.offset;
+                break;
             }
         }
 

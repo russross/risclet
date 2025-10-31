@@ -1272,16 +1272,6 @@ fn get_encoded_bytes_with_layout(
     }
 }
 
-fn get_encoded_bytes(
-    line: &Line,
-    text_bytes: &[u8],
-    data_bytes: &[u8],
-) -> Vec<u8> {
-    // This function is now unused since we use get_encoded_bytes_with_layout
-    // Keeping it for backwards compatibility if needed
-    Vec::new()
-}
-
 fn collect_expression_values(
     line: &Line,
     pointer: &LinePointer,
