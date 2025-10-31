@@ -7,7 +7,7 @@ use crate::elf::compute_header_size;
 use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
-use crate::symbols::Symbols;
+use crate::symbols::SymbolLinks;
 
 /// Compute offsets for all lines in the source
 ///
@@ -144,7 +144,7 @@ impl ConvergenceCallback for NoOpCallback {
 /// If `show_progress` is true, prints convergence progress to stderr.
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
-    symbols: &Symbols,
+    symbol_links: &SymbolLinks,
     text_start: u32,
     relax: &Relax,
     callback: &C,
@@ -177,7 +177,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // Step 2 & 3: Calculate symbol values and evaluate expressions
         let mut eval_context = expressions::new_evaluation_context(
             source.clone(),
-            symbols.clone(),
+            symbol_links.clone(),
             text_start,
         );
 

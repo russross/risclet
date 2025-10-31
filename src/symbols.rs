@@ -40,8 +40,9 @@ use std::collections::HashMap;
 /// - Local symbols: Symbol definitions visible within each file
 /// - Global symbols: Symbol definitions visible across all files
 #[derive(Debug, Clone, PartialEq)]
-pub struct Symbols {
-    /// Symbol references for each line, indexed by [file_index][line_index].
+pub struct SymbolLinks {
+    /// List of every symbol referenced by each line of source code,
+    /// indexed by [file_index][line_index].
     /// Each line can reference zero or more symbols.
     pub line_refs: Vec<Vec<Vec<SymbolReference>>>,
 
@@ -56,7 +57,7 @@ pub struct Symbols {
     pub global_symbols: Vec<GlobalDefinition>,
 }
 
-impl Symbols {
+impl SymbolLinks {
     /// Get the symbol references for a specific line
     pub fn get_line_refs(&self, pointer: &LinePointer) -> &[SymbolReference] {
         self.line_refs
@@ -106,7 +107,7 @@ struct UnresolvedReference {
 /// - Build a unified global symbols table
 /// - Resolve remaining references using global symbols
 /// - Report errors for duplicate globals and undefined symbols
-pub fn link_symbols(source: &Source) -> Result<Symbols, AssemblerError> {
+pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
     let mut globals: HashMap<String, GlobalDefinition> = HashMap::new();
     let mut all_unresolved: Vec<UnresolvedReference> = Vec::new();
     let mut line_refs: Vec<Vec<Vec<SymbolReference>>> = Vec::new();
@@ -152,7 +153,7 @@ pub fn link_symbols(source: &Source) -> Result<Symbols, AssemblerError> {
         line_refs[file_index][line_index].push(sym_ref);
     }
 
-    Ok(Symbols {
+    Ok(SymbolLinks {
         line_refs,
         local_symbols_by_file,
         global_symbols: globals.into_values().collect(),

@@ -107,12 +107,12 @@ mod tests {
 
     /// Helper: Assert that a line has a specific outgoing reference
     fn assert_reference(
-        symbols: &crate::symbols::Symbols,
+        symbol_links: &crate::symbols::SymbolLinks,
         line_ptr: &LinePointer,
         expected_symbol: &str,
         expected_def_ptr: &LinePointer,
     ) {
-        let refs = symbols.get_line_refs(line_ptr);
+        let refs = symbol_links.get_line_refs(line_ptr);
         let matching_ref = refs.iter().find(|r| {
             r.symbol == expected_symbol && r.pointer == *expected_def_ptr
         });

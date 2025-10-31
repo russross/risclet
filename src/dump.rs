@@ -6,7 +6,7 @@
 use crate::ast::*;
 use crate::elf::ElfBuilder;
 use crate::expressions::{self, EvaluatedValue, EvaluationContext};
-use crate::symbols::Symbols;
+use crate::symbols::SymbolLinks;
 
 /// Check if a file is the builtin symbols file that should be hidden from dumps
 fn is_builtin_file(file: &SourceFile) -> bool {
@@ -564,7 +564,7 @@ fn dump_expression_ast(expr: &Expression) {
 // Symbol Resolution Dump
 // ============================================================================
 
-pub fn dump_symbols(source: &Source, symbols: &Symbols, spec: &DumpSpec) {
+pub fn dump_symbols(source: &Source, symbol_links: &SymbolLinks, spec: &DumpSpec) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
     for (i, file) in source.files.iter().enumerate() {
@@ -585,7 +585,7 @@ pub fn dump_symbols(source: &Source, symbols: &Symbols, spec: &DumpSpec) {
 
                 // If this line has outgoing references, show them
                 let line_pointer = LinePointer { file_index: i, line_index };
-                let outgoing_refs = symbols.get_line_refs(&line_pointer);
+                let outgoing_refs = symbol_links.get_line_refs(&line_pointer);
                 if !outgoing_refs.is_empty() {
                     print!("  →");
                     for (j, ref_item) in outgoing_refs.iter().enumerate() {
@@ -608,10 +608,10 @@ pub fn dump_symbols(source: &Source, symbols: &Symbols, spec: &DumpSpec) {
     }
 
     // Show global symbols
-    if !symbols.global_symbols.is_empty() {
+    if !symbol_links.global_symbols.is_empty() {
         println!("Global Symbols:");
         println!("{}", "=".repeat(79));
-        for global in &symbols.global_symbols {
+        for global in &symbol_links.global_symbols {
             let def_file = &source.files[global.definition_pointer.file_index];
             let def_line =
                 &def_file.lines[global.definition_pointer.line_index];

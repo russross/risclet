@@ -3,7 +3,7 @@
 use crate::ast::*;
 use crate::error::Result;
 use crate::expressions::*;
-use crate::symbols::Symbols;
+use crate::symbols::SymbolLinks;
 
 #[cfg(test)]
 mod tests {
@@ -27,12 +27,12 @@ mod tests {
     }
 
     /// Helper to create minimal Symbols structure for testing
-    fn make_test_symbols(num_files: usize) -> Symbols {
+    fn make_test_symbols(num_files: usize) -> SymbolLinks {
         let mut line_refs = Vec::new();
         for _ in 0..num_files {
             line_refs.push(vec![vec![]]);
         }
-        Symbols {
+        SymbolLinks {
             line_refs,
             local_symbols_by_file: vec![vec![]; num_files],
             global_symbols: vec![],
