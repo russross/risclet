@@ -112,7 +112,7 @@ pub fn new_evaluation_context(
 /// This is the main entry point for code generation. It implements the two-phase evaluation:
 /// 1. Forward phase: Ensure all symbol dependencies are resolved and memoized
 /// 2. Backward phase: Evaluate the expression using cached values
-pub fn eval_expr(
+pub fn eval_expr_old(
     expr: &Expression,
     line: &Line,
     pointer: &LinePointer,

@@ -70,7 +70,7 @@ mod tests {
             0,
             LineContent::Label("test".to_string()),
         );
-        eval_expr(
+        eval_expr_old(
             &expr,
             &line,
             &LinePointer { file_index: 0, line_index: 0 },
@@ -118,7 +118,7 @@ mod tests {
             LineContent::Label("test".to_string()),
         );
 
-        let result = eval_expr(
+        let result = eval_expr_old(
             &expr,
             &line,
             &LinePointer { file_index: 0, line_index: 0 },
@@ -153,7 +153,7 @@ mod tests {
             0,
             LineContent::Label("test".to_string()),
         );
-        let result = eval_expr(
+        let result = eval_expr_old(
             &expr,
             &line,
             &LinePointer { file_index: 0, line_index: 0 },
@@ -188,7 +188,7 @@ mod tests {
             0,
             LineContent::Label("test".to_string()),
         );
-        let result = eval_expr(
+        let result = eval_expr_old(
             &expr,
             &line,
             &LinePointer { file_index: 0, line_index: 0 },
@@ -223,7 +223,7 @@ mod tests {
             16,
             LineContent::Label("test".to_string()),
         );
-        let result = eval_expr(
+        let result = eval_expr_old(
             &expr,
             &line,
             &LinePointer { file_index: 0, line_index: 0 },

@@ -20,7 +20,7 @@ use crate::ast::{
 };
 use crate::encoder_compressed;
 use crate::error::AssemblerError;
-use crate::expressions::{EvaluatedValue, EvaluationContext, eval_expr};
+use crate::expressions::{EvaluatedValue, EvaluationContext, eval_expr_old};
 
 type Result<T> = std::result::Result<T, AssemblerError>;
 
@@ -175,7 +175,7 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<u32> {
 
         LineContent::Directive(directive) => match directive {
             Directive::Space(expr) => {
-                let val = eval_expr(
+                let val = eval_expr_old(
                     expr,
                     line,
                     &LinePointer {
@@ -197,7 +197,7 @@ fn encode_bss_line(line: &Line, context: &mut EncodingContext) -> Result<u32> {
 
             Directive::Balign(expr) => {
                 // Evaluate the alignment boundary expression
-                let val = eval_expr(
+                let val = eval_expr_old(
                     expr,
                     line,
                     &LinePointer {
@@ -615,7 +615,7 @@ fn encode_instruction(
 
         Instruction::IType(op, rd, rs1, imm_expr) => {
             // Evaluate immediate and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 imm_expr,
                 line,
                 &LinePointer {
@@ -647,7 +647,7 @@ fn encode_instruction(
 
         Instruction::BType(op, rs1, rs2, target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 target_expr,
                 line,
                 &LinePointer {
@@ -669,7 +669,7 @@ fn encode_instruction(
 
         Instruction::UType(op, rd, imm_expr) => {
             // Evaluate immediate and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 imm_expr,
                 line,
                 &LinePointer {
@@ -686,7 +686,7 @@ fn encode_instruction(
 
         Instruction::JType(op, rd, target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 target_expr,
                 line,
                 &LinePointer {
@@ -712,7 +712,7 @@ fn encode_instruction(
 
         Instruction::LoadStore(op, rd, offset_expr, rs) => {
             // Evaluate offset and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset_expr,
                 line,
                 &LinePointer {
@@ -851,7 +851,7 @@ fn eval_compressed_operands(
     match operands {
         // CI format - evaluate immediate expression
         CI { rd, imm } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 imm,
                 line,
                 &LinePointer {
@@ -870,7 +870,7 @@ fn eval_compressed_operands(
 
         // CIW format - evaluate immediate expression
         CIW { rd_prime, imm } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 imm,
                 line,
                 &LinePointer {
@@ -889,7 +889,7 @@ fn eval_compressed_operands(
 
         // CIStackLoad - evaluate offset expression
         CIStackLoad { rd, offset } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset,
                 line,
                 &LinePointer {
@@ -908,7 +908,7 @@ fn eval_compressed_operands(
 
         // CSSStackStore - evaluate offset expression
         CSSStackStore { rs2, offset } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset,
                 line,
                 &LinePointer {
@@ -927,7 +927,7 @@ fn eval_compressed_operands(
 
         // CL format - evaluate offset expression
         CL { rd_prime, rs1_prime, offset } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset,
                 line,
                 &LinePointer {
@@ -947,7 +947,7 @@ fn eval_compressed_operands(
 
         // CS format - evaluate offset expression
         CS { rs2_prime, rs1_prime, offset } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset,
                 line,
                 &LinePointer {
@@ -967,7 +967,7 @@ fn eval_compressed_operands(
 
         // CBImm format - evaluate immediate expression
         CBImm { rd_prime, imm } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 imm,
                 line,
                 &LinePointer {
@@ -986,7 +986,7 @@ fn eval_compressed_operands(
 
         // CBBranch format - evaluate PC-relative offset
         CBBranch { rs1_prime, offset } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset,
                 line,
                 &LinePointer {
@@ -1006,7 +1006,7 @@ fn eval_compressed_operands(
 
         // CJOpnd format - evaluate PC-relative offset
         CJOpnd { offset } => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 offset,
                 line,
                 &LinePointer {
@@ -1304,7 +1304,7 @@ fn encode_pseudo(
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
             // Evaluate immediate and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 imm_expr,
                 line,
                 &LinePointer {
@@ -1321,7 +1321,7 @@ fn encode_pseudo(
 
         PseudoOp::La(rd, addr_expr) => {
             // Evaluate address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 addr_expr,
                 line,
                 &LinePointer {
@@ -1341,7 +1341,7 @@ fn encode_pseudo(
 
         PseudoOp::Call(target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 target_expr,
                 line,
                 &LinePointer {
@@ -1362,7 +1362,7 @@ fn encode_pseudo(
 
         PseudoOp::Tail(target_expr) => {
             // Evaluate target address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 target_expr,
                 line,
                 &LinePointer {
@@ -1383,7 +1383,7 @@ fn encode_pseudo(
 
         PseudoOp::LoadGlobal(op, rd, addr_expr) => {
             // Evaluate address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 addr_expr,
                 line,
                 &LinePointer {
@@ -1404,7 +1404,7 @@ fn encode_pseudo(
 
         PseudoOp::StoreGlobal(op, rs, addr_expr, temp) => {
             // Evaluate address and check type
-            let val = eval_expr(
+            let val = eval_expr_old(
                 addr_expr,
                 line,
                 &LinePointer {
@@ -1710,7 +1710,7 @@ fn encode_directive(
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(
+                let val = eval_expr_old(
                     expr,
                     line,
                     &LinePointer {
@@ -1732,7 +1732,7 @@ fn encode_directive(
         Directive::TwoByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(
+                let val = eval_expr_old(
                     expr,
                     line,
                     &LinePointer {
@@ -1753,7 +1753,7 @@ fn encode_directive(
         Directive::FourByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(
+                let val = eval_expr_old(
                     expr,
                     line,
                     &LinePointer {
@@ -1789,7 +1789,7 @@ fn encode_directive(
         }
 
         Directive::Space(expr) => {
-            let val = eval_expr(
+            let val = eval_expr_old(
                 expr,
                 line,
                 &LinePointer {
@@ -1813,7 +1813,7 @@ fn encode_directive(
 
         Directive::Balign(expr) => {
             // Evaluate the alignment boundary expression
-            let val = eval_expr(
+            let val = eval_expr_old(
                 expr,
                 line,
                 &LinePointer {
