@@ -145,6 +145,7 @@ impl ConvergenceCallback for NoOpCallback {
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
     symbol_links: &SymbolLinks,
+    layout: &mut crate::layout::Layout,
     text_start: u32,
     relax: &Relax,
     callback: &C,
@@ -162,15 +163,15 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         let pass_number = iteration + 1;
 
         // Step 1: Calculate addresses based on current size guesses
-        compute_offsets(source);
+        crate::layout::compute_offsets(source, layout);
 
         if show_progress {
             eprintln!(
                 "  {:4}  {:5}  {:6}  {:6}",
                 pass_number,
-                source.text_size,
-                source.data_size,
-                source.bss_size
+                layout.text_size,
+                layout.data_size,
+                layout.bss_size
             );
         }
 
@@ -178,6 +179,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         let mut eval_context = expressions::new_evaluation_context(
             source.clone(),
             symbol_links.clone(),
+            layout.clone(),
             text_start,
         );
 
@@ -207,7 +209,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
 
         // Encode and collect results
         let encode_result =
-            encode_source(source, &mut eval_context, relax, &mut any_changed);
+            encode_source(source, &mut eval_context, layout, relax, &mut any_changed);
 
         let (text_bytes, data_bytes, bss_size) = encode_result?;
 

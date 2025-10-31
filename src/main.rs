@@ -14,6 +14,7 @@ mod encoder;
 mod encoder_compressed;
 mod error;
 mod expressions;
+mod layout;
 mod parser;
 mod symbols;
 mod tokenizer;
@@ -381,6 +382,9 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
         println!(); // Separator between phase dumps
     }
 
+    // Create initial layout after symbol linking
+    let mut layout = layout::create_initial_layout(&source);
+
     // ========================================================================
     // Phase 3: Convergence - iteratively compute offsets and encode until stable
     // ========================================================================
@@ -397,6 +401,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             assembler::converge_and_encode(
                 &mut source,
                 &symbol_links,
+                &mut layout,
                 config.text_start,
                 &config.relax,
                 &dump_callback,
@@ -407,6 +412,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             assembler::converge_and_encode(
                 &mut source,
                 &symbol_links,
+                &mut layout,
                 config.text_start,
                 &config.relax,
                 &assembler::NoOpCallback,
@@ -430,6 +436,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     let mut eval_context = expressions::new_evaluation_context(
         source.clone(),
         symbol_links.clone(),
+        layout.clone(),
         config.text_start,
     );
 

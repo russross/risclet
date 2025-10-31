@@ -60,18 +60,20 @@ pub struct EncodingContext<'a> {
     #[allow(dead_code)]
     pub source: &'a Source,
     pub eval_context: &'a mut EvaluationContext,
+    pub layout: &'a crate::layout::Layout,
     pub file_index: usize,
     pub line_index: usize,
 }
 
 /// Encode all lines with size tracking for the convergence loop
 ///
-/// This function encodes all lines and updates each line's size field.
+/// This function encodes all lines and updates line sizes in the Layout.
 /// It sets `any_changed` to true if any line's actual size differs from
 /// its guessed size. Returns (text_bytes, data_bytes, bss_size).
 pub fn encode_source(
     source: &mut Source,
     eval_context: &mut EvaluationContext,
+    layout: &mut crate::layout::Layout,
     relax: &Relax,
     any_changed: &mut bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
@@ -82,14 +84,21 @@ pub fn encode_source(
     // Process each file and line, updating sizes as we go
     for file_idx in 0..source.files.len() {
         for line_idx in 0..source.files[file_idx].lines.len() {
-            // Extract the data we need from the line before encoding
-            let old_size = source.files[file_idx].lines[line_idx].size;
-            let segment = source.files[file_idx].lines[line_idx].segment;
+            // Get layout info for this line
+            let pointer = LinePointer { file_index: file_idx, line_index: line_idx };
+            let line_layout = layout.get(&pointer).copied().unwrap_or(crate::layout::LineLayout {
+                segment: Segment::Text,
+                offset: 0,
+                size: 0,
+            });
+            let old_size = line_layout.size;
+            let segment = line_layout.segment;
 
             // Create encoding context
             let mut context = EncodingContext {
                 source: &*source, // Convert &mut to & temporarily
                 eval_context,
+                layout,
                 file_index: file_idx,
                 line_index: line_idx,
             };
@@ -110,9 +119,13 @@ pub fn encode_source(
                 }
             };
 
-            // Update the line's size if it changed
+            // Update the line's size in layout and source if it changed
             if old_size != actual_size {
                 source.files[file_idx].lines[line_idx].size = actual_size;
+                // Also update in layout
+                let mut updated_layout = line_layout;
+                updated_layout.size = actual_size;
+                layout.set(pointer, updated_layout);
                 *any_changed = true;
             }
 
@@ -1024,12 +1037,21 @@ fn eval_compressed_operands(
 
 /// Get the absolute address of a line (returns i64 for compatibility with offset calculations)
 fn get_line_address(line: &Line, context: &EncodingContext) -> i64 {
-    let segment_start = match line.segment {
+    // Get layout info for current line
+    let pointer = LinePointer {
+        file_index: context.file_index,
+        line_index: context.line_index,
+    };
+    let line_layout = context.layout.get(&pointer).unwrap_or_else(|| {
+        panic!("No layout info for line at {}:{}", context.file_index, context.line_index)
+    });
+
+    let segment_start = match line_layout.segment {
         Segment::Text => context.eval_context.text_start,
         Segment::Data => context.eval_context.data_start,
         Segment::Bss => context.eval_context.bss_start,
     };
-    (segment_start as i64) + (line.offset as i64)
+    (segment_start as i64) + (line_layout.offset as i64)
 }
 
 /// Encode R-type instruction with opcode lookup

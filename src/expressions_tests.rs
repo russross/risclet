@@ -54,6 +54,16 @@ mod tests {
         }
     }
 
+    /// Helper to create a layout with a test line entry
+    fn make_test_layout_with_line(segment: Segment, offset: u32, size: u32) -> crate::layout::Layout {
+        let mut layout = crate::layout::Layout::new();
+        layout.set(
+            LinePointer { file_index: 0, line_index: 0 },
+            crate::layout::LineLayout { segment, offset, size },
+        );
+        layout
+    }
+
     /// Helper to evaluate a simple expression (just a literal for now)
     fn eval_simple(
         expr: Expression,
@@ -80,7 +90,7 @@ mod tests {
     fn test_literal_is_integer() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x10000);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x10000);
 
         let expr = Expression::Literal(42);
         let result = eval_simple(expr, &mut context).unwrap();
@@ -95,7 +105,7 @@ mod tests {
     fn test_current_address_is_address() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x10000);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 16, 0), 0x10000);
 
         let expr = Expression::CurrentAddress;
         let line = make_test_line(
@@ -122,7 +132,7 @@ mod tests {
     fn test_address_plus_integer() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x10000);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x10000);
 
         // . + 4 where . = 0x10000
         let expr = Expression::PlusOp {
@@ -153,7 +163,7 @@ mod tests {
     fn test_integer_plus_address() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x10000);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x10000);
 
         // 4 + . where . = 0x10000
         let expr = Expression::PlusOp {
@@ -184,7 +194,7 @@ mod tests {
     fn test_address_minus_integer() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x10000);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 16, 0), 0x10000);
 
         // . - 8 where . = 0x10000 + 16
         let expr = Expression::MinusOp {
@@ -274,7 +284,7 @@ mod tests {
     fn test_integer_multiply() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::MultiplyOp {
             lhs: Box::new(Expression::Literal(6)),
@@ -293,7 +303,7 @@ mod tests {
     fn test_integer_divide() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::DivideOp {
             lhs: Box::new(Expression::Literal(42)),
@@ -312,7 +322,7 @@ mod tests {
     fn test_integer_modulo() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::ModuloOp {
             lhs: Box::new(Expression::Literal(43)),
@@ -331,7 +341,7 @@ mod tests {
     fn test_division_by_zero_error() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::DivideOp {
             lhs: Box::new(Expression::Literal(42)),
@@ -348,7 +358,7 @@ mod tests {
     fn test_modulo_by_zero_error() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::ModuloOp {
             lhs: Box::new(Expression::Literal(42)),
@@ -369,7 +379,7 @@ mod tests {
     fn test_bitwise_or() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::BitwiseOrOp {
             lhs: Box::new(Expression::Literal(0x0f)),
@@ -388,7 +398,7 @@ mod tests {
     fn test_bitwise_and() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::BitwiseAndOp {
             lhs: Box::new(Expression::Literal(0xff)),
@@ -407,7 +417,7 @@ mod tests {
     fn test_bitwise_xor() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::BitwiseXorOp {
             lhs: Box::new(Expression::Literal(0xff)),
@@ -426,7 +436,7 @@ mod tests {
     fn test_bitwise_not() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr =
             Expression::BitwiseNotOp { expr: Box::new(Expression::Literal(0)) };
@@ -447,7 +457,7 @@ mod tests {
     fn test_left_shift_simple() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::LeftShiftOp {
             lhs: Box::new(Expression::Literal(1)),
@@ -466,7 +476,7 @@ mod tests {
     fn test_right_shift_simple() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::RightShiftOp {
             lhs: Box::new(Expression::Literal(16)),
@@ -485,7 +495,7 @@ mod tests {
     fn test_arithmetic_right_shift() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::RightShiftOp {
             lhs: Box::new(Expression::Literal(-8)),
@@ -504,7 +514,7 @@ mod tests {
     fn test_shift_negative_amount_error() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::LeftShiftOp {
             lhs: Box::new(Expression::Literal(8)),
@@ -521,7 +531,7 @@ mod tests {
     fn test_shift_too_large_error() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::LeftShiftOp {
             lhs: Box::new(Expression::Literal(8)),
@@ -542,7 +552,7 @@ mod tests {
     fn test_overflow_addition() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::PlusOp {
             lhs: Box::new(Expression::Literal(i32::MAX)),
@@ -559,7 +569,7 @@ mod tests {
     fn test_underflow_subtraction() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::MinusOp {
             lhs: Box::new(Expression::Literal(i32::MIN)),
@@ -576,7 +586,7 @@ mod tests {
     fn test_overflow_multiplication() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::MultiplyOp {
             lhs: Box::new(Expression::Literal(i32::MAX)),
@@ -593,7 +603,7 @@ mod tests {
     fn test_overflow_negation() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::NegateOp {
             expr: Box::new(Expression::Literal(i32::MIN)),
@@ -609,7 +619,7 @@ mod tests {
     fn test_left_shift_sign_extension_ok() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         // -1 << 4 should work (all bits are sign bits)
         let expr = Expression::LeftShiftOp {
@@ -629,7 +639,7 @@ mod tests {
     fn test_right_shift_no_loss() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         // 16 >> 2 = 4, no bits lost (16 = 0b10000, >> 2 = 0b100)
         let expr = Expression::RightShiftOp {
@@ -653,7 +663,7 @@ mod tests {
     fn test_negate_positive() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr =
             Expression::NegateOp { expr: Box::new(Expression::Literal(42)) };
@@ -670,7 +680,7 @@ mod tests {
     fn test_negate_negative() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         let expr = Expression::NegateOp {
             expr: Box::new(Expression::NegateOp {
@@ -694,7 +704,7 @@ mod tests {
     fn test_parentheses_explicit() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         // (2 + 3) * 4 = 20
         let expr = Expression::MultiplyOp {
@@ -719,7 +729,7 @@ mod tests {
     fn test_complex_expression() {
         let source = make_test_source();
         let mut context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), make_test_layout_with_line(Segment::Text, 0, 0), 0x100e8);
 
         // (10 + 20) * 2 - 5 = 55
         let expr = Expression::MinusOp {
@@ -757,8 +767,15 @@ mod tests {
             header_size: 0,
         };
 
+        // Create a layout with the desired sizes (manually, since source has no files)
+        let mut layout = crate::layout::Layout::new();
+        layout.text_size = 1000;
+        layout.data_size = 500;
+        layout.bss_size = 200;
+        layout.header_size = 0;
+
         let context =
-            new_evaluation_context(source, make_test_symbols(1), 0x100e8);
+            new_evaluation_context(source, make_test_symbols(1), layout, 0x100e8);
 
         assert_eq!(context.text_start, 0x100e8);
         // data_start should be next 4K boundary after (0x100e8 + 1000)
