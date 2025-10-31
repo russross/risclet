@@ -144,8 +144,13 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         let mut any_changed = false;
 
         // Encode and collect results
-        let encode_result =
-            encode_source(source, &mut eval_context, layout, relax, &mut any_changed);
+        let encode_result = encode_source(
+            source,
+            &mut eval_context,
+            layout,
+            relax,
+            &mut any_changed,
+        );
 
         let (text_bytes, data_bytes, bss_size) = encode_result?;
 
@@ -187,4 +192,3 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         MAX_ITERATIONS
     )))
 }
-

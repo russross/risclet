@@ -355,10 +355,7 @@ impl<'a> Parser<'a> {
             });
         }
         if let Some(c) = content {
-            lines.push(Line {
-                location,
-                content: c,
-            });
+            lines.push(Line { location, content: c });
         }
         if lines.is_empty() {
             return Err(AssemblerError::from_context(

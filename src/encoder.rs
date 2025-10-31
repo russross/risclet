@@ -83,12 +83,15 @@ pub fn encode_source(
     for file_idx in 0..source.files.len() {
         for line_idx in 0..source.files[file_idx].lines.len() {
             // Get layout info for this line
-            let pointer = LinePointer { file_index: file_idx, line_index: line_idx };
-            let line_layout = layout.get(&pointer).copied().unwrap_or(crate::layout::LineLayout {
-                segment: Segment::Text,
-                offset: 0,
-                size: 0,
-            });
+            let pointer =
+                LinePointer { file_index: file_idx, line_index: line_idx };
+            let line_layout = layout.get(&pointer).copied().unwrap_or(
+                crate::layout::LineLayout {
+                    segment: Segment::Text,
+                    offset: 0,
+                    size: 0,
+                },
+            );
             let old_size = line_layout.size;
             let segment = line_layout.segment;
 
@@ -1033,7 +1036,10 @@ fn get_line_address(_line: &Line, context: &EncodingContext) -> i64 {
         line_index: context.line_index,
     };
     let line_layout = context.layout.get(&pointer).unwrap_or_else(|| {
-        panic!("No layout info for line at {}:{}", context.file_index, context.line_index)
+        panic!(
+            "No layout info for line at {}:{}",
+            context.file_index, context.line_index
+        )
     });
 
     let segment_start = match line_layout.segment {

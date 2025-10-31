@@ -513,9 +513,15 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             let pointer = g.definition_pointer.clone();
             if let Some(line_layout) = eval_context.layout.get(&pointer) {
                 let offset = match line_layout.segment {
-                    ast::Segment::Text => eval_context.text_start + line_layout.offset,
-                    ast::Segment::Data => eval_context.data_start + line_layout.offset,
-                    ast::Segment::Bss => eval_context.bss_start + line_layout.offset,
+                    ast::Segment::Text => {
+                        eval_context.text_start + line_layout.offset
+                    }
+                    ast::Segment::Data => {
+                        eval_context.data_start + line_layout.offset
+                    }
+                    ast::Segment::Bss => {
+                        eval_context.bss_start + line_layout.offset
+                    }
                 };
                 Ok(offset as u64)
             } else {
@@ -553,7 +559,10 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     Ok(())
 }
 
-fn print_input_statistics(source: &Source, symbol_links: &symbols::SymbolLinks) {
+fn print_input_statistics(
+    source: &Source,
+    symbol_links: &symbols::SymbolLinks,
+) {
     let mut total_lines = 0;
     let mut total_labels = 0;
     let mut total_instructions = 0;
@@ -588,9 +597,7 @@ fn print_input_statistics(source: &Source, symbol_links: &symbols::SymbolLinks) 
 }
 
 fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
-    let mut source = Source {
-        files: Vec::new(),
-    };
+    let mut source = Source { files: Vec::new() };
 
     for file_path in &files {
         let source_file = process_file(file_path)?;
@@ -642,8 +649,5 @@ fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
         }
     }
 
-    Ok(SourceFile {
-        file: file_path.to_string(),
-        lines,
-    })
+    Ok(SourceFile { file: file_path.to_string(), lines })
 }

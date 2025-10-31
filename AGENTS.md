@@ -32,3 +32,5 @@ HARD RULES
     *   If you identify a test that was written incorrectly or that tests the
         wrong thing, always report, propose a solution to the user, and ask for
         permission.
+*   When checking for compiler warnings/errors, also include the warnings/errors
+    produced when compiling tests.

@@ -191,21 +191,26 @@ fn resolve_symbol_dependencies(
         LineContent::Label(_) => {
             // Label: address is computed directly from position
             // Get layout info from Layout instead of line fields
-            let line_layout = context.layout.get(&key.pointer)
-                .ok_or_else(|| {
+            let line_layout =
+                context.layout.get(&key.pointer).ok_or_else(|| {
                     AssemblerError::from_context(
-                        format!("Internal error: no layout info for label '{}'", key.symbol),
+                        format!(
+                            "Internal error: no layout info for label '{}'",
+                            key.symbol
+                        ),
                         line.location.clone(),
                     )
                 })?;
-            let absolute_addr =
-                context.segment_start(line_layout.segment).wrapping_add(line_layout.offset);
+            let absolute_addr = context
+                .segment_start(line_layout.segment)
+                .wrapping_add(line_layout.offset);
             EvaluatedValue::Address(absolute_addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
             // .equ: First resolve all referenced symbols (via Symbols struct), then evaluate
             // Clone everything to avoid borrow conflicts during recursive resolution
-            let sym_refs = context.symbol_links.get_line_refs(&key.pointer).to_vec();
+            let sym_refs =
+                context.symbol_links.get_line_refs(&key.pointer).to_vec();
             let expr_clone = expr.clone();
             let line_clone = line.clone();
             let equ_pointer = key.pointer.clone();
@@ -213,18 +218,19 @@ fn resolve_symbol_dependencies(
             for sym_ref in sym_refs {
                 resolve_symbol_dependencies(&sym_ref, context, cycle_stack)?;
             }
-            
+
             // Set current_line_pointer to the .equ line so that evaluate_expression
             // can correctly look up symbol references from this line
             let saved_pointer = context.current_line_pointer.clone();
             context.current_line_pointer = equ_pointer;
-            
+
             // All dependencies are now resolved; evaluate the expression
-            let result = evaluate_expression(&expr_clone, context, &line_clone)?;
-            
+            let result =
+                evaluate_expression(&expr_clone, context, &line_clone)?;
+
             // Restore the previous current_line_pointer
             context.current_line_pointer = saved_pointer;
-            
+
             result
         }
         _ => {
@@ -262,8 +268,9 @@ fn evaluate_expression(
 
         Expression::Identifier(name) => {
             // Find symbol in Symbols using current line context and look up cached value
-            let sym_refs =
-                context.symbol_links.get_line_refs(&context.current_line_pointer);
+            let sym_refs = context
+                .symbol_links
+                .get_line_refs(&context.current_line_pointer);
             let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == *name)
@@ -291,14 +298,17 @@ fn evaluate_expression(
 
         Expression::CurrentAddress => {
             // Get layout info from Layout instead of line fields
-            let line_layout = context.layout.get(&context.current_line_pointer)
+            let line_layout = context
+                .layout
+                .get(&context.current_line_pointer)
                 .ok_or_else(|| {
                     AssemblerError::no_context(
-                        "Internal error: no layout info for current line".to_string()
+                        "Internal error: no layout info for current line"
+                            .to_string(),
                     )
                 })?;
-            let addr = context.segment_start(line_layout.segment)
-                + line_layout.offset;
+            let addr =
+                context.segment_start(line_layout.segment) + line_layout.offset;
             Ok(EvaluatedValue::Address(addr))
         }
 
@@ -308,8 +318,9 @@ fn evaluate_expression(
                 nlr.num,
                 if nlr.is_forward { "f" } else { "b" }
             );
-            let sym_refs =
-                context.symbol_links.get_line_refs(&context.current_line_pointer);
+            let sym_refs = context
+                .symbol_links
+                .get_line_refs(&context.current_line_pointer);
             let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == label_name)
