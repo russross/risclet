@@ -84,9 +84,11 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
+    let mut layout = crate::layout::create_initial_layout(&source);
     converge_and_encode(
         &mut source,
         &symbols,
+        &mut layout,
         0x10000,
         &relax,
         &NoOpCallback,
@@ -270,9 +272,11 @@ addi a1, a1, -10
         .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
+            let mut layout = crate::layout::create_initial_layout(&source_struct);
             assembler::converge_and_encode(
                 &mut source_struct,
                 &symbols,
+                &mut layout,
                 0x10000,
                 &relax,
                 &callback,
@@ -355,9 +359,11 @@ add a0, a0, a1
         .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
+            let mut layout = crate::layout::create_initial_layout(&source_struct);
             assembler::converge_and_encode(
                 &mut source_struct,
                 &symbols,
+                &mut layout,
                 0x10000,
                 &relax,
                 &callback,
@@ -436,9 +442,11 @@ addi a0, a0, 50
         .and_then(|symbols| {
             let callback = assembler::NoOpCallback;
             let relax = Relax { gp: true, pseudo: true, compressed: true };
+            let mut layout = crate::layout::create_initial_layout(&source_struct);
             assembler::converge_and_encode(
                 &mut source_struct,
                 &symbols,
+                &mut layout,
                 0x10000,
                 &relax,
                 &callback,

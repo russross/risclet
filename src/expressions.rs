@@ -34,6 +34,9 @@ pub struct EvaluationContext {
     /// Symbol information extracted during linking
     symbol_links: SymbolLinks,
 
+    /// Layout information (segment assignments, offsets, sizes)
+    layout: crate::layout::Layout,
+
     /// Memoization table: (symbol, definition location) -> evaluated value
     symbol_values: HashMap<SymbolReference, EvaluatedValue>,
 
@@ -75,15 +78,16 @@ impl EvaluationContext {
 pub fn new_evaluation_context(
     source: Source,
     symbol_links: SymbolLinks,
+    layout: crate::layout::Layout,
     text_start: u32,
 ) -> EvaluationContext {
     // The first instruction in the text segment is pushed back
     // by the ELF header + program header table
-    let text_first_instruction = text_start + source.header_size;
+    let text_first_instruction = text_start + layout.header_size;
 
     // Calculate segment addresses
-    let text_size = source.text_size;
-    let data_size = source.data_size;
+    let text_size = layout.text_size;
+    let data_size = layout.data_size;
 
     // data_start = next 4K page boundary after (text_start + text_size)
     let data_start = (text_first_instruction + text_size + 4095) & !(4096 - 1);
@@ -94,6 +98,7 @@ pub fn new_evaluation_context(
     EvaluationContext {
         source,
         symbol_links,
+        layout,
         symbol_values: HashMap::new(),
         text_start: text_first_instruction,
         data_start,
@@ -185,8 +190,16 @@ fn resolve_symbol_dependencies(
     let result = match &line.content {
         LineContent::Label(_) => {
             // Label: address is computed directly from position
+            // Get layout info from Layout instead of line fields
+            let line_layout = context.layout.get(&key.pointer)
+                .ok_or_else(|| {
+                    AssemblerError::from_context(
+                        format!("Internal error: no layout info for label '{}'", key.symbol),
+                        line.location.clone(),
+                    )
+                })?;
             let absolute_addr =
-                context.segment_start(line.segment).wrapping_add(line.offset);
+                context.segment_start(line_layout.segment).wrapping_add(line_layout.offset);
             EvaluatedValue::Address(absolute_addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
@@ -277,8 +290,15 @@ fn evaluate_expression(
         }
 
         Expression::CurrentAddress => {
-            let addr = context.segment_start(current_line.segment)
-                + current_line.offset;
+            // Get layout info from Layout instead of line fields
+            let line_layout = context.layout.get(&context.current_line_pointer)
+                .ok_or_else(|| {
+                    AssemblerError::no_context(
+                        format!("Internal error: no layout info for current line")
+                    )
+                })?;
+            let addr = context.segment_start(line_layout.segment)
+                + line_layout.offset;
             Ok(EvaluatedValue::Address(addr))
         }
 
