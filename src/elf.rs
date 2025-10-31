@@ -7,7 +7,7 @@
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
 use crate::ast::{LineContent, Segment, Source};
-use crate::symbols::Symbols;
+use crate::symbols::SymbolLinks;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -811,7 +811,7 @@ impl ElfBuilder {
 /// 4. Global symbols (including linker-provided symbols)
 pub fn build_symbol_table(
     source: &Source,
-    symbols: &Symbols,
+    symbol_links: &SymbolLinks,
     builder: &mut ElfBuilder,
     text_start: u32,
     data_start: u32,
@@ -881,7 +881,7 @@ pub fn build_symbol_table(
         for (line_index, line) in source_file.lines.iter().enumerate() {
             if let LineContent::Label(name) = &line.content {
                 // Skip if this label is declared global
-                let is_global = symbols.global_symbols.iter().any(|g| {
+                let is_global = symbol_links.global_symbols.iter().any(|g| {
                     &g.symbol == name
                         && g.definition_pointer.file_index == file_index
                         && g.definition_pointer.line_index == line_index
@@ -955,7 +955,7 @@ pub fn build_symbol_table(
     }
 
     // Add user-defined global symbols
-    for global in &symbols.global_symbols {
+    for global in &symbol_links.global_symbols {
         // Skip __global_pointer$ - it's already emitted above as a linker-provided symbol
         if global.symbol == "__global_pointer$" {
             continue;

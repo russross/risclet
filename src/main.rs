@@ -365,13 +365,13 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 2: Link symbols (connect symbol uses to their definitions)
     // ========================================================================
-    let symbols = symbols::link_symbols(&mut source)?;
+    let symbol_links = symbols::link_symbols(&mut source)?;
 
     // Checkpoint: dump symbol linking if requested
     if should_dump_phase(&config, Phase::SymbolLinking) {
         dump::dump_symbols(
             &source,
-            &symbols,
+            &symbol_links,
             config.dump.dump_symbols.as_ref().unwrap(),
         );
         if is_terminal_phase(&config, Phase::SymbolLinking) {
@@ -387,7 +387,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
 
     // Show input statistics before convergence if verbose
     if config.verbose {
-        print_input_statistics(&source, &symbols);
+        print_input_statistics(&source, &symbol_links);
     }
 
     let (text_bytes, data_bytes, bss_size) =
@@ -396,7 +396,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             let dump_callback = DumpCallback { dump_config: &config.dump };
             assembler::converge_and_encode(
                 &mut source,
-                &symbols,
+                &symbol_links,
                 config.text_start,
                 &config.relax,
                 &dump_callback,
@@ -406,7 +406,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             // Use standard convergence with verbose stats if requested
             assembler::converge_and_encode(
                 &mut source,
-                &symbols,
+                &symbol_links,
                 config.text_start,
                 &config.relax,
                 &assembler::NoOpCallback,
@@ -429,7 +429,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Create evaluation context for symbol values and ELF generation
     let mut eval_context = expressions::new_evaluation_context(
         source.clone(),
-        symbols.clone(),
+        symbol_links.clone(),
         config.text_start,
     );
 
@@ -464,7 +464,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Build symbol table
     elf::build_symbol_table(
         &source,
-        &symbols,
+        &symbol_links,
         &mut elf_builder,
         eval_context.text_start as u32,
         eval_context.data_start as u32,
@@ -500,7 +500,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Find entry point (_start symbol is required for executables)
     let entry_point = {
         if let Some(g) =
-            symbols.global_symbols.iter().find(|g| g.symbol == "_start")
+            symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
             let line = &source.files[g.definition_pointer.file_index].lines
                 [g.definition_pointer.line_index];
@@ -535,7 +535,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     Ok(())
 }
 
-fn print_input_statistics(source: &Source, symbols: &symbols::Symbols) {
+fn print_input_statistics(source: &Source, symbol_links: &symbols::SymbolLinks) {
     let mut total_lines = 0;
     let mut total_labels = 0;
     let mut total_instructions = 0;
@@ -552,7 +552,7 @@ fn print_input_statistics(source: &Source, symbols: &symbols::Symbols) {
         }
     }
 
-    let num_globals = symbols.global_symbols.len();
+    let num_globals = symbol_links.global_symbols.len();
 
     // Don't count the builtin file
     let num_files = source.files.len().saturating_sub(1);

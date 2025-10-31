@@ -7,7 +7,7 @@
 
 use crate::ast::*;
 use crate::error::{AssemblerError, Result};
-use crate::symbols::Symbols;
+use crate::symbols::SymbolLinks;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -32,7 +32,7 @@ pub struct EvaluationContext {
     source: Source,
 
     /// Symbol information extracted during linking
-    symbols: Symbols,
+    symbol_links: SymbolLinks,
 
     /// Memoization table: (symbol, definition location) -> evaluated value
     symbol_values: HashMap<SymbolReference, EvaluatedValue>,
@@ -74,7 +74,7 @@ impl EvaluationContext {
 /// Create an evaluation context with segment addresses and seed the symbol table
 pub fn new_evaluation_context(
     source: Source,
-    symbols: Symbols,
+    symbol_links: SymbolLinks,
     text_start: u32,
 ) -> EvaluationContext {
     // The first instruction in the text segment is pushed back
@@ -93,7 +93,7 @@ pub fn new_evaluation_context(
 
     EvaluationContext {
         source,
-        symbols,
+        symbol_links,
         symbol_values: HashMap::new(),
         text_start: text_first_instruction,
         data_start,
@@ -137,7 +137,7 @@ pub fn evaluate_line_symbols(
 ) -> Result<()> {
     let mut cycle_stack = Vec::new();
 
-    let sym_refs = context.symbols.get_line_refs(pointer).to_vec();
+    let sym_refs = context.symbol_links.get_line_refs(pointer).to_vec();
     for sym_ref in sym_refs {
         resolve_symbol_dependencies(&sym_ref, context, &mut cycle_stack)?;
     }
@@ -192,7 +192,7 @@ fn resolve_symbol_dependencies(
         LineContent::Directive(Directive::Equ(_, expr)) => {
             // .equ: First resolve all referenced symbols (via Symbols struct), then evaluate
             // Clone everything to avoid borrow conflicts during recursive resolution
-            let sym_refs = context.symbols.get_line_refs(&key.pointer).to_vec();
+            let sym_refs = context.symbol_links.get_line_refs(&key.pointer).to_vec();
             let expr_clone = expr.clone();
             let line_clone = line.clone();
             let equ_pointer = key.pointer.clone();
@@ -250,7 +250,7 @@ fn evaluate_expression(
         Expression::Identifier(name) => {
             // Find symbol in Symbols using current line context and look up cached value
             let sym_refs =
-                context.symbols.get_line_refs(&context.current_line_pointer);
+                context.symbol_links.get_line_refs(&context.current_line_pointer);
             let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == *name)
@@ -289,7 +289,7 @@ fn evaluate_expression(
                 if nlr.is_forward { "f" } else { "b" }
             );
             let sym_refs =
-                context.symbols.get_line_refs(&context.current_line_pointer);
+                context.symbol_links.get_line_refs(&context.current_line_pointer);
             let sym_ref = sym_refs
                 .iter()
                 .find(|r| r.symbol == label_name)
