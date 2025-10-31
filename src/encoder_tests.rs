@@ -10,14 +10,21 @@ use crate::parser::parse;
 use crate::symbols::link_symbols;
 use crate::tokenizer::tokenize;
 
-/// Helper function to assemble a source string and return the encoded bytes
-fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
-    use crate::assembler::guess_line_size;
-    use crate::ast::{Directive, LineContent, Segment};
+// Default relaxation settings for most tests (compression disabled for predictable sizes)
+const DEFAULT_RELAX: Relax = Relax { gp: true, pseudo: true, compressed: false };
 
+// Relaxation with compression enabled (for compression-specific tests)
+const RELAX_WITH_COMPRESSION: Relax = Relax { gp: true, pseudo: true, compressed: true };
+
+/// Helper function to assemble a source string and return the encoded bytes
+///
+/// `relax` parameter controls which relaxations are enabled:
+/// - gp: GP-relative addressing optimization
+/// - pseudo: call/tail pseudo-instruction optimization
+/// - compressed: RV32C instruction compression
+fn assemble(source_text: &str, relax: Relax) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     // Process each line
     let mut all_lines = Vec::new();
-    let mut current_segment = Segment::Text;
 
     for (line_num, line_text) in source_text.lines().enumerate() {
         let line_text = line_text.trim();
@@ -40,17 +47,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
                 format!("Parse error on line {}: {}", line_num + 1, e)
             })?;
 
-        for mut line in lines {
-            // Update segment if directive changes it
-            if let LineContent::Directive(ref dir) = line.content {
-                match dir {
-                    Directive::Text => current_segment = Segment::Text,
-                    Directive::Data => current_segment = Segment::Data,
-                    Directive::Bss => current_segment = Segment::Bss,
-                    _ => {}
-                }
-            }
-
+        for line in lines {
             // Segment and size will be set in the layout phase
             all_lines.push(line);
         }
@@ -70,9 +67,6 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     // Resolve symbols
     let symbols = link_symbols(&mut source)
         .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
-
-    // Create relaxation settings (disable compression in tests to keep instruction sizes predictable)
-    let relax = Relax { gp: true, pseudo: true, compressed: false };
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
@@ -97,7 +91,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 /// Helper to compare encoded data segment with expected bytes
 fn assert_data_match(source: &str, expected_data: &[u8]) {
     let (text, data, bss_size) =
-        assemble(source).expect("Assembly should succeed");
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(bss_size, 0, "Expected no BSS segment");
@@ -114,7 +108,7 @@ fn assert_data_match(source: &str, expected_data: &[u8]) {
 /// Helper to compare encoded instructions with expected bytes
 fn assert_instructions_match(source: &str, expected_text: &[u8]) {
     let (text, data, bss_size) =
-        assemble(source).expect("Assembly should succeed");
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     assert_eq!(data.len(), 0, "Expected no data segment output");
     assert_eq!(bss_size, 0, "Expected no BSS segment");
@@ -208,68 +202,8 @@ addi a0, a0, 5
 addi a1, a1, -10
 "#;
 
-    use crate::assembler::{self, guess_line_size};
-    use crate::ast::{Directive, LineContent, Segment};
-    use crate::symbols;
-
-    let mut all_lines = Vec::new();
-    let mut current_segment = Segment::Text;
-
-    for (line_num, line_text) in source.lines().enumerate() {
-        let line_text = line_text.trim();
-        if line_text.is_empty() || line_text.starts_with('#') {
-            continue;
-        }
-
-        let tokens = tokenize(line_text).expect("Tokenize should succeed");
-        if tokens.is_empty() {
-            continue;
-        }
-
-        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
-            .expect("Parse should succeed");
-
-        for mut line in lines {
-            if let LineContent::Directive(ref dir) = line.content {
-                match dir {
-                    Directive::Text => current_segment = Segment::Text,
-                    Directive::Data => current_segment = Segment::Data,
-                    Directive::Bss => current_segment = Segment::Bss,
-                    _ => {}
-                }
-            }
-
-            
-            
-            all_lines.push(line);
-        }
-    }
-
-    // Build Source with relaxation ENABLED
-    let mut source_struct = Source {
-        files: vec![SourceFile {
-            file: "test.s".to_string(),
-            lines: all_lines,
-        }],
-    };
-
-    let text = symbols::link_symbols(&mut source_struct)
-        .and_then(|symbols| {
-            let callback = assembler::NoOpCallback;
-            let relax = Relax { gp: true, pseudo: true, compressed: true };
-            let mut layout = crate::layout::create_initial_layout(&source_struct);
-            assembler::converge_and_encode(
-                &mut source_struct,
-                &symbols,
-                &mut layout,
-                0x10000,
-                &relax,
-                &callback,
-                false,
-            )
-            .map(|(text, _, _)| text)
-        })
-        .expect("Assembly should succeed");
+    let (text, _, _) =
+        assemble(source, RELAX_WITH_COMPRESSION).expect("Assembly should succeed");
 
     // With relaxation, 2 addi instructions should compile to 4 bytes (2x2) instead of 8 bytes (2x4)
     assert_eq!(
@@ -288,68 +222,8 @@ _start:
 add a0, a0, a1
 "#;
 
-    use crate::assembler::{self, guess_line_size};
-    use crate::ast::{Directive, LineContent, Segment};
-    use crate::symbols;
-
-    let mut all_lines = Vec::new();
-    let mut current_segment = Segment::Text;
-
-    for (line_num, line_text) in source.lines().enumerate() {
-        let line_text = line_text.trim();
-        if line_text.is_empty() || line_text.starts_with('#') {
-            continue;
-        }
-
-        let tokens = tokenize(line_text).expect("Tokenize should succeed");
-        if tokens.is_empty() {
-            continue;
-        }
-
-        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
-            .expect("Parse should succeed");
-
-        for mut line in lines {
-            if let LineContent::Directive(ref dir) = line.content {
-                match dir {
-                    Directive::Text => current_segment = Segment::Text,
-                    Directive::Data => current_segment = Segment::Data,
-                    Directive::Bss => current_segment = Segment::Bss,
-                    _ => {}
-                }
-            }
-
-            
-            
-            all_lines.push(line);
-        }
-    }
-
-    // Build Source with relaxation ENABLED
-    let mut source_struct = Source {
-        files: vec![SourceFile {
-            file: "test.s".to_string(),
-            lines: all_lines,
-        }],
-    };
-
-    let text = symbols::link_symbols(&mut source_struct)
-        .and_then(|symbols| {
-            let callback = assembler::NoOpCallback;
-            let relax = Relax { gp: true, pseudo: true, compressed: true };
-            let mut layout = crate::layout::create_initial_layout(&source_struct);
-            assembler::converge_and_encode(
-                &mut source_struct,
-                &symbols,
-                &mut layout,
-                0x10000,
-                &relax,
-                &callback,
-                false,
-            )
-            .map(|(text, _, _)| text)
-        })
-        .expect("Assembly should succeed");
+    let (text, _, _) =
+        assemble(source, RELAX_WITH_COMPRESSION).expect("Assembly should succeed");
 
     // With relaxation, 1 add instruction should compile to 2 bytes instead of 4 bytes
     assert_eq!(text.len(), 2, "Relaxed add instruction should be 2 bytes");
@@ -364,68 +238,8 @@ _start:
 addi a0, a0, 50
 "#;
 
-    use crate::assembler::{self, guess_line_size};
-    use crate::ast::{Directive, LineContent, Segment};
-    use crate::symbols;
-
-    let mut all_lines = Vec::new();
-    let mut current_segment = Segment::Text;
-
-    for (line_num, line_text) in source.lines().enumerate() {
-        let line_text = line_text.trim();
-        if line_text.is_empty() || line_text.starts_with('#') {
-            continue;
-        }
-
-        let tokens = tokenize(line_text).expect("Tokenize should succeed");
-        if tokens.is_empty() {
-            continue;
-        }
-
-        let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
-            .expect("Parse should succeed");
-
-        for mut line in lines {
-            if let LineContent::Directive(ref dir) = line.content {
-                match dir {
-                    Directive::Text => current_segment = Segment::Text,
-                    Directive::Data => current_segment = Segment::Data,
-                    Directive::Bss => current_segment = Segment::Bss,
-                    _ => {}
-                }
-            }
-
-            
-            
-            all_lines.push(line);
-        }
-    }
-
-    // Build Source with relaxation ENABLED
-    let mut source_struct = Source {
-        files: vec![SourceFile {
-            file: "test.s".to_string(),
-            lines: all_lines,
-        }],
-    };
-
-    let text = symbols::link_symbols(&mut source_struct)
-        .and_then(|symbols| {
-            let callback = assembler::NoOpCallback;
-            let relax = Relax { gp: true, pseudo: true, compressed: true };
-            let mut layout = crate::layout::create_initial_layout(&source_struct);
-            assembler::converge_and_encode(
-                &mut source_struct,
-                &symbols,
-                &mut layout,
-                0x10000,
-                &relax,
-                &callback,
-                false,
-            )
-            .map(|(text, _, _)| text)
-        })
-        .expect("Assembly should succeed");
+    let (text, _, _) =
+        assemble(source, RELAX_WITH_COMPRESSION).expect("Assembly should succeed");
 
     // Should NOT be compressed because 50 doesn't fit in 6-bit signed
     // So it should be 4 bytes (base instruction)
@@ -854,7 +668,7 @@ fn test_bss_space_directive() {
 "#;
 
     let (text, data, bss_size) =
-        assemble(source).expect("Assembly should succeed");
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -870,7 +684,7 @@ buffer2: .space 256
 "#;
 
     let (text, data, bss_size) =
-        assemble(source).expect("Assembly should succeed");
+        assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -884,7 +698,7 @@ fn test_bss_rejects_byte_directive() {
 .byte 0x42
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for .byte in .bss");
     let err_msg = result.unwrap_err();
     assert!(
@@ -901,7 +715,7 @@ fn test_bss_rejects_string_directive() {
 .string "test"
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for .string in .bss");
     let err_msg = result.unwrap_err();
     assert!(
@@ -918,7 +732,7 @@ fn test_bss_rejects_instructions() {
 add x1, x2, x3
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for instruction in .bss");
     let err_msg = result.unwrap_err();
     assert!(
@@ -940,7 +754,7 @@ target:
 li x1, target
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for li with address");
     let err_msg = result.unwrap_err();
     assert!(
@@ -959,7 +773,7 @@ fn test_la_rejects_integer() {
 la x1, 42
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for la with integer");
     let err_msg = result.unwrap_err();
     assert!(
@@ -978,7 +792,7 @@ fn test_call_rejects_integer() {
 call 100
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for call with integer");
     let err_msg = result.unwrap_err();
     assert!(
@@ -997,7 +811,7 @@ fn test_tail_rejects_integer() {
 tail 200
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for tail with integer");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1016,7 +830,7 @@ fn test_jal_rejects_integer() {
 jal x1, 42
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for jal with integer");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1035,7 +849,7 @@ fn test_branch_rejects_integer() {
 beq x1, x2, 16
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for branch with integer");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1055,7 +869,7 @@ target:
 addi x1, x2, target
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for addi with address");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1075,7 +889,7 @@ target:
 lui x1, target
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for lui with address");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1095,7 +909,7 @@ target:
 lw x1, target(x2)
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for load with address offset");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1118,7 +932,7 @@ fn test_addi_immediate_out_of_range_positive() {
 addi x1, x2, 2048
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for addi immediate out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1135,7 +949,7 @@ fn test_addi_immediate_out_of_range_negative() {
 addi x1, x2, -2049
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for addi immediate out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1152,7 +966,7 @@ fn test_lui_immediate_out_of_range() {
 lui x1, 0x100000
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for lui immediate out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1169,7 +983,7 @@ fn test_lui_negative_immediate() {
 lui x1, -1
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for lui with negative immediate");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1186,7 +1000,7 @@ fn test_shift_amount_out_of_range() {
 slli x1, x2, 64
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for shift amount out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1211,7 +1025,7 @@ target:
 nop
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for branch offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1236,7 +1050,7 @@ target:
 nop
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for misaligned branch offset");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1259,7 +1073,7 @@ target:
 nop
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for misaligned jal offset");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1281,7 +1095,7 @@ fn test_space_negative_size() {
 .space -10
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for .space with negative size");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1302,7 +1116,7 @@ fn test_register_out_of_range() {
 add x32, x1, x2
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for invalid register x32");
 }
 
@@ -1313,7 +1127,7 @@ fn test_load_store_offset_out_of_range() {
 lw x1, 2048(x2)
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for load offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1330,7 +1144,7 @@ fn test_undefined_symbol() {
 jal x1, undefined_label
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for undefined symbol");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1350,7 +1164,7 @@ foo:
     nop
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for duplicate label");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1376,7 +1190,7 @@ target:
     nop
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for jal offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1396,7 +1210,7 @@ fn test_auipc_immediate_value() {
 auipc x1, 0x100000
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for auipc immediate out of range");
     let err_msg = result.unwrap_err();
     assert!(
@@ -1417,7 +1231,7 @@ nop
 "#;
 
     let (text, _data, _bss) =
-        assemble(source).expect("Data directives in .text should be allowed");
+        assemble(source, DEFAULT_RELAX).expect("Data directives in .text should be allowed");
     assert_eq!(text.len(), 9); // 4 (nop) + 1 (byte) + 4 (nop)
 }
 
@@ -1433,7 +1247,7 @@ label2:
     .4byte label1 / label2
 "#;
 
-    let result = assemble(source);
+    let result = assemble(source, DEFAULT_RELAX);
     assert!(result.is_err(), "Expected error for division of addresses");
 }
 
@@ -1450,7 +1264,7 @@ target:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source)
+    let (text, _data, _bss) = assemble(source, DEFAULT_RELAX)
         .expect("call should relax to auipc+jalr for far targets");
 
     // call should expand to 8-byte auipc+jalr sequence
@@ -1473,7 +1287,7 @@ target:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source)
+    let (text, _data, _bss) = assemble(source, DEFAULT_RELAX)
         .expect("tail should relax to auipc+jalr for far targets");
 
     // tail should expand to 8-byte auipc+jalr sequence
@@ -1502,7 +1316,7 @@ fn test_string_escapes() {
 "#;
 
     let (text, data, _bss) =
-        assemble(source).expect("String escapes should be supported");
+        assemble(source, DEFAULT_RELAX).expect("String escapes should be supported");
     assert_eq!(text.len(), 0);
 
     // Expected: h e l l o \n w o r l d \t " \
@@ -1538,7 +1352,7 @@ end:
 "#;
 
     let (text, _data, _bss) =
-        assemble(source).expect("Cascading relaxation should converge");
+        assemble(source, DEFAULT_RELAX).expect("Cascading relaxation should converge");
 
     // All three calls should relax to 4-byte jal
     // Total: 3x(4-byte call + 4-byte nop) + 4-byte nop = 28 bytes
@@ -1695,7 +1509,7 @@ data_label:
     .4byte 0x12345678
 "#;
 
-    let (text, data, _bss) = assemble(source).expect("Assembly should succeed");
+    let (text, data, _bss) = assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     // Verify text section
     // With relax_gp enabled (default), data_label fits within ±2KiB of gp
@@ -1727,7 +1541,7 @@ end:
     .4byte end - start
 "#;
 
-    let (text, data, _bss) = assemble(source).expect("Assembly should succeed");
+    let (text, data, _bss) = assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     // All calls relax to 4 bytes
     // start at 0, middle at 8, end at 16
@@ -1769,7 +1583,7 @@ target:
     nop
 "#;
 
-    let (text, _, _) = assemble(source).expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, DEFAULT_RELAX).expect("Assembly should succeed");
 
     // Should use auipc + addi (8 bytes for la) instead of addi rd, gp, offset (4 bytes)
     assert_eq!(

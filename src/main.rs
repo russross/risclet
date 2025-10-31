@@ -1,4 +1,4 @@
-use ast::{Line, LinePointer, Segment, Source, SourceFile};
+use ast::{Line, LinePointer, Source, SourceFile};
 use encoder::Relax;
 use error::AssemblerError;
 use std::env;
@@ -366,7 +366,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // ========================================================================
     // Phase 2: Link symbols (connect symbol uses to their definitions)
     // ========================================================================
-    let symbol_links = symbols::link_symbols(&mut source)?;
+    let symbol_links = symbols::link_symbols(&source)?;
 
     // Checkpoint: dump symbol linking if requested
     if should_dump_phase(&config, Phase::SymbolLinking) {
@@ -612,7 +612,6 @@ fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
     })?;
     let reader = io::BufReader::new(file);
 
-    let mut current_segment = Segment::Text;
     let mut lines: Vec<Line> = Vec::new();
 
     for (line_num, line_result) in reader.lines().enumerate() {
@@ -637,18 +636,6 @@ fn process_file(file_path: &str) -> Result<SourceFile, AssemblerError> {
                 parser::parse(&tokens, file_path.to_string(), line_num + 1)?;
 
             for parsed_line in parsed_lines {
-                // Update segment if directive changes it
-                if let ast::LineContent::Directive(ref dir) =
-                    parsed_line.content
-                {
-                    match dir {
-                        ast::Directive::Text => current_segment = Segment::Text,
-                        ast::Directive::Data => current_segment = Segment::Data,
-                        ast::Directive::Bss => current_segment = Segment::Bss,
-                        _ => {}
-                    }
-                }
-
                 // Segment and size will be set in the layout phase
                 lines.push(parsed_line);
             }
