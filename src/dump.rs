@@ -643,9 +643,6 @@ pub fn dump_values(
     source: &Source,
     symbol_values: &expressions::SymbolValues,
     layout: &crate::layout::Layout,
-    text_start: u32,
-    data_start: u32,
-    bss_start: u32,
     spec: &DumpSpec,
 ) {
     if !should_include_pass(pass_number, &spec.passes, is_final) {
@@ -658,7 +655,7 @@ pub fn dump_values(
         if is_final { " - FINAL" } else { "" }
     );
 
-    let addr_width = calculate_address_width(text_start);
+    let addr_width = calculate_address_width(layout.text_start);
 
     for (file_index, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
@@ -676,14 +673,11 @@ pub fn dump_values(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address from layout
             let pointer = LinePointer { file_index, line_index };
-            let line_layout = layout.get(&pointer);
+            let abs_addr = layout.get_line_address(&pointer).unwrap_or(0);
 
+            let line_layout = layout.get(&pointer);
             let segment =
                 line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
-            let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
-
-            let segment_base = get_segment_base(segment, text_start, data_start, bss_start);
-            let abs_addr = segment_base + offset;
 
             let (loc_str, padding) =
                 format_location_aligned(&line.location, max_line_width);
@@ -697,7 +691,7 @@ pub fn dump_values(
 
             // Collect and show evaluated expression values
             let expr_values =
-                collect_expression_values(line, symbol_values, layout, text_start, data_start, bss_start);
+                collect_expression_values(line, symbol_values, layout);
             if !expr_values.is_empty() {
                 print!("  # ");
                 for (i, val_str) in expr_values.iter().enumerate() {
@@ -719,15 +713,13 @@ pub fn dump_values(
 // Code Generation Dump
 // ============================================================================
 
+#[allow(clippy::too_many_arguments)]
 pub fn dump_code(
     pass_number: usize,
     is_final: bool,
     source: &Source,
     _symbol_values: &expressions::SymbolValues,
     layout: &crate::layout::Layout,
-    text_start: u32,
-    data_start: u32,
-    bss_start: u32,
     text_bytes: &[u8],
     data_bytes: &[u8],
     spec: &DumpSpec,
@@ -742,7 +734,7 @@ pub fn dump_code(
         if is_final { " - FINAL" } else { "" }
     );
 
-    let addr_width = calculate_address_width(text_start);
+    let addr_width = calculate_address_width(layout.text_start);
 
     for (file_index, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
@@ -767,8 +759,7 @@ pub fn dump_code(
             let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
             let size = line_layout.map(|ll| ll.size).unwrap_or(0);
 
-            let segment_base = get_segment_base(segment, text_start, data_start, bss_start);
-            let abs_addr = segment_base + offset;
+            let abs_addr = layout.get_line_address(&pointer).unwrap_or(0);
             let encoded_bytes = get_encoded_bytes_with_layout(
                 size, segment, offset, text_bytes, data_bytes,
             );
@@ -1232,14 +1223,6 @@ fn format_address(addr: u32, addr_width: usize, segment: Segment) -> String {
     format!("{:0width$x}{}", addr, suffix, width = addr_width)
 }
 
-fn get_segment_base(segment: Segment, text_start: u32, data_start: u32, bss_start: u32) -> u32 {
-    match segment {
-        Segment::Text => text_start,
-        Segment::Data => data_start,
-        Segment::Bss => bss_start,
-    }
-}
-
 fn get_encoded_bytes_with_layout(
     size: u32,
     segment: Segment,
@@ -1280,9 +1263,6 @@ fn collect_expression_values(
     line: &Line,
     _symbol_values: &expressions::SymbolValues,
     _layout: &crate::layout::Layout,
-    _text_start: u32,
-    _data_start: u32,
-    _bss_start: u32,
 ) -> Vec<String> {
     let mut results = Vec::new();
 
@@ -1309,7 +1289,8 @@ fn collect_expression_values(
                             results.push(format!("{}", val));
                         }
                     }
-                    PseudoOp::LoadGlobal(_, _, expr) | PseudoOp::StoreGlobal(_, _, expr, _) => {
+                    PseudoOp::LoadGlobal(_, _, expr)
+                    | PseudoOp::StoreGlobal(_, _, expr, _) => {
                         if let Expression::Literal(val) = expr.as_ref() {
                             results.push(format!("{}", val));
                         }
@@ -1318,15 +1299,15 @@ fn collect_expression_values(
                 _ => {}
             }
         }
-        LineContent::Directive(Directive::Equ(_, expr)) => {
-            // For .equ directives, evaluate the expression
-            if let Expression::Literal(val) = expr {
-                results.push(format!("= {}", val));
-            }
+        LineContent::Directive(Directive::Equ(_, Expression::Literal(val))) => {
+            // For .equ directives with literal values, show the value
+            results.push(format!("= {}", val));
+        }
+        LineContent::Directive(Directive::Equ(_, _)) => {
+            // Other .equ directives are not shown
         }
         _ => {}
     }
 
     results
 }
-

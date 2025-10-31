@@ -277,12 +277,16 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         source: &Source,
         symbol_values: &expressions::SymbolValues,
         layout: &crate::layout::Layout,
-        text_start: u32,
-        data_start: u32,
-        bss_start: u32,
     ) {
         if let Some(ref spec) = self.dump_config.dump_values {
-            dump::dump_values(pass, is_final, source, symbol_values, layout, text_start, data_start, bss_start, spec);
+            dump::dump_values(
+                pass,
+                is_final,
+                source,
+                symbol_values,
+                layout,
+                spec,
+            );
         }
     }
 
@@ -293,9 +297,6 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         source: &Source,
         symbol_values: &expressions::SymbolValues,
         layout: &crate::layout::Layout,
-        text_start: u32,
-        data_start: u32,
-        bss_start: u32,
         text_bytes: &[u8],
         data_bytes: &[u8],
     ) {
@@ -306,9 +307,6 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
                 source,
                 symbol_values,
                 layout,
-                text_start,
-                data_start,
-                bss_start,
                 text_bytes,
                 data_bytes,
                 spec,
@@ -444,24 +442,18 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Phase 4: Generate ELF binary
     // ========================================================================
 
-    // Compute segment addresses for ELF generation
-    let (text_start_adjusted, data_start, bss_start) =
-        layout.compute_segment_addresses(config.text_start);
-
     // Build ELF binary
     let has_data = !data_bytes.is_empty();
     let has_bss = bss_size > 0;
 
-    let mut elf_builder = elf::ElfBuilder::new(
-        text_start_adjusted,
-        layout.header_size as u32,
-    );
+    let mut elf_builder =
+        elf::ElfBuilder::new(layout.text_start, layout.header_size as u32);
     elf_builder.set_segments(
         text_bytes.clone(),
         data_bytes.clone(),
         bss_size,
-        data_start,
-        bss_start,
+        layout.data_start,
+        layout.bss_start,
     );
 
     // Build symbol table
@@ -470,9 +462,9 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
         &symbol_links,
         &layout,
         &mut elf_builder,
-        text_start_adjusted,
-        data_start,
-        bss_start,
+        layout.text_start,
+        layout.data_start,
+        layout.bss_start,
         has_data,
         has_bss,
     );
@@ -507,19 +499,8 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
             let pointer = g.definition_pointer.clone();
-            if let Some(line_layout) = layout.get(&pointer) {
-                let offset = match line_layout.segment {
-                    ast::Segment::Text => {
-                        text_start_adjusted + line_layout.offset
-                    }
-                    ast::Segment::Data => {
-                        data_start + line_layout.offset
-                    }
-                    ast::Segment::Bss => {
-                        bss_start + line_layout.offset
-                    }
-                };
-                Ok(offset as u64)
+            if let Some(addr) = layout.get_line_address(&pointer) {
+                Ok(addr as u64)
             } else {
                 Err(AssemblerError::no_context(
                     "_start symbol not found in layout".to_string(),
