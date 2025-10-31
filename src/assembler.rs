@@ -2,79 +2,11 @@
 //
 // Core assembly pipeline functions shared between main.rs and tests
 
-use crate::ast::{self, Instruction, LinePointer, PseudoOp, Segment, Source};
-use crate::elf::compute_header_size;
+use crate::ast::{self, Instruction, LinePointer, PseudoOp, Source};
 use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
 use crate::symbols::SymbolLinks;
-
-/// Compute offsets for all lines in the source
-///
-/// This assigns each line an offset within its segment based on the
-/// current size guesses for all preceding lines.
-///
-/// The builtin file (last file) is skipped as its offsets are pre-set.
-pub fn compute_offsets(source: &mut Source) {
-    let mut global_text_offset: u32 = 0;
-    let mut global_data_offset: u32 = 0;
-    let mut global_bss_offset: u32 = 0;
-
-    // Skip the last file (builtin symbols file) - its offsets are hardcoded
-    let skip = source.files.len() - 1;
-    for (file_index, source_file) in source.files.iter_mut().enumerate() {
-        if file_index == skip {
-            continue;
-        }
-
-        // Track the starting offset for this file in each segment
-        let file_text_start = global_text_offset;
-        let file_data_start = global_data_offset;
-        let file_bss_start = global_bss_offset;
-
-        // Track offsets within this file (continuing from global offsets)
-        let mut text_offset: u32 = global_text_offset;
-        let mut data_offset: u32 = global_data_offset;
-        let mut bss_offset: u32 = global_bss_offset;
-
-        for line in &mut source_file.lines {
-            line.offset = match line.segment {
-                Segment::Text => text_offset,
-                Segment::Data => data_offset,
-                Segment::Bss => bss_offset,
-            };
-
-            // Advance offset
-            let advance = line.size;
-            match line.segment {
-                Segment::Text => text_offset += advance,
-                Segment::Data => data_offset += advance,
-                Segment::Bss => bss_offset += advance,
-            }
-        }
-
-        // Update source_file sizes (size contributed by this file in each segment)
-        source_file.text_size = text_offset - file_text_start;
-        source_file.data_size = data_offset - file_data_start;
-        source_file.bss_size = bss_offset - file_bss_start;
-
-        // Update global offsets to continue in the next file
-        global_text_offset = text_offset;
-        global_data_offset = data_offset;
-        global_bss_offset = bss_offset;
-    }
-
-    // Update source sizes (total across all files)
-    source.text_size = global_text_offset;
-    source.data_size = global_data_offset;
-    source.bss_size = global_bss_offset;
-
-    // Update header size estimate
-    // Segments: .text, .riscv.attributes, and optionally .data/.bss
-    let has_data_or_bss = source.data_size > 0 || source.bss_size > 0;
-    let num_segments = if has_data_or_bss { 3 } else { 2 };
-    source.header_size = compute_header_size(num_segments) as u32;
-}
 
 /// Callback trait for per-iteration convergence dumps
 ///

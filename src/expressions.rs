@@ -35,7 +35,7 @@ pub struct EvaluationContext {
     symbol_links: SymbolLinks,
 
     /// Layout information (segment assignments, offsets, sizes)
-    layout: crate::layout::Layout,
+    pub layout: crate::layout::Layout,
 
     /// Memoization table: (symbol, definition location) -> evaluated value
     symbol_values: HashMap<SymbolReference, EvaluatedValue>,

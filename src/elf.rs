@@ -6,7 +6,7 @@
 // Reference: ELF-32 Object File Format, Version 1.5 Draft 2
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
-use crate::ast::{LineContent, Segment, Source};
+use crate::ast::{LineContent, LinePointer, Segment, Source};
 use crate::symbols::SymbolLinks;
 use std::collections::HashMap;
 
@@ -812,6 +812,7 @@ impl ElfBuilder {
 pub fn build_symbol_table(
     source: &Source,
     symbol_links: &SymbolLinks,
+    layout: &crate::layout::Layout,
     builder: &mut ElfBuilder,
     text_start: u32,
     data_start: u32,
@@ -861,10 +862,13 @@ pub fn build_symbol_table(
 
         // Find the first .text line in this file to use as the marker address
         let mut marker_addr = text_start;
-        for line in &source_file.lines {
-            if line.segment == Segment::Text {
-                marker_addr = text_start + line.offset;
-                break;
+        for (line_index, _line) in source_file.lines.iter().enumerate() {
+            let pointer = LinePointer { file_index, line_index };
+            if let Some(line_layout) = layout.get(&pointer) {
+                if line_layout.segment == Segment::Text {
+                    marker_addr = text_start + line_layout.offset;
+                    break;
+                }
             }
         }
 
@@ -893,20 +897,26 @@ pub fn build_symbol_table(
                 }
 
                 if !is_global {
-                    let name_idx = builder.symbol_names.add(name);
-                    let (addr, section_idx) = match line.segment {
-                        Segment::Text => {
-                            (text_start + line.offset, text_section_index)
+                    let pointer = LinePointer { file_index, line_index };
+                    let (addr, section_idx) = if let Some(line_layout) = layout.get(&pointer) {
+                        match line_layout.segment {
+                            Segment::Text => {
+                                (text_start + line_layout.offset, text_section_index)
+                            }
+                            Segment::Data => (
+                                data_start + line_layout.offset,
+                                data_section_index.unwrap(),
+                            ),
+                            Segment::Bss => (
+                                bss_start + line_layout.offset,
+                                bss_section_index.unwrap(),
+                            ),
                         }
-                        Segment::Data => (
-                            data_start + line.offset,
-                            data_section_index.unwrap(),
-                        ),
-                        Segment::Bss => (
-                            bss_start + line.offset,
-                            bss_section_index.unwrap(),
-                        ),
+                    } else {
+                        // Default to text segment if no layout info (shouldn't happen)
+                        (text_start, text_section_index)
                     };
+                    let name_idx = builder.symbol_names.add(name);
 
                     builder.add_symbol(ElfSymbol {
                         st_name: name_idx,
@@ -963,16 +973,23 @@ pub fn build_symbol_table(
 
         let file_index = global.definition_pointer.file_index;
         let line_index = global.definition_pointer.line_index;
-        let line = &source.files[file_index].lines[line_index];
 
         let name_idx = builder.symbol_names.add(&global.symbol);
-        let (addr, section_idx) = match line.segment {
-            Segment::Text => (text_start + line.offset, text_section_index),
-            Segment::Data => {
-                (data_start + line.offset, data_section_index.unwrap())
-            }
-            Segment::Bss => {
-                (bss_start + line.offset, bss_section_index.unwrap())
+        let (addr, section_idx) = {
+            let pointer = LinePointer { file_index, line_index };
+            if let Some(line_layout) = layout.get(&pointer) {
+                match line_layout.segment {
+                    Segment::Text => (text_start + line_layout.offset, text_section_index),
+                    Segment::Data => {
+                        (data_start + line_layout.offset, data_section_index.unwrap())
+                    }
+                    Segment::Bss => {
+                        (bss_start + line_layout.offset, bss_section_index.unwrap())
+                    }
+                }
+            } else {
+                // Default to text segment if no layout info (shouldn't happen)
+                (text_start, text_section_index)
             }
         };
 
@@ -987,15 +1004,15 @@ pub fn build_symbol_table(
     }
 
     // More linker-provided symbols (at end)
-    let end_text = text_start + source.text_size;
+    let end_text = text_start + layout.text_size;
     let end_data = if has_data {
-        data_start + source.data_size
+        data_start + layout.data_size
     } else if has_bss {
         bss_start
     } else {
         end_text
     };
-    let end_bss = if has_bss { bss_start + source.bss_size } else { end_data };
+    let end_bss = if has_bss { bss_start + layout.bss_size } else { end_data };
 
     // __bss_start
     let bss_start_name = builder.symbol_names.add("__bss_start");

@@ -15,14 +15,7 @@ mod tests {
             files: vec![SourceFile {
                 file: "test.s".to_string(),
                 lines: vec![],
-                text_size: 0,
-                data_size: 0,
-                bss_size: 0,
             }],
-            header_size: 0,
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
         }
     }
 
@@ -41,16 +34,15 @@ mod tests {
 
     /// Helper to create a test line with an expression
     fn make_test_line(
-        segment: Segment,
-        offset: u32,
+        _segment: Segment,
+        _offset: u32,
         content: LineContent,
     ) -> Line {
+        // Note: segment and offset are no longer part of Line; they're in Layout
+        // The _segment and _offset parameters are kept for backwards compatibility with existing tests
         Line {
             location: Location { file: "test.s".to_string(), line: 1 },
             content,
-            segment,
-            offset,
-            size: 0,
         }
     }
 
@@ -761,15 +753,11 @@ mod tests {
     fn test_context_segment_addresses() {
         let source = Source {
             files: vec![],
-            text_size: 1000, // Will cause data to be boundary
-            data_size: 500,
-            bss_size: 200,
-            header_size: 0,
         };
 
         // Create a layout with the desired sizes (manually, since source has no files)
         let mut layout = crate::layout::Layout::new();
-        layout.text_size = 1000;
+        layout.text_size = 1000;  // Will cause data to be boundary
         layout.data_size = 500;
         layout.bss_size = 200;
         layout.header_size = 0;

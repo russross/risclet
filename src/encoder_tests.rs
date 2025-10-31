@@ -51,8 +51,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
                 }
             }
 
-            line.segment = current_segment;
-            line.size = guess_line_size(&line.content);
+            // Segment and size will be set in the layout phase
             all_lines.push(line);
         }
     }
@@ -62,14 +61,7 @@ fn assemble(source_text: &str) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
         files: vec![SourceFile {
             file: "test.s".to_string(),
             lines: all_lines,
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
         }],
-        header_size: 0,
-        text_size: 0,
-        data_size: 0,
-        bss_size: 0,
     };
 
     // Add builtin symbols file (provides __global_pointer$ definition)
@@ -247,8 +239,8 @@ addi a1, a1, -10
                 }
             }
 
-            line.segment = current_segment;
-            line.size = guess_line_size(&line.content);
+            
+            
             all_lines.push(line);
         }
     }
@@ -258,14 +250,7 @@ addi a1, a1, -10
         files: vec![SourceFile {
             file: "test.s".to_string(),
             lines: all_lines,
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
         }],
-        header_size: 0,
-        text_size: 0,
-        data_size: 0,
-        bss_size: 0,
     };
 
     let text = symbols::link_symbols(&mut source_struct)
@@ -334,8 +319,8 @@ add a0, a0, a1
                 }
             }
 
-            line.segment = current_segment;
-            line.size = guess_line_size(&line.content);
+            
+            
             all_lines.push(line);
         }
     }
@@ -345,14 +330,7 @@ add a0, a0, a1
         files: vec![SourceFile {
             file: "test.s".to_string(),
             lines: all_lines,
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
         }],
-        header_size: 0,
-        text_size: 0,
-        data_size: 0,
-        bss_size: 0,
     };
 
     let text = symbols::link_symbols(&mut source_struct)
@@ -417,8 +395,8 @@ addi a0, a0, 50
                 }
             }
 
-            line.segment = current_segment;
-            line.size = guess_line_size(&line.content);
+            
+            
             all_lines.push(line);
         }
     }
@@ -428,14 +406,7 @@ addi a0, a0, 50
         files: vec![SourceFile {
             file: "test.s".to_string(),
             lines: all_lines,
-            text_size: 0,
-            data_size: 0,
-            bss_size: 0,
         }],
-        header_size: 0,
-        text_size: 0,
-        data_size: 0,
-        bss_size: 0,
     };
 
     let text = symbols::link_symbols(&mut source_struct)
