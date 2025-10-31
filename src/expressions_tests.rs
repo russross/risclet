@@ -23,6 +23,7 @@ mod tests {
     }
 
     /// Helper to create minimal Symbols structure for testing
+    #[allow(dead_code)]
     fn make_test_symbols(num_files: usize) -> SymbolLinks {
         let mut line_refs = Vec::new();
         for _ in 0..num_files {
@@ -36,6 +37,7 @@ mod tests {
     }
 
     /// Helper to create a test line with an expression
+    #[allow(dead_code)]
     fn make_test_line(
         _segment: Segment,
         _offset: u32,
@@ -67,7 +69,7 @@ mod tests {
     fn eval_simple(
         expr: Expression,
         source: &Source,
-        layout: &crate::layout::Layout,
+        layout: &mut crate::layout::Layout,
         text_start: u32,
     ) -> Result<EvaluatedValue> {
         // Create empty symbol values for simple tests (no symbol references)
@@ -76,28 +78,18 @@ mod tests {
         // Get the address for line at [0, 0]
         let pointer = LinePointer { file_index: 0, line_index: 0 };
 
-        // Look up the line layout - if not found, assume Text segment at offset 0
-        let line_layout = layout.get(&pointer);
+        // Set segment addresses based on nominal text_start
+        layout.set_segment_addresses(text_start);
 
-        let (text_start_adjusted, data_start, bss_start) =
-            layout.compute_segment_addresses(text_start);
-
-        let address = if let Some(ll) = line_layout {
-            match ll.segment {
-                Segment::Text => text_start_adjusted + ll.offset,
-                Segment::Data => data_start + ll.offset,
-                Segment::Bss => bss_start + ll.offset,
-            }
-        } else {
-            // If layout entry not found, assume Text segment at offset 0
-            text_start_adjusted
-        };
+        // Look up the concrete address or use adjusted text_start as fallback
+        let address =
+            layout.get_line_address(&pointer).unwrap_or(layout.text_start);
 
         // Evaluate the expression with explicit parameters
         eval_expr(
             &expr,
             address,
-            &[],  // no symbol references in simple tests
+            &[], // no symbol references in simple tests
             &symbol_values,
             source,
             &pointer,
@@ -111,10 +103,10 @@ mod tests {
     #[test]
     fn test_literal_is_integer() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::Literal(42);
-        let result = eval_simple(expr, &source, &layout, 0x10000).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x10000).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 42),
@@ -151,7 +143,7 @@ mod tests {
     #[test]
     fn test_address_plus_integer() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         // . + 4 where . = 0x10000
         let expr = Expression::PlusOp {
@@ -159,7 +151,7 @@ mod tests {
             rhs: Box::new(Expression::Literal(4)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x10000).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x10000).unwrap();
 
         match result {
             EvaluatedValue::Address(a) => assert_eq!(a, 0x10000u32 + 4),
@@ -170,7 +162,7 @@ mod tests {
     #[test]
     fn test_integer_plus_address() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         // 4 + . where . = 0x10000
         let expr = Expression::PlusOp {
@@ -178,7 +170,7 @@ mod tests {
             rhs: Box::new(Expression::CurrentAddress),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x10000).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x10000).unwrap();
 
         match result {
             EvaluatedValue::Address(a) => assert_eq!(a, 0x10000u32 + 4),
@@ -189,7 +181,7 @@ mod tests {
     #[test]
     fn test_address_minus_integer() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 16, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 16, 0);
 
         // . - 8 where . = 0x10000 + 16
         let expr = Expression::MinusOp {
@@ -197,7 +189,7 @@ mod tests {
             rhs: Box::new(Expression::Literal(8)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x10000).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x10000).unwrap();
 
         match result {
             EvaluatedValue::Address(a) => {
@@ -267,14 +259,14 @@ mod tests {
     #[test]
     fn test_integer_multiply() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::MultiplyOp {
             lhs: Box::new(Expression::Literal(6)),
             rhs: Box::new(Expression::Literal(7)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 42),
@@ -285,14 +277,14 @@ mod tests {
     #[test]
     fn test_integer_divide() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::DivideOp {
             lhs: Box::new(Expression::Literal(42)),
             rhs: Box::new(Expression::Literal(7)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 6),
@@ -303,14 +295,14 @@ mod tests {
     #[test]
     fn test_integer_modulo() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::ModuloOp {
             lhs: Box::new(Expression::Literal(43)),
             rhs: Box::new(Expression::Literal(7)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 1),
@@ -321,14 +313,14 @@ mod tests {
     #[test]
     fn test_division_by_zero_error() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::DivideOp {
             lhs: Box::new(Expression::Literal(42)),
             rhs: Box::new(Expression::Literal(0)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("Division by zero"));
@@ -337,14 +329,14 @@ mod tests {
     #[test]
     fn test_modulo_by_zero_error() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::ModuloOp {
             lhs: Box::new(Expression::Literal(42)),
             rhs: Box::new(Expression::Literal(0)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("Modulo by zero"));
@@ -357,14 +349,14 @@ mod tests {
     #[test]
     fn test_bitwise_or() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::BitwiseOrOp {
             lhs: Box::new(Expression::Literal(0x0f)),
             rhs: Box::new(Expression::Literal(0xf0)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 0xff),
@@ -375,14 +367,14 @@ mod tests {
     #[test]
     fn test_bitwise_and() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::BitwiseAndOp {
             lhs: Box::new(Expression::Literal(0xff)),
             rhs: Box::new(Expression::Literal(0x0f)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 0x0f),
@@ -393,14 +385,14 @@ mod tests {
     #[test]
     fn test_bitwise_xor() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::BitwiseXorOp {
             lhs: Box::new(Expression::Literal(0xff)),
             rhs: Box::new(Expression::Literal(0x0f)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 0xf0),
@@ -411,12 +403,12 @@ mod tests {
     #[test]
     fn test_bitwise_not() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr =
             Expression::BitwiseNotOp { expr: Box::new(Expression::Literal(0)) };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, -1),
@@ -431,14 +423,14 @@ mod tests {
     #[test]
     fn test_left_shift_simple() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::LeftShiftOp {
             lhs: Box::new(Expression::Literal(1)),
             rhs: Box::new(Expression::Literal(4)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 16),
@@ -449,14 +441,14 @@ mod tests {
     #[test]
     fn test_right_shift_simple() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::RightShiftOp {
             lhs: Box::new(Expression::Literal(16)),
             rhs: Box::new(Expression::Literal(2)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 4),
@@ -467,14 +459,14 @@ mod tests {
     #[test]
     fn test_arithmetic_right_shift() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::RightShiftOp {
             lhs: Box::new(Expression::Literal(-8)),
             rhs: Box::new(Expression::Literal(1)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, -4),
@@ -485,14 +477,14 @@ mod tests {
     #[test]
     fn test_shift_negative_amount_error() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::LeftShiftOp {
             lhs: Box::new(Expression::Literal(8)),
             rhs: Box::new(Expression::Literal(-1)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("Invalid shift amount"));
@@ -501,14 +493,14 @@ mod tests {
     #[test]
     fn test_shift_too_large_error() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::LeftShiftOp {
             lhs: Box::new(Expression::Literal(8)),
             rhs: Box::new(Expression::Literal(32)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("Invalid shift amount"));
@@ -521,14 +513,14 @@ mod tests {
     #[test]
     fn test_overflow_addition() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::PlusOp {
             lhs: Box::new(Expression::Literal(i32::MAX)),
             rhs: Box::new(Expression::Literal(1)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("overflow"));
@@ -537,14 +529,14 @@ mod tests {
     #[test]
     fn test_underflow_subtraction() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::MinusOp {
             lhs: Box::new(Expression::Literal(i32::MIN)),
             rhs: Box::new(Expression::Literal(1)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("wraparound"));
@@ -553,14 +545,14 @@ mod tests {
     #[test]
     fn test_overflow_multiplication() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::MultiplyOp {
             lhs: Box::new(Expression::Literal(i32::MAX)),
             rhs: Box::new(Expression::Literal(2)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("overflow"));
@@ -569,13 +561,13 @@ mod tests {
     #[test]
     fn test_overflow_negation() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::NegateOp {
             expr: Box::new(Expression::Literal(i32::MIN)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8);
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("overflow"));
@@ -584,7 +576,7 @@ mod tests {
     #[test]
     fn test_left_shift_sign_extension_ok() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         // -1 << 4 should work (all bits are sign bits)
         let expr = Expression::LeftShiftOp {
@@ -592,7 +584,7 @@ mod tests {
             rhs: Box::new(Expression::Literal(4)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, -16),
@@ -603,7 +595,7 @@ mod tests {
     #[test]
     fn test_right_shift_no_loss() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         // 16 >> 2 = 4, no bits lost (16 = 0b10000, >> 2 = 0b100)
         let expr = Expression::RightShiftOp {
@@ -611,7 +603,7 @@ mod tests {
             rhs: Box::new(Expression::Literal(2)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 4),
@@ -626,12 +618,12 @@ mod tests {
     #[test]
     fn test_negate_positive() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr =
             Expression::NegateOp { expr: Box::new(Expression::Literal(42)) };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, -42),
@@ -642,7 +634,7 @@ mod tests {
     #[test]
     fn test_negate_negative() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         let expr = Expression::NegateOp {
             expr: Box::new(Expression::NegateOp {
@@ -650,7 +642,7 @@ mod tests {
             }),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 42),
@@ -665,7 +657,7 @@ mod tests {
     #[test]
     fn test_parentheses_explicit() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         // (2 + 3) * 4 = 20
         let expr = Expression::MultiplyOp {
@@ -678,7 +670,7 @@ mod tests {
             rhs: Box::new(Expression::Literal(4)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 20),
@@ -689,7 +681,7 @@ mod tests {
     #[test]
     fn test_complex_expression() {
         let source = make_test_source();
-        let layout = make_test_layout_with_line(Segment::Text, 0, 0);
+        let mut layout = make_test_layout_with_line(Segment::Text, 0, 0);
 
         // (10 + 20) * 2 - 5 = 55
         let expr = Expression::MinusOp {
@@ -705,7 +697,7 @@ mod tests {
             rhs: Box::new(Expression::Literal(5)),
         };
 
-        let result = eval_simple(expr, &source, &layout, 0x100e8).unwrap();
+        let result = eval_simple(expr, &source, &mut layout, 0x100e8).unwrap();
 
         match result {
             EvaluatedValue::Integer(i) => assert_eq!(i, 55),
@@ -727,15 +719,14 @@ mod tests {
         layout.header_size = 0;
 
         let text_start = 0x100e8;
-        let (text_start_adjusted, data_start, bss_start) =
-            layout.compute_segment_addresses(text_start);
+        layout.set_segment_addresses(text_start);
 
-        assert_eq!(text_start_adjusted, 0x100e8);
+        assert_eq!(layout.text_start, 0x100e8);
         // data_start should be next 4K boundary after (0x100e8 + 1000)
         // 0x100e8 + 1000 = 0x104d0
         // Next 4K boundary is 0x11000
-        assert_eq!(data_start, 0x11000);
+        assert_eq!(layout.data_start, 0x11000);
         // bss_start should be data_start + data_size
-        assert_eq!(bss_start, 0x11000 + 500);
+        assert_eq!(layout.bss_start, 0x11000 + 500);
     }
 }

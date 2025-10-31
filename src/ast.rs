@@ -56,7 +56,10 @@ pub struct Source {
 
 impl Source {
     /// Get a line from the source by pointer
-    pub fn get_line(&self, pointer: &LinePointer) -> crate::error::Result<&Line> {
+    pub fn get_line(
+        &self,
+        pointer: &LinePointer,
+    ) -> crate::error::Result<&Line> {
         self.files
             .get(pointer.file_index)
             .and_then(|file| file.lines.get(pointer.line_index))

@@ -16,6 +16,7 @@ pub use crate::layout::guess_line_size;
 ///
 /// Allows main.rs to inject debug dump logic into the convergence loop
 /// without coupling this module to dump implementation details.
+#[allow(clippy::too_many_arguments)]
 pub trait ConvergenceCallback {
     /// Called after symbol evaluation, before encoding
     fn on_values_computed(
@@ -25,9 +26,6 @@ pub trait ConvergenceCallback {
         source: &Source,
         symbol_values: &expressions::SymbolValues,
         layout: &crate::layout::Layout,
-        text_start: u32,
-        data_start: u32,
-        bss_start: u32,
     );
 
     /// Called after encoding
@@ -38,9 +36,6 @@ pub trait ConvergenceCallback {
         source: &Source,
         symbol_values: &expressions::SymbolValues,
         layout: &crate::layout::Layout,
-        text_start: u32,
-        data_start: u32,
-        bss_start: u32,
         text_bytes: &[u8],
         data_bytes: &[u8],
     );
@@ -57,9 +52,6 @@ impl ConvergenceCallback for NoOpCallback {
         _: &Source,
         _: &expressions::SymbolValues,
         _: &crate::layout::Layout,
-        _: u32,
-        _: u32,
-        _: u32,
     ) {
     }
     fn on_code_generated(
@@ -69,9 +61,6 @@ impl ConvergenceCallback for NoOpCallback {
         _: &Source,
         _: &expressions::SymbolValues,
         _: &crate::layout::Layout,
-        _: u32,
-        _: u32,
-        _: u32,
         _: &[u8],
         _: &[u8],
     ) {
@@ -127,17 +116,10 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             );
         }
 
-        // Step 2: Calculate all symbol values upfront
-        let symbol_values = expressions::eval_symbol_values(
-            source,
-            symbol_links,
-            layout,
-            text_start,
-        )?;
-
-        // Compute segment addresses for encoding
-        let (text_start_adjusted, data_start, bss_start) =
-            layout.compute_segment_addresses(text_start);
+        // Step 2: Compute segment addresses and calculate all symbol values upfront
+        layout.set_segment_addresses(text_start);
+        let symbol_values =
+            expressions::eval_symbol_values(source, symbol_links, layout)?;
 
         // Callback: after symbol values computed
         callback.on_values_computed(
@@ -146,9 +128,6 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             source,
             &symbol_values,
             layout,
-            text_start_adjusted,
-            data_start,
-            bss_start,
         );
 
         // Step 3: Encode everything and update line sizes
@@ -161,9 +140,6 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             &symbol_values,
             symbol_links,
             layout,
-            text_start_adjusted,
-            data_start,
-            bss_start,
             relax,
             &mut any_changed,
         );
@@ -177,9 +153,6 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             source,
             &symbol_values,
             layout,
-            text_start_adjusted,
-            data_start,
-            bss_start,
             &text_bytes,
             &data_bytes,
         );
@@ -193,9 +166,6 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
                 source,
                 &symbol_values,
                 layout,
-                text_start_adjusted,
-                data_start,
-                bss_start,
             );
             if show_progress {
                 eprintln!(

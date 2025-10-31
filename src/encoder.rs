@@ -62,39 +62,41 @@ pub struct EncodingContext<'a> {
     pub symbol_values: &'a SymbolValues,
     pub symbol_links: &'a SymbolLinks,
     pub layout: &'a crate::layout::Layout,
-    pub text_start: u32,
-    pub data_start: u32,
-    pub bss_start: u32,
     pub file_index: usize,
     pub line_index: usize,
 }
 
 impl<'a> EncodingContext<'a> {
     /// Evaluate an expression in the context of the current line
-    pub fn eval_expression(&self, expr: &Expression, line: &Line) -> Result<EvaluatedValue> {
+    pub fn eval_expression(
+        &self,
+        expr: &Expression,
+        line: &Line,
+    ) -> Result<EvaluatedValue> {
         let pointer = LinePointer {
             file_index: self.file_index,
             line_index: self.line_index,
         };
 
-        // Get layout info to compute current address
-        let line_layout = self.layout.get(&pointer).ok_or_else(|| {
-            AssemblerError::from_context(
-                format!("Internal error: no layout for line"),
-                line.location.clone(),
-            )
-        })?;
-
-        let segment_start = match line_layout.segment {
-            Segment::Text => self.text_start,
-            Segment::Data => self.data_start,
-            Segment::Bss => self.bss_start,
-        };
-        let address = segment_start + line_layout.offset;
+        // Get address from layout
+        let address =
+            self.layout.get_line_address(&pointer).ok_or_else(|| {
+                AssemblerError::from_context(
+                    "Internal error: no layout for line".to_string(),
+                    line.location.clone(),
+                )
+            })?;
 
         // Get symbol references and evaluate
         let refs = self.symbol_links.get_line_refs(&pointer);
-        eval_expr(expr, address, refs, self.symbol_values, self.source, &pointer)
+        eval_expr(
+            expr,
+            address,
+            refs,
+            self.symbol_values,
+            self.source,
+            &pointer,
+        )
     }
 }
 
@@ -108,9 +110,6 @@ pub fn encode_source(
     symbol_values: &SymbolValues,
     symbol_links: &SymbolLinks,
     layout: &mut crate::layout::Layout,
-    text_start: u32,
-    data_start: u32,
-    bss_start: u32,
     relax: &Relax,
     any_changed: &mut bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
@@ -140,9 +139,6 @@ pub fn encode_source(
                 symbol_values,
                 symbol_links,
                 layout,
-                text_start,
-                data_start,
-                bss_start,
                 file_index: file_idx,
                 line_index: line_idx,
             };
@@ -951,19 +947,13 @@ fn get_line_address(_line: &Line, context: &EncodingContext) -> i64 {
         file_index: context.file_index,
         line_index: context.line_index,
     };
-    let line_layout = context.layout.get(&pointer).unwrap_or_else(|| {
+    let addr = context.layout.get_line_address(&pointer).unwrap_or_else(|| {
         panic!(
             "No layout info for line at {}:{}",
             context.file_index, context.line_index
         )
     });
-
-    let segment_start = match line_layout.segment {
-        Segment::Text => context.text_start,
-        Segment::Data => context.data_start,
-        Segment::Bss => context.bss_start,
-    };
-    (segment_start as i64) + (line_layout.offset as i64)
+    addr as i64
 }
 
 /// Encode R-type instruction with opcode lookup
@@ -1234,7 +1224,7 @@ fn encode_pseudo(
                 require_address(val, "la pseudo-instruction", &line.location)?;
 
             let current_pc = get_line_address(line, context);
-            let gp = (context.data_start as i64) + 2048;
+            let gp = (context.layout.data_start as i64) + 2048;
 
             expand_la(*rd, addr, current_pc, gp, &line.location, relax.gp)
         }

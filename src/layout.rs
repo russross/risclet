@@ -41,6 +41,12 @@ pub struct Layout {
     pub text_size: u32,
     pub data_size: u32,
     pub bss_size: u32,
+
+    /// Computed segment start addresses in the final binary
+    /// These are calculated from the nominal text_start and layout sizes
+    pub text_start: u32,
+    pub data_start: u32,
+    pub bss_start: u32,
 }
 
 impl Layout {
@@ -52,6 +58,9 @@ impl Layout {
             text_size: 0,
             data_size: 0,
             bss_size: 0,
+            text_start: 0,
+            data_start: 0,
+            bss_start: 0,
         }
     }
 
@@ -65,28 +74,38 @@ impl Layout {
         self.lines.insert(pointer, layout);
     }
 
-    /// Compute absolute segment start addresses from text_start and layout sizes
+    /// Set segment start addresses based on nominal text_start
     ///
-    /// This method encapsulates the segment address calculation logic that determines
-    /// where each segment starts in the final binary:
-    ///
-    /// - **text_start_adjusted**: Account for ELF header before text segment
-    /// - **data_start**: Align to 4K boundary after text segment
+    /// This computes the concrete segment start addresses in the final binary:
+    /// - **text_start**: Adjusted to account for ELF header before text segment
+    /// - **data_start**: Aligned to 4K boundary after text segment
     /// - **bss_start**: Immediately after data segment
-    ///
-    /// Returns a tuple of (text_start_adjusted, data_start, bss_start).
-    pub fn compute_segment_addresses(&self, text_start: u32) -> (u32, u32, u32) {
+    pub fn set_segment_addresses(&mut self, nominal_text_start: u32) {
         // Adjust text_start to account for ELF header
-        let text_start_adjusted = text_start + self.header_size;
+        self.text_start = nominal_text_start + self.header_size;
 
         // Align data_start to 4K boundary after text segment
-        let text_end = text_start_adjusted + self.text_size;
-        let data_start = (text_end + 4095) & !(4096 - 1);
+        let text_end = self.text_start + self.text_size;
+        self.data_start = (text_end + 4095) & !(4096 - 1);
 
         // BSS starts immediately after data
-        let bss_start = data_start + self.data_size;
+        self.bss_start = self.data_start + self.data_size;
+    }
 
-        (text_start_adjusted, data_start, bss_start)
+    /// Compute the concrete address of a line in the final binary
+    ///
+    /// Given a line pointer, returns the absolute address in the executable where
+    /// this line's content will reside, accounting for segment base address and
+    /// offset within the segment.
+    pub fn get_line_address(&self, pointer: &LinePointer) -> Option<u32> {
+        self.get(pointer).map(|line_layout| {
+            let segment_start = match line_layout.segment {
+                Segment::Text => self.text_start,
+                Segment::Data => self.data_start,
+                Segment::Bss => self.bss_start,
+            };
+            segment_start + line_layout.offset
+        })
     }
 }
 

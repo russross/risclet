@@ -39,9 +39,7 @@ pub struct SymbolValues {
 impl SymbolValues {
     /// Create an empty SymbolValues
     pub fn new() -> Self {
-        SymbolValues {
-            values: HashMap::new(),
-        }
+        SymbolValues { values: HashMap::new() }
     }
 
     /// Look up a symbol value
@@ -77,12 +75,7 @@ pub fn eval_symbol_values(
     source: &Source,
     symbol_links: &SymbolLinks,
     layout: &crate::layout::Layout,
-    text_start: u32,
 ) -> Result<SymbolValues> {
-    // Compute segment addresses
-    let (text_start_adjusted, data_start, bss_start) =
-        layout.compute_segment_addresses(text_start);
-
     // Start with empty symbol values
     let mut symbol_values = SymbolValues::new();
 
@@ -94,16 +87,15 @@ pub fn eval_symbol_values(
             // Only process lines that define symbols (labels and .equ)
             let symbol_name = match &line.content {
                 LineContent::Label(name) => Some(name.clone()),
-                LineContent::Directive(Directive::Equ(name, _)) => Some(name.clone()),
+                LineContent::Directive(Directive::Equ(name, _)) => {
+                    Some(name.clone())
+                }
                 _ => None,
             };
 
             if let Some(name) = symbol_name {
                 // Create symbol reference for this definition
-                let sym_ref = SymbolReference {
-                    symbol: name,
-                    pointer,
-                };
+                let sym_ref = SymbolReference { symbol: name, pointer };
 
                 // Recursively evaluate this symbol and its dependencies
                 let mut cycle_stack = Vec::new();
@@ -112,9 +104,6 @@ pub fn eval_symbol_values(
                     source,
                     symbol_links,
                     layout,
-                    text_start_adjusted,
-                    data_start,
-                    bss_start,
                     &mut symbol_values,
                     &mut cycle_stack,
                 )?;
@@ -135,9 +124,6 @@ fn eval_symbol_recursive(
     source: &Source,
     symbol_links: &SymbolLinks,
     layout: &crate::layout::Layout,
-    text_start: u32,
-    data_start: u32,
-    bss_start: u32,
     symbol_values: &mut SymbolValues,
     cycle_stack: &mut Vec<SymbolReference>,
 ) -> Result<()> {
@@ -169,18 +155,16 @@ fn eval_symbol_recursive(
     let value = match &line.content {
         LineContent::Label(_) => {
             // Base case: label address is computed from layout
-            let line_layout = layout.get(&key.pointer).ok_or_else(|| {
-                AssemblerError::from_context(
-                    format!("Internal error: no layout for label '{}'", key.symbol),
-                    line.location.clone(),
-                )
-            })?;
-            let segment_start = match line_layout.segment {
-                Segment::Text => text_start,
-                Segment::Data => data_start,
-                Segment::Bss => bss_start,
-            };
-            let addr = segment_start.wrapping_add(line_layout.offset);
+            let addr =
+                layout.get_line_address(&key.pointer).ok_or_else(|| {
+                    AssemblerError::from_context(
+                        format!(
+                            "Internal error: no layout for label '{}'",
+                            key.symbol
+                        ),
+                        line.location.clone(),
+                    )
+                })?;
             EvaluatedValue::Address(addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
@@ -195,9 +179,6 @@ fn eval_symbol_recursive(
                     source,
                     symbol_links,
                     layout,
-                    text_start,
-                    data_start,
-                    bss_start,
                     symbol_values,
                     cycle_stack,
                 )?;
@@ -206,18 +187,16 @@ fn eval_symbol_recursive(
             cycle_stack.pop();
 
             // Now evaluate the expression (all dependencies resolved)
-            let line_layout = layout.get(&key.pointer).ok_or_else(|| {
-                AssemblerError::from_context(
-                    format!("Internal error: no layout for .equ '{}'", key.symbol),
-                    line.location.clone(),
-                )
-            })?;
-            let segment_start = match line_layout.segment {
-                Segment::Text => text_start,
-                Segment::Data => data_start,
-                Segment::Bss => bss_start,
-            };
-            let address = segment_start + line_layout.offset;
+            let address =
+                layout.get_line_address(&key.pointer).ok_or_else(|| {
+                    AssemblerError::from_context(
+                        format!(
+                            "Internal error: no layout for .equ '{}'",
+                            key.symbol
+                        ),
+                        line.location.clone(),
+                    )
+                })?;
 
             let refs = symbol_links.get_line_refs(&key.pointer);
             eval_expr(expr, address, refs, symbol_values, source, &key.pointer)?
@@ -304,14 +283,20 @@ pub fn eval_expr(
                 .find(|r| r.symbol == label_name)
                 .ok_or_else(|| {
                     AssemblerError::from_context(
-                        format!("Unresolved numeric label '{}' (internal error)", nlr),
+                        format!(
+                            "Unresolved numeric label '{}' (internal error)",
+                            nlr
+                        ),
                         location.clone(),
                     )
                 })?;
 
             symbol_values.get(sym_ref).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Numeric label '{}' not resolved (internal error)", label_name),
+                    format!(
+                        "Numeric label '{}' not resolved (internal error)",
+                        label_name
+                    ),
                     location.clone(),
                 )
             })
@@ -322,25 +307,34 @@ pub fn eval_expr(
         }
 
         Expression::PlusOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             checked_add(lhs_val, rhs_val, location)
         }
 
         Expression::MinusOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             checked_sub(lhs_val, rhs_val, location)
         }
 
         Expression::MultiplyOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "multiplication", location)?;
             let rhs_int = require_integer(rhs_val, "multiplication", location)?;
             let result = lhs_int.checked_mul(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in multiplication: {} * {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in multiplication: {} * {}",
+                        lhs_int, rhs_int
+                    ),
                     location.clone(),
                 )
             })?;
@@ -348,8 +342,10 @@ pub fn eval_expr(
         }
 
         Expression::DivideOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "division", location)?;
             let rhs_int = require_integer(rhs_val, "division", location)?;
             if rhs_int == 0 {
@@ -360,7 +356,10 @@ pub fn eval_expr(
             }
             let result = lhs_int.checked_div(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in division: {} / {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in division: {} / {}",
+                        lhs_int, rhs_int
+                    ),
                     location.clone(),
                 )
             })?;
@@ -368,8 +367,10 @@ pub fn eval_expr(
         }
 
         Expression::ModuloOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "modulo", location)?;
             let rhs_int = require_integer(rhs_val, "modulo", location)?;
             if rhs_int == 0 {
@@ -380,7 +381,10 @@ pub fn eval_expr(
             }
             let result = lhs_int.checked_rem(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in modulo: {} % {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in modulo: {} % {}",
+                        lhs_int, rhs_int
+                    ),
                     location.clone(),
                 )
             })?;
@@ -388,8 +392,10 @@ pub fn eval_expr(
         }
 
         Expression::LeftShiftOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "left shift", location)?;
             let rhs_int = require_integer(rhs_val, "left shift", location)?;
 
@@ -400,18 +406,24 @@ pub fn eval_expr(
                 ));
             }
 
-            let result = lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
-                AssemblerError::from_context(
-                    format!("Arithmetic overflow in left shift: {} << {}", lhs_int, rhs_int),
-                    location.clone(),
-                )
-            })?;
+            let result =
+                lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
+                    AssemblerError::from_context(
+                        format!(
+                            "Arithmetic overflow in left shift: {} << {}",
+                            lhs_int, rhs_int
+                        ),
+                        location.clone(),
+                    )
+                })?;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::RightShiftOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "right shift", location)?;
             let rhs_int = require_integer(rhs_val, "right shift", location)?;
 
@@ -427,8 +439,10 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseOrOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "bitwise OR", location)?;
             let rhs_int = require_integer(rhs_val, "bitwise OR", location)?;
             let result = lhs_int | rhs_int;
@@ -436,8 +450,10 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseAndOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "bitwise AND", location)?;
             let rhs_int = require_integer(rhs_val, "bitwise AND", location)?;
             let result = lhs_int & rhs_int;
@@ -445,8 +461,10 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseXorOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "bitwise XOR", location)?;
             let rhs_int = require_integer(rhs_val, "bitwise XOR", location)?;
             let result = lhs_int ^ rhs_int;
@@ -454,7 +472,8 @@ pub fn eval_expr(
         }
 
         Expression::NegateOp { expr } => {
-            let val = eval_expr(expr, address, refs, symbol_values, source, pointer)?;
+            let val =
+                eval_expr(expr, address, refs, symbol_values, source, pointer)?;
             let int = require_integer(val, "negation", location)?;
             let result = int.checked_neg().ok_or_else(|| {
                 AssemblerError::from_context(
@@ -466,7 +485,8 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseNotOp { expr } => {
-            let val = eval_expr(expr, address, refs, symbol_values, source, pointer)?;
+            let val =
+                eval_expr(expr, address, refs, symbol_values, source, pointer)?;
             let int = require_integer(val, "bitwise NOT", location)?;
             Ok(EvaluatedValue::Integer(!int))
         }
