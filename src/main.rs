@@ -1,4 +1,4 @@
-use ast::{Line, LinePointer, Source, SourceFile};
+use ast::{Line, Source, SourceFile};
 use encoder::Relax;
 use error::AssemblerError;
 use std::env;
@@ -275,10 +275,14 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         pass: usize,
         is_final: bool,
         source: &Source,
-        eval_context: &mut expressions::EvaluationContext,
+        symbol_values: &expressions::SymbolValues,
+        layout: &crate::layout::Layout,
+        text_start: u32,
+        data_start: u32,
+        bss_start: u32,
     ) {
         if let Some(ref spec) = self.dump_config.dump_values {
-            dump::dump_values(pass, is_final, source, eval_context, spec);
+            dump::dump_values(pass, is_final, source, symbol_values, layout, text_start, data_start, bss_start, spec);
         }
     }
 
@@ -287,7 +291,11 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         pass: usize,
         is_final: bool,
         source: &Source,
-        eval_context: &mut expressions::EvaluationContext,
+        symbol_values: &expressions::SymbolValues,
+        layout: &crate::layout::Layout,
+        text_start: u32,
+        data_start: u32,
+        bss_start: u32,
         text_bytes: &[u8],
         data_bytes: &[u8],
     ) {
@@ -296,7 +304,11 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
                 pass,
                 is_final,
                 source,
-                eval_context,
+                symbol_values,
+                layout,
+                text_start,
+                data_start,
+                bss_start,
                 text_bytes,
                 data_bytes,
                 spec,
@@ -432,51 +444,35 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
     // Phase 4: Generate ELF binary
     // ========================================================================
 
-    // Create evaluation context for symbol values and ELF generation
-    let mut eval_context = expressions::new_evaluation_context(
-        source.clone(),
-        symbol_links.clone(),
-        layout.clone(),
-        config.text_start,
-    );
-
-    // Evaluate all symbols to populate the context
-    for (file_index, file) in source.files.iter().enumerate() {
-        for (line_index, line) in file.lines.iter().enumerate() {
-            let pointer = LinePointer { file_index, line_index };
-            let _ = expressions::evaluate_line_symbols(
-                line,
-                &pointer,
-                &mut eval_context,
-            );
-        }
-    }
+    // Compute segment addresses for ELF generation
+    let (text_start_adjusted, data_start, bss_start) =
+        layout.compute_segment_addresses(config.text_start);
 
     // Build ELF binary
     let has_data = !data_bytes.is_empty();
     let has_bss = bss_size > 0;
 
     let mut elf_builder = elf::ElfBuilder::new(
-        eval_context.text_start as u32,
-        eval_context.layout.header_size as u32,
+        text_start_adjusted,
+        layout.header_size as u32,
     );
     elf_builder.set_segments(
         text_bytes.clone(),
         data_bytes.clone(),
         bss_size,
-        eval_context.data_start as u32,
-        eval_context.bss_start as u32,
+        data_start,
+        bss_start,
     );
 
     // Build symbol table
     elf::build_symbol_table(
         &source,
         &symbol_links,
-        &eval_context.layout,
+        &layout,
         &mut elf_builder,
-        eval_context.text_start as u32,
-        eval_context.data_start as u32,
-        eval_context.bss_start as u32,
+        text_start_adjusted,
+        data_start,
+        bss_start,
         has_data,
         has_bss,
     );
@@ -511,16 +507,16 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
             let pointer = g.definition_pointer.clone();
-            if let Some(line_layout) = eval_context.layout.get(&pointer) {
+            if let Some(line_layout) = layout.get(&pointer) {
                 let offset = match line_layout.segment {
                     ast::Segment::Text => {
-                        eval_context.text_start + line_layout.offset
+                        text_start_adjusted + line_layout.offset
                     }
                     ast::Segment::Data => {
-                        eval_context.data_start + line_layout.offset
+                        data_start + line_layout.offset
                     }
                     ast::Segment::Bss => {
-                        eval_context.bss_start + line_layout.offset
+                        bss_start + line_layout.offset
                     }
                 };
                 Ok(offset as u64)

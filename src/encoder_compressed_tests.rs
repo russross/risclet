@@ -11,7 +11,6 @@ mod tests {
             &CompressedOp::CNop,
             &CompressedOperands::None,
             &location,
-            None,
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0x0001);
@@ -25,7 +24,6 @@ mod tests {
             &CompressedOp::CEbreak,
             &CompressedOperands::None,
             &location,
-            None,
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0x9002);

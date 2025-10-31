@@ -5,7 +5,7 @@
 
 use crate::ast::*;
 use crate::elf::ElfBuilder;
-use crate::expressions::{self, EvaluatedValue, EvaluationContext};
+use crate::expressions;
 use crate::symbols::SymbolLinks;
 
 /// Check if a file is the builtin symbols file that should be hidden from dumps
@@ -641,7 +641,11 @@ pub fn dump_values(
     pass_number: usize,
     is_final: bool,
     source: &Source,
-    eval_context: &mut EvaluationContext,
+    symbol_values: &expressions::SymbolValues,
+    layout: &crate::layout::Layout,
+    text_start: u32,
+    data_start: u32,
+    bss_start: u32,
     spec: &DumpSpec,
 ) {
     if !should_include_pass(pass_number, &spec.passes, is_final) {
@@ -654,7 +658,7 @@ pub fn dump_values(
         if is_final { " - FINAL" } else { "" }
     );
 
-    let addr_width = calculate_address_width(eval_context.text_start);
+    let addr_width = calculate_address_width(text_start);
 
     for (file_index, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
@@ -672,13 +676,13 @@ pub fn dump_values(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address from layout
             let pointer = LinePointer { file_index, line_index };
-            let line_layout = eval_context.layout.get(&pointer);
+            let line_layout = layout.get(&pointer);
 
             let segment =
                 line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
             let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
 
-            let segment_base = get_segment_base(segment, eval_context);
+            let segment_base = get_segment_base(segment, text_start, data_start, bss_start);
             let abs_addr = segment_base + offset;
 
             let (loc_str, padding) =
@@ -693,7 +697,7 @@ pub fn dump_values(
 
             // Collect and show evaluated expression values
             let expr_values =
-                collect_expression_values(line, &pointer, eval_context);
+                collect_expression_values(line, symbol_values, layout, text_start, data_start, bss_start);
             if !expr_values.is_empty() {
                 print!("  # ");
                 for (i, val_str) in expr_values.iter().enumerate() {
@@ -719,7 +723,11 @@ pub fn dump_code(
     pass_number: usize,
     is_final: bool,
     source: &Source,
-    eval_context: &mut EvaluationContext,
+    _symbol_values: &expressions::SymbolValues,
+    layout: &crate::layout::Layout,
+    text_start: u32,
+    data_start: u32,
+    bss_start: u32,
     text_bytes: &[u8],
     data_bytes: &[u8],
     spec: &DumpSpec,
@@ -734,7 +742,7 @@ pub fn dump_code(
         if is_final { " - FINAL" } else { "" }
     );
 
-    let addr_width = calculate_address_width(eval_context.text_start);
+    let addr_width = calculate_address_width(text_start);
 
     for (file_index, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
@@ -752,14 +760,14 @@ pub fn dump_code(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address and encoded bytes from layout
             let pointer = LinePointer { file_index, line_index };
-            let line_layout = eval_context.layout.get(&pointer);
+            let line_layout = layout.get(&pointer);
 
             let segment =
                 line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
             let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
             let size = line_layout.map(|ll| ll.size).unwrap_or(0);
 
-            let segment_base = get_segment_base(segment, eval_context);
+            let segment_base = get_segment_base(segment, text_start, data_start, bss_start);
             let abs_addr = segment_base + offset;
             let encoded_bytes = get_encoded_bytes_with_layout(
                 size, segment, offset, text_bytes, data_bytes,
@@ -1224,11 +1232,11 @@ fn format_address(addr: u32, addr_width: usize, segment: Segment) -> String {
     format!("{:0width$x}{}", addr, suffix, width = addr_width)
 }
 
-fn get_segment_base(segment: Segment, eval_context: &EvaluationContext) -> u32 {
+fn get_segment_base(segment: Segment, text_start: u32, data_start: u32, bss_start: u32) -> u32 {
     match segment {
-        Segment::Text => eval_context.text_start,
-        Segment::Data => eval_context.data_start,
-        Segment::Bss => eval_context.bss_start,
+        Segment::Text => text_start,
+        Segment::Data => data_start,
+        Segment::Bss => bss_start,
     }
 }
 
@@ -1270,111 +1278,55 @@ fn get_encoded_bytes_with_layout(
 
 fn collect_expression_values(
     line: &Line,
-    pointer: &LinePointer,
-    eval_context: &mut EvaluationContext,
+    _symbol_values: &expressions::SymbolValues,
+    _layout: &crate::layout::Layout,
+    _text_start: u32,
+    _data_start: u32,
+    _bss_start: u32,
 ) -> Vec<String> {
-    let mut values = Vec::new();
+    let mut results = Vec::new();
 
-    // Helper to format an evaluated expression value
-    let mut format_value = |expr: &Expression| -> String {
-        match expressions::eval_expr_old(expr, line, pointer, eval_context) {
-            Ok(value) => match value {
-                EvaluatedValue::Integer(i) => format!("{}", i),
-                EvaluatedValue::Address(a) => {
-                    format!("0x{:x}", a)
-                }
-            },
-            Err(_) => "ERROR".to_string(),
-        }
-    };
-
+    // Helper to extract expressions from different line content types
     match &line.content {
-        LineContent::Label(_label) => {}
-        LineContent::Directive(dir) => match dir {
-            Directive::Equ(_, expr) => {
-                values.push(format_value(expr));
-            }
-            Directive::Byte(exprs)
-            | Directive::TwoByte(exprs)
-            | Directive::FourByte(exprs) => {
-                for expr in exprs.iter() {
-                    values.push(format_value(expr));
-                }
-            }
-            Directive::Space(expr) => {
-                values.push(format_value(expr));
-            }
-            Directive::Balign(expr) => {
-                values.push(format_value(expr));
-            }
-            _ => {}
-        },
         LineContent::Instruction(inst) => {
-            // Show expressions in instruction operands
-            let exprs = extract_instruction_expressions(inst);
-            for expr in exprs.iter() {
-                values.push(format_value(expr));
+            // Extract expressions from instruction operands
+            match inst {
+                Instruction::IType(_, _, _, expr)
+                | Instruction::BType(_, _, _, expr)
+                | Instruction::UType(_, _, expr)
+                | Instruction::JType(_, _, expr)
+                | Instruction::LoadStore(_, _, expr, _) => {
+                    if let Expression::Literal(val) = expr.as_ref() {
+                        results.push(format!("{}", val));
+                    }
+                }
+                Instruction::Pseudo(pseudo) => match pseudo {
+                    PseudoOp::La(_, expr)
+                    | PseudoOp::Li(_, expr)
+                    | PseudoOp::Call(expr)
+                    | PseudoOp::Tail(expr) => {
+                        if let Expression::Literal(val) = expr.as_ref() {
+                            results.push(format!("{}", val));
+                        }
+                    }
+                    PseudoOp::LoadGlobal(_, _, expr) | PseudoOp::StoreGlobal(_, _, expr, _) => {
+                        if let Expression::Literal(val) = expr.as_ref() {
+                            results.push(format!("{}", val));
+                        }
+                    }
+                },
+                _ => {}
             }
         }
+        LineContent::Directive(Directive::Equ(_, expr)) => {
+            // For .equ directives, evaluate the expression
+            if let Expression::Literal(val) = expr {
+                results.push(format!("= {}", val));
+            }
+        }
+        _ => {}
     }
 
-    values
+    results
 }
 
-fn extract_instruction_expressions(inst: &Instruction) -> Vec<&Expression> {
-    let mut exprs = Vec::new();
-
-    match inst {
-        Instruction::RType(..) => {}
-        Instruction::IType(_, _, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        Instruction::BType(_, _, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        Instruction::UType(_, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        Instruction::JType(_, _, expr) => {
-            exprs.push(expr.as_ref());
-        }
-        Instruction::LoadStore(_, _, expr, _) => {
-            exprs.push(expr.as_ref());
-        }
-        Instruction::Atomic(_, _, _, _, _) => {
-            // Atomic instructions don't have expressions
-        }
-        Instruction::Compressed(_, operands) => {
-            // Extract expressions from compressed instruction operands
-            use crate::ast::CompressedOperands::*;
-            match operands {
-                CR { .. }
-                | CRSingle { .. }
-                | CA { .. }
-                | crate::ast::CompressedOperands::None => {}
-                CI { imm, .. } => exprs.push(imm.as_ref()),
-                CIStackLoad { offset, .. } => exprs.push(offset.as_ref()),
-                CSSStackStore { offset, .. } => exprs.push(offset.as_ref()),
-                CIW { imm, .. } => exprs.push(imm.as_ref()),
-                CL { offset, .. } => exprs.push(offset.as_ref()),
-                CS { offset, .. } => exprs.push(offset.as_ref()),
-                CBImm { imm, .. } => exprs.push(imm.as_ref()),
-                CBBranch { offset, .. } => exprs.push(offset.as_ref()),
-                CJOpnd { offset } => exprs.push(offset.as_ref()),
-            }
-        }
-        Instruction::Special(_) => {}
-        Instruction::Pseudo(pseudo) => match pseudo {
-            PseudoOp::La(_, expr)
-            | PseudoOp::LoadGlobal(_, _, expr)
-            | PseudoOp::StoreGlobal(_, _, expr, _)
-            | PseudoOp::Li(_, expr)
-            | PseudoOp::Call(expr)
-            | PseudoOp::Tail(expr) => {
-                exprs.push(expr.as_ref());
-            }
-        },
-    }
-
-    exprs
-}

@@ -2,7 +2,7 @@
 //
 // Core assembly pipeline functions shared between main.rs and tests
 
-use crate::ast::{LinePointer, Source};
+use crate::ast::Source;
 use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};
 use crate::expressions;
@@ -23,7 +23,11 @@ pub trait ConvergenceCallback {
         pass: usize,
         is_final: bool,
         source: &Source,
-        eval_context: &mut expressions::EvaluationContext,
+        symbol_values: &expressions::SymbolValues,
+        layout: &crate::layout::Layout,
+        text_start: u32,
+        data_start: u32,
+        bss_start: u32,
     );
 
     /// Called after encoding
@@ -32,7 +36,11 @@ pub trait ConvergenceCallback {
         pass: usize,
         is_final: bool,
         source: &Source,
-        eval_context: &mut expressions::EvaluationContext,
+        symbol_values: &expressions::SymbolValues,
+        layout: &crate::layout::Layout,
+        text_start: u32,
+        data_start: u32,
+        bss_start: u32,
         text_bytes: &[u8],
         data_bytes: &[u8],
     );
@@ -47,7 +55,11 @@ impl ConvergenceCallback for NoOpCallback {
         _: usize,
         _: bool,
         _: &Source,
-        _: &mut expressions::EvaluationContext,
+        _: &expressions::SymbolValues,
+        _: &crate::layout::Layout,
+        _: u32,
+        _: u32,
+        _: u32,
     ) {
     }
     fn on_code_generated(
@@ -55,7 +67,11 @@ impl ConvergenceCallback for NoOpCallback {
         _: usize,
         _: bool,
         _: &Source,
-        _: &mut expressions::EvaluationContext,
+        _: &expressions::SymbolValues,
+        _: &crate::layout::Layout,
+        _: u32,
+        _: u32,
+        _: u32,
         _: &[u8],
         _: &[u8],
     ) {
@@ -111,43 +127,43 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             );
         }
 
-        // Step 2 & 3: Calculate symbol values and evaluate expressions
-        let mut eval_context = expressions::new_evaluation_context(
-            source.clone(),
-            symbol_links.clone(),
-            layout.clone(),
+        // Step 2: Calculate all symbol values upfront
+        let symbol_values = expressions::eval_symbol_values(
+            source,
+            symbol_links,
+            layout,
             text_start,
-        );
+        )?;
 
-        // Evaluate all line symbols to populate the expression evaluation context
-        for (file_index, file) in source.files.iter().enumerate() {
-            for (line_index, line) in file.lines.iter().enumerate() {
-                let pointer = LinePointer { file_index, line_index };
-                expressions::evaluate_line_symbols(
-                    line,
-                    &pointer,
-                    &mut eval_context,
-                )?;
-            }
-        }
+        // Compute segment addresses for encoding
+        let (text_start_adjusted, data_start, bss_start) =
+            layout.compute_segment_addresses(text_start);
 
         // Callback: after symbol values computed
         callback.on_values_computed(
             pass_number,
             false,
             source,
-            &mut eval_context,
+            &symbol_values,
+            layout,
+            text_start_adjusted,
+            data_start,
+            bss_start,
         );
 
-        // Step 4: Encode everything and update line sizes
+        // Step 3: Encode everything and update line sizes
         // Track if any size changed
         let mut any_changed = false;
 
         // Encode and collect results
         let encode_result = encode_source(
             source,
-            &mut eval_context,
+            &symbol_values,
+            symbol_links,
             layout,
+            text_start_adjusted,
+            data_start,
+            bss_start,
             relax,
             &mut any_changed,
         );
@@ -159,19 +175,27 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             pass_number,
             !any_changed, // is_final if no changes
             source,
-            &mut eval_context,
+            &symbol_values,
+            layout,
+            text_start_adjusted,
+            data_start,
+            bss_start,
             &text_bytes,
             &data_bytes,
         );
 
-        // Step 5: Check convergence
+        // Step 4: Check convergence
         if !any_changed {
             // Converged! Call final value callback
             callback.on_values_computed(
                 pass_number,
                 true,
                 source,
-                &mut eval_context,
+                &symbol_values,
+                layout,
+                text_start_adjusted,
+                data_start,
+                bss_start,
             );
             if show_progress {
                 eprintln!(

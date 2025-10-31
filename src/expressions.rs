@@ -27,148 +27,130 @@ impl fmt::Display for EvaluatedValue {
     }
 }
 
-pub struct EvaluationContext {
-    /// The complete source with all files, lines, and linked symbols
-    source: Source,
-
-    /// Symbol information extracted during linking
-    symbol_links: SymbolLinks,
-
-    /// Layout information (segment assignments, offsets, sizes)
-    pub layout: crate::layout::Layout,
-
-    /// Memoization table: (symbol, definition location) -> evaluated value
-    symbol_values: HashMap<SymbolReference, EvaluatedValue>,
-
-    /// Segment start addresses
-    pub text_start: u32,
-    pub data_start: u32,
-    pub bss_start: u32,
-
-    /// Current line context for looking up symbol references
-    current_line_pointer: LinePointer,
+/// A container for evaluated symbol values
+///
+/// This type wraps a HashMap of symbol values to provide a clean interface
+/// for symbol value lookup. It represents the result of evaluating all symbols
+/// in the program (both labels and .equ definitions).
+pub struct SymbolValues {
+    values: HashMap<SymbolReference, EvaluatedValue>,
 }
 
-impl EvaluationContext {
-    /// Get the start address of a segment
-    fn segment_start(&self, segment: Segment) -> u32 {
-        match segment {
-            Segment::Text => self.text_start,
-            Segment::Data => self.data_start,
-            Segment::Bss => self.bss_start,
+impl SymbolValues {
+    /// Create an empty SymbolValues
+    pub fn new() -> Self {
+        SymbolValues {
+            values: HashMap::new(),
         }
     }
 
-    /// Get a line from the source by pointer
-    fn get_line(&self, pointer: &LinePointer) -> Result<&Line> {
-        self.source
-            .files
-            .get(pointer.file_index)
-            .and_then(|file| file.lines.get(pointer.line_index))
-            .ok_or_else(|| {
-                AssemblerError::no_context(format!(
-                    "Internal error: invalid line pointer [{}:{}]",
-                    pointer.file_index, pointer.line_index
-                ))
-            })
+    /// Look up a symbol value
+    pub fn get(&self, key: &SymbolReference) -> Option<EvaluatedValue> {
+        self.values.get(key).copied()
+    }
+
+    /// Insert or update a symbol value (internal)
+    fn insert(&mut self, key: SymbolReference, value: EvaluatedValue) {
+        self.values.insert(key, value);
+    }
+
+    /// Check if a symbol is already evaluated (internal)
+    fn contains_key(&self, key: &SymbolReference) -> bool {
+        self.values.contains_key(key)
     }
 }
 
-/// Create an evaluation context with segment addresses and seed the symbol table
-pub fn new_evaluation_context(
-    source: Source,
-    symbol_links: SymbolLinks,
-    layout: crate::layout::Layout,
+impl Default for SymbolValues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Evaluate all symbols (labels and .equ definitions) in the program
+///
+/// This function computes all symbol values upfront, once per convergence iteration.
+/// It replaces the per-line evaluation approach by processing all symbols globally
+/// with full dependency resolution and cycle detection.
+///
+/// Returns a `SymbolValues` containing all evaluated symbols.
+pub fn eval_symbol_values(
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    layout: &crate::layout::Layout,
     text_start: u32,
-) -> EvaluationContext {
-    // The first instruction in the text segment is pushed back
-    // by the ELF header + program header table
-    let text_first_instruction = text_start + layout.header_size;
+) -> Result<SymbolValues> {
+    // Compute segment addresses
+    let (text_start_adjusted, data_start, bss_start) =
+        layout.compute_segment_addresses(text_start);
 
-    // Calculate segment addresses
-    let text_size = layout.text_size;
-    let data_size = layout.data_size;
+    // Start with empty symbol values
+    let mut symbol_values = SymbolValues::new();
 
-    // data_start = next 4K page boundary after (text_start + text_size)
-    let data_start = (text_first_instruction + text_size + 4095) & !(4096 - 1);
+    // Iterate all files and lines, evaluating labels and .equ definitions
+    for (file_index, file) in source.files.iter().enumerate() {
+        for (line_index, line) in file.lines.iter().enumerate() {
+            let pointer = LinePointer { file_index, line_index };
 
-    // bss_start = immediately after data
-    let bss_start = data_start + data_size;
+            // Only process lines that define symbols (labels and .equ)
+            let symbol_name = match &line.content {
+                LineContent::Label(name) => Some(name.clone()),
+                LineContent::Directive(Directive::Equ(name, _)) => Some(name.clone()),
+                _ => None,
+            };
 
-    EvaluationContext {
-        source,
-        symbol_links,
-        layout,
-        symbol_values: HashMap::new(),
-        text_start: text_first_instruction,
-        data_start,
-        bss_start,
-        current_line_pointer: LinePointer { file_index: 0, line_index: 0 },
-    }
-}
+            if let Some(name) = symbol_name {
+                // Create symbol reference for this definition
+                let sym_ref = SymbolReference {
+                    symbol: name,
+                    pointer,
+                };
 
-/// Evaluate an expression in the context of a specific line
-///
-/// This is the main entry point for code generation. It implements the two-phase evaluation:
-/// 1. Forward phase: Ensure all symbol dependencies are resolved and memoized
-/// 2. Backward phase: Evaluate the expression using cached values
-pub fn eval_expr_old(
-    expr: &Expression,
-    line: &Line,
-    pointer: &LinePointer,
-    context: &mut EvaluationContext,
-) -> Result<EvaluatedValue> {
-    // Set the current line context for symbol lookups
-    context.current_line_pointer = pointer.clone();
-
-    // Resolve all symbol dependencies
-    evaluate_line_symbols(line, pointer, context)?;
-
-    // Evaluate the expression now that all symbol values are cached
-    evaluate_expression(expr, context, line)
-}
-
-/// Ensure all symbols referenced by a line are evaluated
-///
-/// This function resolves all symbols that a line depends on before evaluating
-/// the line's expressions. This is called before code generation for each line.
-///
-/// This is the forward phase of recursive evaluation: all symbol dependencies are
-/// computed and memoized before any expressions are evaluated.
-pub fn evaluate_line_symbols(
-    _line: &Line,
-    pointer: &LinePointer,
-    context: &mut EvaluationContext,
-) -> Result<()> {
-    let mut cycle_stack = Vec::new();
-
-    let sym_refs = context.symbol_links.get_line_refs(pointer).to_vec();
-    for sym_ref in sym_refs {
-        resolve_symbol_dependencies(&sym_ref, context, &mut cycle_stack)?;
+                // Recursively evaluate this symbol and its dependencies
+                let mut cycle_stack = Vec::new();
+                eval_symbol_recursive(
+                    &sym_ref,
+                    source,
+                    symbol_links,
+                    layout,
+                    text_start_adjusted,
+                    data_start,
+                    bss_start,
+                    &mut symbol_values,
+                    &mut cycle_stack,
+                )?;
+            }
+        }
     }
 
-    Ok(())
+    Ok(symbol_values)
 }
 
-/// Forward phase: Recursively resolve a symbol and all its dependencies
+/// Recursively evaluate a symbol and all its dependencies
 ///
-/// This function ensures that a symbol and all symbols it transitively depends on
-/// are computed and memoized. It uses cycle detection to prevent infinite recursion.
-fn resolve_symbol_dependencies(
+/// This is a refactored version of `resolve_symbol_dependencies()` that works
+/// with explicit segment addresses and the new `SymbolValues` type instead of
+/// relying on mutable context.
+fn eval_symbol_recursive(
     key: &SymbolReference,
-    context: &mut EvaluationContext,
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    layout: &crate::layout::Layout,
+    text_start: u32,
+    data_start: u32,
+    bss_start: u32,
+    symbol_values: &mut SymbolValues,
     cycle_stack: &mut Vec<SymbolReference>,
 ) -> Result<()> {
-    // Already resolved?
-    if context.symbol_values.contains_key(key) {
+    // Base case: already evaluated
+    if symbol_values.contains_key(key) {
         return Ok(());
     }
 
-    // Detect cycles
+    // Base case: cycle detection
     if cycle_stack.contains(key) {
         let cycle_chain: Vec<String> =
             cycle_stack.iter().map(|k| k.symbol.clone()).collect();
-        let line = context.get_line(&key.pointer)?;
+        let line = source.get_line(&key.pointer)?;
         return Err(AssemblerError::from_context(
             format!(
                 "Circular reference in symbol '{}': {} -> {}",
@@ -180,58 +162,65 @@ fn resolve_symbol_dependencies(
         ));
     }
 
-    // Push to cycle stack
-    cycle_stack.push(key.clone());
-
     // Get the line where this symbol is defined
-    let line = context.get_line(&key.pointer)?;
+    let line = source.get_line(&key.pointer)?;
 
-    // Compute the symbol's value based on line content
-    let result = match &line.content {
+    // Compute value based on line content
+    let value = match &line.content {
         LineContent::Label(_) => {
-            // Label: address is computed directly from position
-            // Get layout info from Layout instead of line fields
-            let line_layout =
-                context.layout.get(&key.pointer).ok_or_else(|| {
-                    AssemblerError::from_context(
-                        format!(
-                            "Internal error: no layout info for label '{}'",
-                            key.symbol
-                        ),
-                        line.location.clone(),
-                    )
-                })?;
-            let absolute_addr = context
-                .segment_start(line_layout.segment)
-                .wrapping_add(line_layout.offset);
-            EvaluatedValue::Address(absolute_addr)
+            // Base case: label address is computed from layout
+            let line_layout = layout.get(&key.pointer).ok_or_else(|| {
+                AssemblerError::from_context(
+                    format!("Internal error: no layout for label '{}'", key.symbol),
+                    line.location.clone(),
+                )
+            })?;
+            let segment_start = match line_layout.segment {
+                Segment::Text => text_start,
+                Segment::Data => data_start,
+                Segment::Bss => bss_start,
+            };
+            let addr = segment_start.wrapping_add(line_layout.offset);
+            EvaluatedValue::Address(addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
-            // .equ: First resolve all referenced symbols (via Symbols struct), then evaluate
-            // Clone everything to avoid borrow conflicts during recursive resolution
-            let sym_refs =
-                context.symbol_links.get_line_refs(&key.pointer).to_vec();
-            let expr_clone = expr.clone();
-            let line_clone = line.clone();
-            let equ_pointer = key.pointer.clone();
+            // Recursive case: evaluate dependencies first
+            cycle_stack.push(key.clone());
 
+            // Get all symbol references from this .equ line
+            let sym_refs = symbol_links.get_line_refs(&key.pointer);
             for sym_ref in sym_refs {
-                resolve_symbol_dependencies(&sym_ref, context, cycle_stack)?;
+                eval_symbol_recursive(
+                    sym_ref,
+                    source,
+                    symbol_links,
+                    layout,
+                    text_start,
+                    data_start,
+                    bss_start,
+                    symbol_values,
+                    cycle_stack,
+                )?;
             }
 
-            // Set current_line_pointer to the .equ line so that evaluate_expression
-            // can correctly look up symbol references from this line
-            let saved_pointer = context.current_line_pointer.clone();
-            context.current_line_pointer = equ_pointer;
+            cycle_stack.pop();
 
-            // All dependencies are now resolved; evaluate the expression
-            let result =
-                evaluate_expression(&expr_clone, context, &line_clone)?;
+            // Now evaluate the expression (all dependencies resolved)
+            let line_layout = layout.get(&key.pointer).ok_or_else(|| {
+                AssemblerError::from_context(
+                    format!("Internal error: no layout for .equ '{}'", key.symbol),
+                    line.location.clone(),
+                )
+            })?;
+            let segment_start = match line_layout.segment {
+                Segment::Text => text_start,
+                Segment::Data => data_start,
+                Segment::Bss => bss_start,
+            };
+            let address = segment_start + line_layout.offset;
 
-            // Restore the previous current_line_pointer
-            context.current_line_pointer = saved_pointer;
-
-            result
+            let refs = symbol_links.get_line_refs(&key.pointer);
+            eval_expr(expr, address, refs, symbol_values, source, &key.pointer)?
         }
         _ => {
             return Err(AssemblerError::from_context(
@@ -244,34 +233,41 @@ fn resolve_symbol_dependencies(
         }
     };
 
-    // Memoize result
-    context.symbol_values.insert(key.clone(), result);
-
-    // Pop from cycle stack
-    cycle_stack.pop();
-
+    // Memoize the result
+    symbol_values.insert(key.clone(), value);
     Ok(())
 }
 
-/// Backward phase: Evaluate an expression using cached symbol values
+/// Evaluate an expression with explicit context
 ///
-/// This evaluates the expression tree after all symbol dependencies have been
-/// resolved and memoized. Symbol lookups are simple cache hits with assertions,
-/// so this phase never recurses into symbol resolution.
-fn evaluate_expression(
+/// This is the new expression evaluator that works with pre-computed symbol values
+/// and explicit parameters. It's a pure function that doesn't rely on mutable state.
+///
+/// Parameters:
+/// - `expr`: The expression to evaluate
+/// - `address`: The current address (used for `.` operator)
+/// - `refs`: Symbol references available at this line
+/// - `symbol_values`: Pre-computed symbol values
+/// - `source`: Source code (for error reporting)
+/// - `pointer`: Current line pointer (for error reporting)
+pub fn eval_expr(
     expr: &Expression,
-    context: &EvaluationContext,
-    current_line: &Line,
+    address: u32,
+    refs: &[SymbolReference],
+    symbol_values: &SymbolValues,
+    source: &Source,
+    pointer: &LinePointer,
 ) -> Result<EvaluatedValue> {
+    // Get the line for error reporting
+    let line = source.get_line(pointer)?;
+    let location = &line.location;
+
     match expr {
         Expression::Literal(i) => Ok(EvaluatedValue::Integer(*i)),
 
         Expression::Identifier(name) => {
-            // Find symbol in Symbols using current line context and look up cached value
-            let sym_refs = context
-                .symbol_links
-                .get_line_refs(&context.current_line_pointer);
-            let sym_ref = sym_refs
+            // Find symbol in refs, then look up in symbol_values
+            let sym_ref = refs
                 .iter()
                 .find(|r| r.symbol == *name)
                 .ok_or_else(|| {
@@ -280,37 +276,22 @@ fn evaluate_expression(
                             "Unresolved symbol '{}' (internal error - should have been caught earlier)",
                             name
                         ),
-                        current_line.location.clone(),
+                        location.clone(),
                     )
                 })?;
 
-            let value = context.symbol_values.get(sym_ref).copied().ok_or_else(|| {
+            symbol_values.get(sym_ref).ok_or_else(|| {
                 AssemblerError::from_context(
                     format!(
                         "Symbol '{}' not resolved (internal error - should have been resolved in forward phase)",
                         name
                     ),
-                    current_line.location.clone(),
+                    location.clone(),
                 )
-            })?;
-            Ok(value)
+            })
         }
 
-        Expression::CurrentAddress => {
-            // Get layout info from Layout instead of line fields
-            let line_layout = context
-                .layout
-                .get(&context.current_line_pointer)
-                .ok_or_else(|| {
-                    AssemblerError::no_context(
-                        "Internal error: no layout info for current line"
-                            .to_string(),
-                    )
-                })?;
-            let addr =
-                context.segment_start(line_layout.segment) + line_layout.offset;
-            Ok(EvaluatedValue::Address(addr))
-        }
+        Expression::CurrentAddress => Ok(EvaluatedValue::Address(address)),
 
         Expression::NumericLabelRef(nlr) => {
             let label_name = format!(
@@ -318,171 +299,126 @@ fn evaluate_expression(
                 nlr.num,
                 if nlr.is_forward { "f" } else { "b" }
             );
-            let sym_refs = context
-                .symbol_links
-                .get_line_refs(&context.current_line_pointer);
-            let sym_ref = sym_refs
+            let sym_ref = refs
                 .iter()
                 .find(|r| r.symbol == label_name)
                 .ok_or_else(|| {
                     AssemblerError::from_context(
-                        format!(
-                            "Unresolved numeric label '{}' (internal error)",
-                            nlr
-                        ),
-                        current_line.location.clone(),
+                        format!("Unresolved numeric label '{}' (internal error)", nlr),
+                        location.clone(),
                     )
                 })?;
 
-            let value = context
-                .symbol_values
-                .get(sym_ref)
-                .copied()
-                .ok_or_else(|| {
-                    AssemblerError::from_context(
-                        format!(
-                            "Numeric label '{}' not resolved (internal error)",
-                            label_name
-                        ),
-                        current_line.location.clone(),
-                    )
-                })?;
-            Ok(value)
+            symbol_values.get(sym_ref).ok_or_else(|| {
+                AssemblerError::from_context(
+                    format!("Numeric label '{}' not resolved (internal error)", label_name),
+                    location.clone(),
+                )
+            })
         }
 
         Expression::Parenthesized(inner) => {
-            // Parentheses don't change semantics, just evaluate inner
-            evaluate_expression(inner, context, current_line)
+            eval_expr(inner, address, refs, symbol_values, source, pointer)
         }
 
         Expression::PlusOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-            checked_add(lhs_val, rhs_val, &current_line.location)
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            checked_add(lhs_val, rhs_val, location)
         }
 
         Expression::MinusOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-            checked_sub(lhs_val, rhs_val, &current_line.location)
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            checked_sub(lhs_val, rhs_val, location)
         }
 
         Expression::MultiplyOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int = require_integer(
-                lhs_val,
-                "multiplication",
-                &current_line.location,
-            )?;
-            let rhs_int = require_integer(
-                rhs_val,
-                "multiplication",
-                &current_line.location,
-            )?;
-
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "multiplication", location)?;
+            let rhs_int = require_integer(rhs_val, "multiplication", location)?;
             let result = lhs_int.checked_mul(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!(
-                        "Arithmetic overflow in multiplication: {} * {}",
-                        lhs_int, rhs_int
-                    ),
-                    current_line.location.clone(),
+                    format!("Arithmetic overflow in multiplication: {} * {}", lhs_int, rhs_int),
+                    location.clone(),
                 )
             })?;
-
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::DivideOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int =
-                require_integer(lhs_val, "division", &current_line.location)?;
-            let rhs_int =
-                require_integer(rhs_val, "division", &current_line.location)?;
-
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "division", location)?;
+            let rhs_int = require_integer(rhs_val, "division", location)?;
             if rhs_int == 0 {
                 return Err(AssemblerError::from_context(
                     "Division by zero".to_string(),
-                    current_line.location.clone(),
+                    location.clone(),
                 ));
             }
-
             let result = lhs_int.checked_div(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!(
-                        "Arithmetic overflow in division: {} / {}",
-                        lhs_int, rhs_int
-                    ),
-                    current_line.location.clone(),
+                    format!("Arithmetic overflow in division: {} / {}", lhs_int, rhs_int),
+                    location.clone(),
                 )
             })?;
-
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::ModuloOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int =
-                require_integer(lhs_val, "modulo", &current_line.location)?;
-            let rhs_int =
-                require_integer(rhs_val, "modulo", &current_line.location)?;
-
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "modulo", location)?;
+            let rhs_int = require_integer(rhs_val, "modulo", location)?;
             if rhs_int == 0 {
                 return Err(AssemblerError::from_context(
                     "Modulo by zero".to_string(),
-                    current_line.location.clone(),
+                    location.clone(),
                 ));
             }
-
-            let result = lhs_int % rhs_int;
+            let result = lhs_int.checked_rem(rhs_int).ok_or_else(|| {
+                AssemblerError::from_context(
+                    format!("Arithmetic overflow in modulo: {} % {}", lhs_int, rhs_int),
+                    location.clone(),
+                )
+            })?;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::LeftShiftOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int =
-                require_integer(lhs_val, "left shift", &current_line.location)?;
-            let rhs_int =
-                require_integer(rhs_val, "left shift", &current_line.location)?;
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "left shift", location)?;
+            let rhs_int = require_integer(rhs_val, "left shift", location)?;
 
             if !(0..32).contains(&rhs_int) {
                 return Err(AssemblerError::from_context(
                     format!("Invalid shift amount {} (must be 0..32)", rhs_int),
-                    current_line.location.clone(),
+                    location.clone(),
                 ));
             }
 
-            let result = lhs_int << rhs_int as u32;
+            let result = lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
+                AssemblerError::from_context(
+                    format!("Arithmetic overflow in left shift: {} << {}", lhs_int, rhs_int),
+                    location.clone(),
+                )
+            })?;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::RightShiftOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int = require_integer(
-                lhs_val,
-                "right shift",
-                &current_line.location,
-            )?;
-            let rhs_int = require_integer(
-                rhs_val,
-                "right shift",
-                &current_line.location,
-            )?;
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "right shift", location)?;
+            let rhs_int = require_integer(rhs_val, "right shift", location)?;
 
             if !(0..32).contains(&rhs_int) {
                 return Err(AssemblerError::from_context(
                     format!("Invalid shift amount {} (must be 0..32)", rhs_int),
-                    current_line.location.clone(),
+                    location.clone(),
                 ));
             }
 
@@ -491,78 +427,48 @@ fn evaluate_expression(
         }
 
         Expression::BitwiseOrOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int =
-                require_integer(lhs_val, "bitwise OR", &current_line.location)?;
-            let rhs_int =
-                require_integer(rhs_val, "bitwise OR", &current_line.location)?;
-
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "bitwise OR", location)?;
+            let rhs_int = require_integer(rhs_val, "bitwise OR", location)?;
             let result = lhs_int | rhs_int;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::BitwiseAndOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int = require_integer(
-                lhs_val,
-                "bitwise AND",
-                &current_line.location,
-            )?;
-            let rhs_int = require_integer(
-                rhs_val,
-                "bitwise AND",
-                &current_line.location,
-            )?;
-
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "bitwise AND", location)?;
+            let rhs_int = require_integer(rhs_val, "bitwise AND", location)?;
             let result = lhs_int & rhs_int;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::BitwiseXorOp { lhs, rhs } => {
-            let lhs_val = evaluate_expression(lhs, context, current_line)?;
-            let rhs_val = evaluate_expression(rhs, context, current_line)?;
-
-            let lhs_int = require_integer(
-                lhs_val,
-                "bitwise XOR",
-                &current_line.location,
-            )?;
-            let rhs_int = require_integer(
-                rhs_val,
-                "bitwise XOR",
-                &current_line.location,
-            )?;
-
+            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_int = require_integer(lhs_val, "bitwise XOR", location)?;
+            let rhs_int = require_integer(rhs_val, "bitwise XOR", location)?;
             let result = lhs_int ^ rhs_int;
             Ok(EvaluatedValue::Integer(result))
         }
 
-        Expression::NegateOp { expr: inner } => {
-            let val = evaluate_expression(inner, context, current_line)?;
-            let int_val =
-                require_integer(val, "negation", &current_line.location)?;
-
-            let result = int_val.checked_neg().ok_or_else(|| {
+        Expression::NegateOp { expr } => {
+            let val = eval_expr(expr, address, refs, symbol_values, source, pointer)?;
+            let int = require_integer(val, "negation", location)?;
+            let result = int.checked_neg().ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in negation: -{}", int_val),
-                    current_line.location.clone(),
+                    format!("Arithmetic overflow in negation: -{}", int),
+                    location.clone(),
                 )
             })?;
-
             Ok(EvaluatedValue::Integer(result))
         }
 
-        Expression::BitwiseNotOp { expr: inner } => {
-            let val = evaluate_expression(inner, context, current_line)?;
-            let int_val =
-                require_integer(val, "bitwise NOT", &current_line.location)?;
-
-            let result = !int_val;
-            Ok(EvaluatedValue::Integer(result))
+        Expression::BitwiseNotOp { expr } => {
+            let val = eval_expr(expr, address, refs, symbol_values, source, pointer)?;
+            let int = require_integer(val, "bitwise NOT", location)?;
+            Ok(EvaluatedValue::Integer(!int))
         }
     }
 }

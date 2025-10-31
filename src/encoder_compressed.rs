@@ -9,9 +9,8 @@
 // (e.g., `0b010_0_00000_00000_01` shows [funct3]_[imm5]_[rd]_[imm4:0]_[op])
 #![allow(clippy::unusual_byte_groupings)]
 
-use crate::ast::{CompressedOp, CompressedOperands, Line, Register};
+use crate::ast::{CompressedOp, CompressedOperands, Register};
 use crate::error::{AssemblerError, Result};
-use crate::expressions::EvaluationContext;
 
 /// Encode a compressed instruction to 2 bytes (16-bit) without expression evaluation
 pub fn encode_compressed(
@@ -19,7 +18,7 @@ pub fn encode_compressed(
     operands: &CompressedOperands,
     location: &crate::ast::Location,
 ) -> Result<Vec<u8>> {
-    let inst = encode_compressed_inst(op, operands, location, None)?;
+    let inst = encode_compressed_inst(op, operands, location)?;
     Ok(inst.to_le_bytes().to_vec())
 }
 
@@ -38,7 +37,6 @@ pub fn encode_compressed_inst(
     op: &CompressedOp,
     operands: &CompressedOperands,
     location: &crate::ast::Location,
-    _eval_context: Option<(&Line, &mut EvaluationContext)>,
 ) -> Result<u16> {
     use CompressedOp::*;
     use CompressedOperands::*;
