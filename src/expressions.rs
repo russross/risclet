@@ -5,9 +5,11 @@
 // This module implements lazy evaluation of expressions.
 // There are two types of values (Integer and Address) with strict type checking.
 
-use crate::ast::*;
+use crate::ast::{
+    Directive, Expression, LineContent, LinePointer, Location, Source,
+};
 use crate::error::{AssemblerError, Result};
-use crate::symbols::SymbolLinks;
+use crate::symbols::{SymbolLinks, SymbolReference};
 use std::collections::HashMap;
 use std::fmt;
 

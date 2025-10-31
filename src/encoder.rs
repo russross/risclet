@@ -248,7 +248,7 @@ fn encode_bss_line(line: &Line, context: &EncodingContext) -> Result<u32> {
 
                 // Calculate padding needed to reach the next alignment boundary
                 // Use absolute address, not segment-relative offset
-                let abs_addr = get_line_address(line, context);
+                let abs_addr = get_line_address(context);
                 let padding = (alignment - (abs_addr % alignment)) % alignment;
 
                 Ok(padding as u32)
@@ -667,7 +667,7 @@ fn encode_instruction(
             let target = require_address(val, "Branch target", &line.location)?;
 
             // Calculate PC-relative offset
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             let offset = target - current_pc;
 
             let encoded =
@@ -690,7 +690,7 @@ fn encode_instruction(
             let target = require_address(val, "Jump target", &line.location)?;
 
             // Calculate PC-relative offset
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             let offset = target - current_pc;
 
             let encoded = encode_j_type_inst(op, *rd, offset, &line.location)?;
@@ -916,7 +916,7 @@ fn eval_compressed_operands(
         CBBranch { rs1_prime, offset } => {
             let val = context.eval_expression(offset, line)?;
             let target = require_address(val, "Branch target", &line.location)?;
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             let offset_val = target - current_pc;
             Ok(CBBranch {
                 rs1_prime: *rs1_prime,
@@ -928,7 +928,7 @@ fn eval_compressed_operands(
         CJOpnd { offset } => {
             let val = context.eval_expression(offset, line)?;
             let target = require_address(val, "Jump target", &line.location)?;
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             let offset_val = target - current_pc;
             Ok(CJOpnd {
                 offset: Box::new(Expression::Literal(offset_val as i32)),
@@ -940,20 +940,20 @@ fn eval_compressed_operands(
     }
 }
 
-/// Get the absolute address of a line (returns i64 for compatibility with offset calculations)
-fn get_line_address(_line: &Line, context: &EncodingContext) -> i64 {
-    // Get layout info for current line
+/// Get the absolute address of a line from layout (returns i64 for offset calculations)
+///
+/// Delegates to Layout::get_line_address and converts to i64 for arithmetic operations.
+fn get_line_address(context: &EncodingContext) -> i64 {
     let pointer = LinePointer {
         file_index: context.file_index,
         line_index: context.line_index,
     };
-    let addr = context.layout.get_line_address(&pointer).unwrap_or_else(|| {
+    context.layout.get_line_address(&pointer).unwrap_or_else(|| {
         panic!(
             "No layout info for line at {}:{}",
             context.file_index, context.line_index
         )
-    });
-    addr as i64
+    }) as i64
 }
 
 /// Encode R-type instruction with opcode lookup
@@ -1223,7 +1223,7 @@ fn encode_pseudo(
             let addr =
                 require_address(val, "la pseudo-instruction", &line.location)?;
 
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             let gp = (context.layout.data_start as i64) + 2048;
 
             expand_la(*rd, addr, current_pc, gp, &line.location, relax.gp)
@@ -1238,7 +1238,7 @@ fn encode_pseudo(
                 &line.location,
             )?;
 
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             expand_call(target, current_pc, &line.location, relax.pseudo)
         }
 
@@ -1251,7 +1251,7 @@ fn encode_pseudo(
                 &line.location,
             )?;
 
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             expand_tail(target, current_pc, &line.location, relax.pseudo)
         }
 
@@ -1264,7 +1264,7 @@ fn encode_pseudo(
                 &line.location,
             )?;
 
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             expand_load_global(op, *rd, addr, current_pc, &line.location)
         }
 
@@ -1277,7 +1277,7 @@ fn encode_pseudo(
                 &line.location,
             )?;
 
-            let current_pc = get_line_address(line, context);
+            let current_pc = get_line_address(context);
             expand_store_global(
                 op,
                 *rs,
@@ -1655,7 +1655,7 @@ fn encode_directive(
 
             // Calculate padding needed to reach the next alignment boundary
             // Use absolute address, not segment-relative offset
-            let abs_addr = get_line_address(line, context);
+            let abs_addr = get_line_address(context);
             let padding = (alignment - (abs_addr % alignment)) % alignment;
 
             Ok(vec![0; padding as usize])

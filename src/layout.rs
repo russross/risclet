@@ -8,6 +8,7 @@ use crate::ast::{
     Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment, Source,
 };
 use crate::elf::compute_header_size;
+use crate::symbols::{BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER};
 use std::collections::HashMap;
 
 /// Information about a line's position and size in the binary
@@ -185,7 +186,7 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
     let has_builtin = source
         .files
         .last()
-        .map(|f| f.file == crate::ast::BUILTIN_FILE_NAME)
+        .map(|f| f.file == BUILTIN_FILE_NAME)
         .unwrap_or(false);
 
     for (file_index, source_file) in source.files.iter().enumerate() {
@@ -212,11 +213,7 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
 
                 // Special handling: __global_pointer$ label is at offset 2048 in data segment
                 let offset = if let LineContent::Label(name) = &line.content {
-                    if name == crate::ast::SPECIAL_GLOBAL_POINTER {
-                        2048
-                    } else {
-                        0
-                    }
+                    if name == SPECIAL_GLOBAL_POINTER { 2048 } else { 0 }
                 } else {
                     0
                 };

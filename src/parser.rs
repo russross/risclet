@@ -1,4 +1,9 @@
-use crate::ast::*;
+use crate::ast::{
+    AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive,
+    DirectiveOp, Expression, ITypeOp, Instruction, JTypeOp, Line, LineContent,
+    LoadStoreOp, Location, MemoryOrdering, NumericLabelRef, OperatorOp,
+    PseudoOp, RTypeOp, Register, SpecialOp, Token, UTypeOp,
+};
 use crate::error::{AssemblerError, Result};
 
 pub struct Parser<'a> {

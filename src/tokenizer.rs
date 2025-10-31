@@ -1,4 +1,4 @@
-use crate::ast::*;
+use crate::ast::{DirectiveOp, OperatorOp, Register, Token};
 
 pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
