@@ -4,10 +4,10 @@
 // These tests compare our encoder output against GNU assembler output
 
 use crate::assembler::{NoOpCallback, converge_and_encode};
-use crate::ast::{Source, SourceFile, create_builtin_symbols_file};
+use crate::ast::{Source, SourceFile};
 use crate::encoder::Relax;
 use crate::parser::parse;
-use crate::symbols::link_symbols;
+use crate::symbols::{create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
 
 // Default relaxation settings for most tests (compression disabled for predictable sizes)

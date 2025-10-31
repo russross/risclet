@@ -79,34 +79,6 @@ pub struct LinePointer {
     pub line_index: usize,
 }
 
-/// Special symbol for the global pointer
-pub const SPECIAL_GLOBAL_POINTER: &str = "__global_pointer$";
-
-/// Name of the builtin symbols file
-pub const BUILTIN_FILE_NAME: &str = "<builtin>";
-
-/// A struct representing a symbol reference that has been linked to its definition.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct SymbolReference {
-    pub symbol: String,
-    pub pointer: LinePointer,
-}
-
-/// A struct representing a symbol definition site in a source file.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SymbolDefinition {
-    pub symbol: String,
-    pub pointer: LinePointer,
-}
-
-/// A struct representing a global symbol definition, including where it was defined and declared.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GlobalDefinition {
-    pub symbol: String,
-    pub definition_pointer: LinePointer,
-    pub declaration_pointer: LinePointer,
-}
-
 // ==============================================================================
 // Tokenization Data Types
 // ==============================================================================
@@ -1214,57 +1186,5 @@ impl fmt::Display for Expression {
             Expression::CurrentAddress => write!(f, "."),
             Expression::NumericLabelRef(nlr) => write!(f, "{}", nlr),
         }
-    }
-}
-
-// ==============================================================================
-// Builtin Symbols File Generation
-// ==============================================================================
-
-/// Creates a synthetic source file containing builtin symbol definitions.
-/// This file is appended to the source file list after parsing and provides
-/// definitions for linker-provided symbols like __global_pointer$.
-///
-/// The builtin file contains:
-/// - .data directive to switch to data segment
-/// - .global declaration for __global_pointer$
-/// - Label definition for __global_pointer$ at offset 2048 (data_start + 0x800)
-///
-/// This file is excluded from normal processing in several places:
-/// - compute_offsets: skipped to preserve hardcoded offset
-/// - convergence loop: skipped as it generates no code
-/// - ELF symbol table: filtered out, symbols emitted specially
-/// - dump output: hidden from user
-pub fn create_builtin_symbols_file() -> SourceFile {
-    SourceFile {
-        file: BUILTIN_FILE_NAME.to_string(),
-        lines: vec![
-            // .data directive
-            Line {
-                location: Location {
-                    file: BUILTIN_FILE_NAME.to_string(),
-                    line: 1,
-                },
-                content: LineContent::Directive(Directive::Data),
-            },
-            // .global __global_pointer$
-            Line {
-                location: Location {
-                    file: BUILTIN_FILE_NAME.to_string(),
-                    line: 2,
-                },
-                content: LineContent::Directive(Directive::Global(vec![
-                    SPECIAL_GLOBAL_POINTER.to_string(),
-                ])),
-            },
-            // __global_pointer$: label at offset 2048
-            Line {
-                location: Location {
-                    file: BUILTIN_FILE_NAME.to_string(),
-                    line: 3,
-                },
-                content: LineContent::Label(SPECIAL_GLOBAL_POINTER.to_string()),
-            },
-        ],
     }
 }

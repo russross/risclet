@@ -3,10 +3,13 @@
 // Debug dump functionality for the assembler.
 // Provides visibility into intermediate states at various stages of assembly.
 
-use crate::ast::*;
+use crate::ast::{
+    Directive, Expression, Instruction, Line, LineContent, LinePointer,
+    Location, PseudoOp, Segment, Source, SourceFile,
+};
 use crate::elf::ElfBuilder;
 use crate::expressions;
-use crate::symbols::SymbolLinks;
+use crate::symbols::{BUILTIN_FILE_NAME, SymbolLinks};
 
 /// Check if a file is the builtin symbols file that should be hidden from dumps
 fn is_builtin_file(file: &SourceFile) -> bool {
@@ -936,7 +939,7 @@ pub fn dump_code(
 // ELF Dump
 // ============================================================================
 
-pub fn dump_elf(builder: &ElfBuilder, source: &Source, parts: &ElfDumpParts) {
+pub fn dump_elf(builder: &ElfBuilder, _source: &Source, parts: &ElfDumpParts) {
     println!("========== ELF DUMP ==========\n");
 
     if parts.headers {
@@ -948,7 +951,7 @@ pub fn dump_elf(builder: &ElfBuilder, source: &Source, parts: &ElfDumpParts) {
     }
 
     if parts.symbols {
-        dump_elf_symbols(builder, source);
+        dump_elf_symbols(builder);
     }
 }
 
@@ -1103,7 +1106,7 @@ fn dump_elf_sections(builder: &ElfBuilder) {
     println!();
 }
 
-fn dump_elf_symbols(builder: &ElfBuilder, _source: &Source) {
+fn dump_elf_symbols(builder: &ElfBuilder) {
     println!("Symbol Table:");
     println!("{}", "-".repeat(79));
     println!("  Num:    Value          Size Type    Bind   Ndx Name");

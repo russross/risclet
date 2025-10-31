@@ -29,9 +29,44 @@
 //!    and collecting global declarations
 //! 2. **Cross-file linking**: Resolve references between files using the global symbol table
 
-use crate::ast::*;
+use crate::ast::{
+    CompressedOperands, Directive, Expression, Instruction, Line, LineContent,
+    LinePointer, Location, PseudoOp, Source, SourceFile,
+};
 use crate::error::AssemblerError;
 use std::collections::HashMap;
+
+// ==============================================================================
+// Symbol Types and Constants
+// ==============================================================================
+
+/// Special global pointer symbol name used for GP-relative addressing
+pub const SPECIAL_GLOBAL_POINTER: &str = "__global_pointer$";
+
+/// Name of the builtin symbols file that's injected at the start of assembly
+pub const BUILTIN_FILE_NAME: &str = "<builtin>";
+
+/// A struct representing a symbol reference that has been linked to its definition.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct SymbolReference {
+    pub symbol: String,
+    pub pointer: LinePointer,
+}
+
+/// A struct representing a symbol definition site in a source file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SymbolDefinition {
+    pub symbol: String,
+    pub pointer: LinePointer,
+}
+
+/// A struct representing a global symbol definition, including where it was defined and declared.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobalDefinition {
+    pub symbol: String,
+    pub definition_pointer: LinePointer,
+    pub declaration_pointer: LinePointer,
+}
 
 /// Symbol linking results for the entire source.
 ///
@@ -74,7 +109,6 @@ impl SymbolLinks {
 /// definition. This struct tracks the declaration until we can finalize it.
 #[derive(Debug, Clone)]
 struct UnfinalizedGlobal {
-    pub _symbol: String,
     /// Location where the symbol is defined (None if not yet defined)
     pub definition: Option<LinePointer>,
     /// Location where .global directive appears
@@ -577,7 +611,6 @@ fn process_global_declarations(
         unfinalized_globals.insert(
             symbol.clone(),
             UnfinalizedGlobal {
-                _symbol: symbol.clone(),
                 definition: definitions.get(symbol).cloned(),
                 declaration_pointer: line_ptr.clone(),
             },
@@ -816,4 +849,56 @@ fn link_cross_file(
     }
 
     Ok(cross_file_refs)
+}
+
+// ==============================================================================
+// Builtin Symbols File Generation
+// ==============================================================================
+
+/// Creates a synthetic source file containing builtin symbol definitions.
+/// This file is appended to the source file list after parsing and provides
+/// definitions for linker-provided symbols like __global_pointer$.
+///
+/// The builtin file contains:
+/// - .data directive to switch to data segment
+/// - .global declaration for __global_pointer$
+/// - Label definition for __global_pointer$ at offset 2048 (data_start + 0x800)
+///
+/// This file is excluded from normal processing in several places:
+/// - compute_offsets: skipped to preserve hardcoded offset
+/// - convergence loop: skipped as it generates no code
+/// - ELF symbol table: filtered out, symbols emitted specially
+/// - dump output: hidden from user
+pub fn create_builtin_symbols_file() -> SourceFile {
+    SourceFile {
+        file: BUILTIN_FILE_NAME.to_string(),
+        lines: vec![
+            // .data directive
+            Line {
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 1,
+                },
+                content: LineContent::Directive(Directive::Data),
+            },
+            // .global __global_pointer$
+            Line {
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 2,
+                },
+                content: LineContent::Directive(Directive::Global(vec![
+                    SPECIAL_GLOBAL_POINTER.to_string(),
+                ])),
+            },
+            // __global_pointer$: label at offset 2048
+            Line {
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 3,
+                },
+                content: LineContent::Label(SPECIAL_GLOBAL_POINTER.to_string()),
+            },
+        ],
+    }
 }

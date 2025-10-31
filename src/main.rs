@@ -582,7 +582,7 @@ fn process_files(files: Vec<String>) -> Result<Source, error::AssemblerError> {
     }
 
     // Add builtin symbols file (provides __global_pointer$ definition)
-    source.files.push(ast::create_builtin_symbols_file());
+    source.files.push(symbols::create_builtin_symbols_file());
 
     Ok(source)
 }

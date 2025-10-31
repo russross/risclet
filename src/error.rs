@@ -3,7 +3,8 @@
 // This file defines the AssemblerError type for the RISC-V assembler.
 // It provides error handling with location and source context.
 
-use crate::ast::{BUILTIN_FILE_NAME, LinePointer, Location, Source};
+use crate::ast::{LinePointer, Location, Source};
+use crate::symbols::BUILTIN_FILE_NAME;
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead};

@@ -8,10 +8,6 @@ use crate::error::{AssemblerError, Result};
 use crate::expressions;
 use crate::symbols::SymbolLinks;
 
-// Re-export from layout module for test compatibility
-#[allow(unused_imports)]
-pub use crate::layout::guess_line_size;
-
 /// Callback trait for per-iteration convergence dumps
 ///
 /// Allows main.rs to inject debug dump logic into the convergence loop

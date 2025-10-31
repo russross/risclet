@@ -2,7 +2,9 @@
 mod tests {
     use crate::ast::*;
     use crate::parser;
-    use crate::symbols::{extract_references_from_line, link_symbols};
+    use crate::symbols::{
+        create_builtin_symbols_file, extract_references_from_line, link_symbols,
+    };
     use crate::tokenizer;
 
     /// Helper: Parse source lines into a SourceFile
