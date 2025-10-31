@@ -1277,7 +1277,7 @@ fn collect_expression_values(
 
     // Helper to format an evaluated expression value
     let mut format_value = |expr: &Expression| -> String {
-        match expressions::eval_expr(expr, line, pointer, eval_context) {
+        match expressions::eval_expr_old(expr, line, pointer, eval_context) {
             Ok(value) => match value {
                 EvaluatedValue::Integer(i) => format!("{}", i),
                 EvaluatedValue::Address(a) => {
