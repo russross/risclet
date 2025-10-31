@@ -64,6 +64,30 @@ impl Layout {
     pub fn set(&mut self, pointer: LinePointer, layout: LineLayout) {
         self.lines.insert(pointer, layout);
     }
+
+    /// Compute absolute segment start addresses from text_start and layout sizes
+    ///
+    /// This method encapsulates the segment address calculation logic that determines
+    /// where each segment starts in the final binary:
+    ///
+    /// - **text_start_adjusted**: Account for ELF header before text segment
+    /// - **data_start**: Align to 4K boundary after text segment
+    /// - **bss_start**: Immediately after data segment
+    ///
+    /// Returns a tuple of (text_start_adjusted, data_start, bss_start).
+    pub fn compute_segment_addresses(&self, text_start: u32) -> (u32, u32, u32) {
+        // Adjust text_start to account for ELF header
+        let text_start_adjusted = text_start + self.header_size;
+
+        // Align data_start to 4K boundary after text segment
+        let text_end = text_start_adjusted + self.text_size;
+        let data_start = (text_end + 4095) & !(4096 - 1);
+
+        // BSS starts immediately after data
+        let bss_start = data_start + self.data_size;
+
+        (text_start_adjusted, data_start, bss_start)
+    }
 }
 
 impl Default for Layout {

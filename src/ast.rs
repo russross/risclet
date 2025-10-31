@@ -54,6 +54,21 @@ pub struct Source {
     pub files: Vec<SourceFile>,
 }
 
+impl Source {
+    /// Get a line from the source by pointer
+    pub fn get_line(&self, pointer: &LinePointer) -> crate::error::Result<&Line> {
+        self.files
+            .get(pointer.file_index)
+            .and_then(|file| file.lines.get(pointer.line_index))
+            .ok_or_else(|| {
+                crate::error::AssemblerError::no_context(format!(
+                    "Internal error: invalid line pointer [{}:{}]",
+                    pointer.file_index, pointer.line_index
+                ))
+            })
+    }
+}
+
 /// A struct representing a pointer to a specific line in a source file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LinePointer {
