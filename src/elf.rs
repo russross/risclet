@@ -7,6 +7,7 @@
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
 use crate::ast::{LineContent, LinePointer, Segment, Source};
+use crate::layout::{Layout, LineLayout};
 use crate::symbols::SymbolLinks;
 use std::collections::HashMap;
 
@@ -813,7 +814,7 @@ impl ElfBuilder {
 pub fn build_symbol_table(
     source: &Source,
     symbol_links: &SymbolLinks,
-    layout: &crate::layout::Layout,
+    layout: &Layout,
     builder: &mut ElfBuilder,
     text_start: u32,
     data_start: u32,
@@ -865,10 +866,10 @@ pub fn build_symbol_table(
         let mut marker_addr = text_start;
         for (line_index, _line) in source_file.lines.iter().enumerate() {
             let pointer = LinePointer { file_index, line_index };
-            if let Some(line_layout) = layout.get(&pointer)
-                && line_layout.segment == Segment::Text
+            if let &LineLayout { offset, segment: Segment::Text, .. } =
+                layout.get(&pointer)
             {
-                marker_addr = text_start + line_layout.offset;
+                marker_addr = text_start + offset;
                 break;
             }
         }
@@ -899,26 +900,21 @@ pub fn build_symbol_table(
 
                 if !is_global {
                     let pointer = LinePointer { file_index, line_index };
-                    let (addr, section_idx) =
-                        if let Some(line_layout) = layout.get(&pointer) {
-                            match line_layout.segment {
-                                Segment::Text => (
-                                    text_start + line_layout.offset,
-                                    text_section_index,
-                                ),
-                                Segment::Data => (
-                                    data_start + line_layout.offset,
-                                    data_section_index.unwrap(),
-                                ),
-                                Segment::Bss => (
-                                    bss_start + line_layout.offset,
-                                    bss_section_index.unwrap(),
-                                ),
-                            }
-                        } else {
-                            // Default to text segment if no layout info (shouldn't happen)
-                            (text_start, text_section_index)
-                        };
+                    let line_layout = layout.get(&pointer);
+                    let (addr, section_idx) = match line_layout.segment {
+                        Segment::Text => (
+                            text_start + line_layout.offset,
+                            text_section_index,
+                        ),
+                        Segment::Data => (
+                            data_start + line_layout.offset,
+                            data_section_index.unwrap(),
+                        ),
+                        Segment::Bss => (
+                            bss_start + line_layout.offset,
+                            bss_section_index.unwrap(),
+                        ),
+                    };
                     let name_idx = builder.symbol_names.add(name);
 
                     builder.add_symbol(ElfSymbol {
@@ -980,23 +976,18 @@ pub fn build_symbol_table(
         let name_idx = builder.symbol_names.add(&global.symbol);
         let (addr, section_idx) = {
             let pointer = LinePointer { file_index, line_index };
-            if let Some(line_layout) = layout.get(&pointer) {
-                match line_layout.segment {
-                    Segment::Text => {
-                        (text_start + line_layout.offset, text_section_index)
-                    }
-                    Segment::Data => (
-                        data_start + line_layout.offset,
-                        data_section_index.unwrap(),
-                    ),
-                    Segment::Bss => (
-                        bss_start + line_layout.offset,
-                        bss_section_index.unwrap(),
-                    ),
+            let line_layout = layout.get(&pointer);
+            match line_layout.segment {
+                Segment::Text => {
+                    (text_start + line_layout.offset, text_section_index)
                 }
-            } else {
-                // Default to text segment if no layout info (shouldn't happen)
-                (text_start, text_section_index)
+                Segment::Data => (
+                    data_start + line_layout.offset,
+                    data_section_index.unwrap(),
+                ),
+                Segment::Bss => {
+                    (bss_start + line_layout.offset, bss_section_index.unwrap())
+                }
             }
         };
 

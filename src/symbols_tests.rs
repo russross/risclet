@@ -3,7 +3,8 @@ mod tests {
     use crate::ast::*;
     use crate::parser;
     use crate::symbols::{
-        create_builtin_symbols_file, extract_references_from_line, link_symbols,
+        SymbolLinks, create_builtin_symbols_file, extract_references_from_line,
+        link_symbols,
     };
     use crate::tokenizer;
 
@@ -85,7 +86,7 @@ mod tests {
 
     /// Helper: Assert that a line has a specific outgoing reference
     fn assert_reference(
-        symbol_links: &crate::symbols::SymbolLinks,
+        symbol_links: &SymbolLinks,
         line_ptr: &LinePointer,
         expected_symbol: &str,
         expected_def_ptr: &LinePointer,
@@ -130,8 +131,7 @@ mod tests {
         // Verify no outgoing references
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, _line) in file.lines.iter().enumerate() {
-                let line_ptr =
-                    crate::ast::LinePointer { file_index, line_index };
+                let line_ptr = LinePointer { file_index, line_index };
                 let refs = symbols.get_line_refs(&line_ptr);
                 assert!(refs.is_empty(), "No references should exist");
             }
@@ -233,8 +233,7 @@ mod tests {
         let file = &source.files[0];
         let mut ref_count = 0;
         for (line_index, _line) in file.lines.iter().enumerate() {
-            let line_ptr =
-                crate::ast::LinePointer { file_index: 0, line_index };
+            let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 if sym_ref.symbol == "target" {
@@ -278,8 +277,7 @@ mod tests {
         // Check that references are correct
         let file = &source.files[0];
         for (line_index, _line) in file.lines.iter().enumerate() {
-            let line_ptr =
-                crate::ast::LinePointer { file_index: 0, line_index };
+            let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 match sym_ref.symbol.as_str() {

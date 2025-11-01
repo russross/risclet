@@ -9,6 +9,7 @@ use crate::ast::{
 };
 use crate::elf::ElfBuilder;
 use crate::expressions;
+use crate::layout::{Layout, LineLayout};
 use crate::symbols::{BUILTIN_FILE_NAME, SymbolLinks};
 
 /// Check if a file is the builtin symbols file that should be hidden from dumps
@@ -645,7 +646,7 @@ pub fn dump_values(
     is_final: bool,
     source: &Source,
     symbol_values: &expressions::SymbolValues,
-    layout: &crate::layout::Layout,
+    layout: &Layout,
     spec: &DumpSpec,
 ) {
     if !should_include_pass(pass_number, &spec.passes, is_final) {
@@ -676,11 +677,10 @@ pub fn dump_values(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address from layout
             let pointer = LinePointer { file_index, line_index };
-            let abs_addr = layout.get_line_address(&pointer).unwrap_or(0);
+            let abs_addr = layout.get_line_address(&pointer);
 
             let line_layout = layout.get(&pointer);
-            let segment =
-                line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
+            let segment = line_layout.segment;
 
             let (loc_str, padding) =
                 format_location_aligned(&line.location, max_line_width);
@@ -722,7 +722,7 @@ pub fn dump_code(
     is_final: bool,
     source: &Source,
     _symbol_values: &expressions::SymbolValues,
-    layout: &crate::layout::Layout,
+    layout: &Layout,
     text_bytes: &[u8],
     data_bytes: &[u8],
     spec: &DumpSpec,
@@ -755,14 +755,9 @@ pub fn dump_code(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address and encoded bytes from layout
             let pointer = LinePointer { file_index, line_index };
-            let line_layout = layout.get(&pointer);
+            let &LineLayout { segment, offset, size } = layout.get(&pointer);
 
-            let segment =
-                line_layout.map(|ll| ll.segment).unwrap_or(Segment::Text);
-            let offset = line_layout.map(|ll| ll.offset).unwrap_or(0);
-            let size = line_layout.map(|ll| ll.size).unwrap_or(0);
-
-            let abs_addr = layout.get_line_address(&pointer).unwrap_or(0);
+            let abs_addr = layout.get_line_address(&pointer);
             let encoded_bytes = get_encoded_bytes_with_layout(
                 size, segment, offset, text_bytes, data_bytes,
             );
@@ -1265,7 +1260,7 @@ fn get_encoded_bytes_with_layout(
 fn collect_expression_values(
     line: &Line,
     _symbol_values: &expressions::SymbolValues,
-    _layout: &crate::layout::Layout,
+    _layout: &Layout,
 ) -> Vec<String> {
     let mut results = Vec::new();
 

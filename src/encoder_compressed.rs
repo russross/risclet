@@ -9,14 +9,16 @@
 // (e.g., `0b010_0_00000_00000_01` shows [funct3]_[imm5]_[rd]_[imm4:0]_[op])
 #![allow(clippy::unusual_byte_groupings)]
 
-use crate::ast::{CompressedOp, CompressedOperands, Register};
+use crate::ast::{
+    CompressedOp, CompressedOperands, Expression, Location, Register,
+};
 use crate::error::{AssemblerError, Result};
 
 /// Encode a compressed instruction to 2 bytes (16-bit) without expression evaluation
 pub fn encode_compressed(
     op: &CompressedOp,
     operands: &CompressedOperands,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<Vec<u8>> {
     let inst = encode_compressed_inst(op, operands, location)?;
     Ok(inst.to_le_bytes().to_vec())
@@ -24,9 +26,9 @@ pub fn encode_compressed(
 
 /// Extract the immediate value from a literal expression
 /// Expects expressions to have been evaluated to literals before encoding
-fn extract_literal(expr: &crate::ast::Expression) -> i32 {
+fn extract_literal(expr: &Expression) -> i32 {
     match expr {
-        crate::ast::Expression::Literal(val) => *val,
+        Expression::Literal(val) => *val,
         _ => 0, // Fallback for non-evaluated expressions (shouldn't happen)
     }
 }
@@ -36,15 +38,12 @@ fn extract_literal(expr: &crate::ast::Expression) -> i32 {
 pub fn encode_compressed_inst(
     op: &CompressedOp,
     operands: &CompressedOperands,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u16> {
-    use CompressedOp::*;
-    use CompressedOperands::*;
-
     match (op, operands) {
         // CR format: c.add rd, rs2
         // opcode: 1001 | rd[4:0] | rs2[4:0] | 10
-        (CAdd, CR { rd, rs2 }) => {
+        (CompressedOp::CAdd, CompressedOperands::CR { rd, rs2 }) => {
             let rd_enc = reg_to_bits(*rd);
             let rs2_enc = reg_to_bits(*rs2);
             Ok(0b1001_0000_0000_0010 | (rd_enc << 7) | (rs2_enc << 2))
@@ -52,7 +51,7 @@ pub fn encode_compressed_inst(
 
         // CR format: c.mv rd, rs2
         // opcode: 1000 | rd[4:0] | rs2[4:0] | 10
-        (CMv, CR { rd, rs2 }) => {
+        (CompressedOp::CMv, CompressedOperands::CR { rd, rs2 }) => {
             let rd_enc = reg_to_bits(*rd);
             let rs2_enc = reg_to_bits(*rs2);
             Ok(0b1000_0000_0000_0010 | (rd_enc << 7) | (rs2_enc << 2))
@@ -60,14 +59,14 @@ pub fn encode_compressed_inst(
 
         // CR format single register: c.jr rs1
         // opcode: 1000 | rs1[4:0] | 00000 | 10
-        (CJr, CRSingle { rs1 }) => {
+        (CompressedOp::CJr, CompressedOperands::CRSingle { rs1 }) => {
             let rs1_enc = reg_to_bits(*rs1);
             Ok(0b1000_0000_0000_0010 | (rs1_enc << 7))
         }
 
         // CR format single register: c.jalr rs1
         // opcode: 1001 | rs1[4:0] | 00000 | 10
-        (CJalr, CRSingle { rs1 }) => {
+        (CompressedOp::CJalr, CompressedOperands::CRSingle { rs1 }) => {
             let rs1_enc = reg_to_bits(*rs1);
             Ok(0b1001_0000_0000_0010 | (rs1_enc << 7))
         }
@@ -75,7 +74,7 @@ pub fn encode_compressed_inst(
         // CI format: c.li rd, imm
         // opcode: 010 | imm[5] | rd[4:0] | imm[4:0] | 01
         // imm is 6-bit signed: -32 to 31
-        (CLi, CI { rd, imm }) => {
+        (CompressedOp::CLi, CompressedOperands::CI { rd, imm }) => {
             let rd_enc = reg_to_bits(*rd);
             let imm_val = extract_literal(imm);
             check_signed_imm(imm_val, 6, "c.li", location)?;
@@ -91,7 +90,7 @@ pub fn encode_compressed_inst(
         // CI format: c.addi rd, imm (rd is also rs1, rd != x0)
         // opcode: 000 | imm[5] | rd[4:0] | imm[4:0] | 01
         // imm is 6-bit signed: -32 to 31
-        (CAddi, CI { rd, imm }) => {
+        (CompressedOp::CAddi, CompressedOperands::CI { rd, imm }) => {
             if *rd == Register::X0 {
                 return Err(AssemblerError::from_context(
                     "c.addi cannot use x0 as destination".to_string(),
@@ -113,7 +112,7 @@ pub fn encode_compressed_inst(
         // CI format: c.addi16sp sp, imm
         // opcode: 011 | imm[9] | 00010 | imm[4:3,5,8:6] | 01
         // imm is 10-bit signed << 4, range [-512, 496] in multiples of 16
-        (CAddi16sp, CI { rd, imm }) => {
+        (CompressedOp::CAddi16sp, CompressedOperands::CI { rd, imm }) => {
             if *rd != Register::X2 {
                 return Err(AssemblerError::from_context(
                     "c.addi16sp requires sp (x2) as rd".to_string(),
@@ -151,7 +150,7 @@ pub fn encode_compressed_inst(
         // CI format: c.slli rd, shamt
         // opcode: 000 | shamt[5] | rd[4:0] | shamt[4:0] | 10
         // shamt is 6-bit unsigned: 0 to 63 (but usually 1-31)
-        (CSlli, CI { rd, imm }) => {
+        (CompressedOp::CSlli, CompressedOperands::CI { rd, imm }) => {
             if *rd == Register::X0 {
                 return Err(AssemblerError::from_context(
                     "c.slli cannot use x0 as destination".to_string(),
@@ -181,7 +180,10 @@ pub fn encode_compressed_inst(
         // CI format stack-relative: c.lwsp rd, offset(sp)
         // opcode: 010 | offset[5] | rd[4:0] | offset[4:2,7:6] | 10
         // offset is in 4-byte increments, range [0, 252]
-        (CLwsp, CIStackLoad { rd, offset }) => {
+        (
+            CompressedOp::CLwsp,
+            CompressedOperands::CIStackLoad { rd, offset },
+        ) => {
             if *rd == Register::X0 {
                 return Err(AssemblerError::from_context(
                     "c.lwsp cannot use x0 as destination".to_string(),
@@ -216,7 +218,10 @@ pub fn encode_compressed_inst(
         // bits 6:2 = rs2[4:0] (5-bit register field)
         // bits 1:0 = 10 (opcode)
         // offset is in 4-byte increments, range [0, 252]
-        (CSwsp, CSSStackStore { rs2, offset }) => {
+        (
+            CompressedOp::CSwsp,
+            CompressedOperands::CSSStackStore { rs2, offset },
+        ) => {
             let rs2_enc = reg_to_bits(*rs2);
             let offset_val = extract_literal(offset) as u32;
             if offset_val > 252 || offset_val % 4 != 0 {
@@ -242,7 +247,10 @@ pub fn encode_compressed_inst(
         // CIW format: c.addi4spn rd', imm
         // opcode: 000 | imm[9:6,2,5:3] | rd'[2:0] | 00
         // imm is 10-bit zero-extended << 2, range [0, 1020] in multiples of 4
-        (CAddi4spn, CIW { rd_prime, imm }) => {
+        (
+            CompressedOp::CAddi4spn,
+            CompressedOperands::CIW { rd_prime, imm },
+        ) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let imm_val = extract_literal(imm) as u32;
             // Check range: 0 to 1020 in multiples of 4
@@ -265,7 +273,10 @@ pub fn encode_compressed_inst(
         // Layout: 010 | offset[5:3] | rs1'[2:0] | offset[2] | offset[6] | rd'[2:0] | 00
         // offset is in 4-byte increments, range [0, 124]
         // The offset is encoded as: offset[5:3] at bits 12-10, offset[2] at bit 6, offset[6] at bit 5
-        (CLw, CL { rd_prime, rs1_prime, offset }) => {
+        (
+            CompressedOp::CLw,
+            CompressedOperands::CL { rd_prime, rs1_prime, offset },
+        ) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
             let offset_val = extract_literal(offset) as u32;
@@ -296,7 +307,10 @@ pub fn encode_compressed_inst(
         // Layout: 110 | offset[5:3] | rs1'[2:0] | offset[2] | offset[6] | rs2'[2:0] | 00
         // offset is in 4-byte increments, range [0, 124]
         // The offset is encoded the same way as CL format
-        (CSw, CS { rs2_prime, rs1_prime, offset }) => {
+        (
+            CompressedOp::CSw,
+            CompressedOperands::CS { rs2_prime, rs1_prime, offset },
+        ) => {
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
             let offset_val = extract_literal(offset) as u32;
@@ -326,7 +340,10 @@ pub fn encode_compressed_inst(
         // bits 6:5 = operation type (11=and, 10=or, 01=xor, 00=sub)
         // bits 4:2 = rs2' (compressed register)
         // bits 1:0 = 01 (opcode)
-        (CAnd, CA { rd_prime, rs2_prime }) => {
+        (
+            CompressedOp::CAnd,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             Ok((0b100011_u16 << 10)
@@ -336,7 +353,7 @@ pub fn encode_compressed_inst(
                 | 0b01)
         }
 
-        (COr, CA { rd_prime, rs2_prime }) => {
+        (CompressedOp::COr, CompressedOperands::CA { rd_prime, rs2_prime }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             Ok((0b100011_u16 << 10)
@@ -346,7 +363,10 @@ pub fn encode_compressed_inst(
                 | 0b01)
         }
 
-        (CXor, CA { rd_prime, rs2_prime }) => {
+        (
+            CompressedOp::CXor,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             Ok((0b100011_u16 << 10)
@@ -356,7 +376,10 @@ pub fn encode_compressed_inst(
                 | 0b01)
         }
 
-        (CSub, CA { rd_prime, rs2_prime }) => {
+        (
+            CompressedOp::CSub,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let rs2_enc = rs2_prime.compressed_encoding() as u16;
             Ok((0b100011_u16 << 10) | (rd_enc << 7) | (rs2_enc << 2) | 0b01)
@@ -364,7 +387,7 @@ pub fn encode_compressed_inst(
 
         // CB format: c.srli, c.srai, c.andi
         // opcode: 100 | funct2 | imm[5] | rd'[2:0] | imm[4:0] | 01
-        (CSrli, CBImm { rd_prime, imm }) => {
+        (CompressedOp::CSrli, CompressedOperands::CBImm { rd_prime, imm }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let imm_val = extract_literal(imm) as u32;
             if imm_val > 63 {
@@ -385,7 +408,7 @@ pub fn encode_compressed_inst(
                 | (imm_4_0 << 2))
         }
 
-        (CSrai, CBImm { rd_prime, imm }) => {
+        (CompressedOp::CSrai, CompressedOperands::CBImm { rd_prime, imm }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let imm_val = extract_literal(imm) as u32;
             if imm_val > 63 {
@@ -406,7 +429,7 @@ pub fn encode_compressed_inst(
                 | (imm_4_0 << 2))
         }
 
-        (CAndi, CBImm { rd_prime, imm }) => {
+        (CompressedOp::CAndi, CompressedOperands::CBImm { rd_prime, imm }) => {
             let rd_enc = rd_prime.compressed_encoding() as u16;
             let imm_val = extract_literal(imm);
             check_signed_imm(imm_val, 6, "c.andi", location)?;
@@ -422,7 +445,10 @@ pub fn encode_compressed_inst(
         // CB format branches: c.beqz, c.bnez
         // opcode: 110 | offset[8|4:3] | rs1'[2:0] | offset[7:6|2:1|5] | 01
         // offset is 9-bit signed: -256 to 254, must be even
-        (CBeqz, CBBranch { rs1_prime, offset }) => {
+        (
+            CompressedOp::CBeqz,
+            CompressedOperands::CBBranch { rs1_prime, offset },
+        ) => {
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
             let offset_val = extract_literal(offset);
             check_compressed_branch_offset(offset_val, location)?;
@@ -441,7 +467,10 @@ pub fn encode_compressed_inst(
                 | (offset_5 << 2))
         }
 
-        (CBnez, CBBranch { rs1_prime, offset }) => {
+        (
+            CompressedOp::CBnez,
+            CompressedOperands::CBBranch { rs1_prime, offset },
+        ) => {
             let rs1_enc = rs1_prime.compressed_encoding() as u16;
             let offset_val = extract_literal(offset);
             check_compressed_branch_offset(offset_val, location)?;
@@ -463,7 +492,7 @@ pub fn encode_compressed_inst(
         // CJ format: c.j offset
         // opcode: 101 | offset[11|4|9:8|10|6|7|3:1|5] | 01
         // offset is 12-bit signed: -2048 to 2046, must be even
-        (CJComp, CJOpnd { offset }) => {
+        (CompressedOp::CJComp, CompressedOperands::CJOpnd { offset }) => {
             let offset_val = extract_literal(offset);
             check_compressed_jump_offset(offset_val, location)?;
             let offset_bits = ((offset_val as u16) & 0xFFF) as u16;
@@ -488,7 +517,7 @@ pub fn encode_compressed_inst(
 
         // CJ format: c.jal offset (RV32C only)
         // Same encoding as c.j but with opcode 001
-        (CJalComp, CJOpnd { offset }) => {
+        (CompressedOp::CJalComp, CompressedOperands::CJOpnd { offset }) => {
             let offset_val = extract_literal(offset);
             check_compressed_jump_offset(offset_val, location)?;
             let offset_bits = ((offset_val as u16) & 0xFFF) as u16;
@@ -513,11 +542,15 @@ pub fn encode_compressed_inst(
 
         // Special: c.nop
         // opcode: 000 | 0 | 00000 | 00000 | 01
-        (CNop, None) => Ok(0b000_0_00000_00000_01),
+        (CompressedOp::CNop, CompressedOperands::None) => {
+            Ok(0b000_0_00000_00000_01)
+        }
 
         // Special: c.ebreak
         // opcode: 1001 | 00000 | 00000 | 10
-        (CEbreak, None) => Ok(0b1001_00000_00000_10),
+        (CompressedOp::CEbreak, CompressedOperands::None) => {
+            Ok(0b1001_00000_00000_10)
+        }
 
         // Unimplemented or unsupported combinations
         _ => Err(AssemblerError::from_context(
@@ -573,7 +606,7 @@ fn check_signed_imm(
     val: i32,
     bits: u32,
     inst: &str,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<()> {
     let min = -(1i32 << (bits - 1));
     let max = (1i32 << (bits - 1)) - 1;
@@ -592,7 +625,7 @@ fn check_signed_imm(
 /// Check compressed branch offset (9-bit signed, must be even)
 fn check_compressed_branch_offset(
     offset: i32,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
@@ -618,7 +651,7 @@ fn check_compressed_branch_offset(
 /// Check compressed jump offset (12-bit signed, must be even)
 fn check_compressed_jump_offset(
     offset: i32,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
