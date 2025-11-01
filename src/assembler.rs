@@ -5,7 +5,8 @@
 use crate::ast::Source;
 use crate::encoder::{Relax, encode_source};
 use crate::error::{AssemblerError, Result};
-use crate::expressions;
+use crate::expressions::{SymbolValues, eval_symbol_values};
+use crate::layout::{Layout, compute_offsets};
 use crate::symbols::SymbolLinks;
 
 /// Callback trait for per-iteration convergence dumps
@@ -20,8 +21,8 @@ pub trait ConvergenceCallback {
         pass: usize,
         is_final: bool,
         source: &Source,
-        symbol_values: &expressions::SymbolValues,
-        layout: &crate::layout::Layout,
+        symbol_values: &SymbolValues,
+        layout: &Layout,
     );
 
     /// Called after encoding
@@ -30,8 +31,8 @@ pub trait ConvergenceCallback {
         pass: usize,
         is_final: bool,
         source: &Source,
-        symbol_values: &expressions::SymbolValues,
-        layout: &crate::layout::Layout,
+        symbol_values: &SymbolValues,
+        layout: &Layout,
         text_bytes: &[u8],
         data_bytes: &[u8],
     );
@@ -46,8 +47,8 @@ impl ConvergenceCallback for NoOpCallback {
         _: usize,
         _: bool,
         _: &Source,
-        _: &expressions::SymbolValues,
-        _: &crate::layout::Layout,
+        _: &SymbolValues,
+        _: &Layout,
     ) {
     }
     fn on_code_generated(
@@ -55,8 +56,8 @@ impl ConvergenceCallback for NoOpCallback {
         _: usize,
         _: bool,
         _: &Source,
-        _: &expressions::SymbolValues,
-        _: &crate::layout::Layout,
+        _: &SymbolValues,
+        _: &Layout,
         _: &[u8],
         _: &[u8],
     ) {
@@ -82,7 +83,7 @@ impl ConvergenceCallback for NoOpCallback {
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
     symbol_links: &SymbolLinks,
-    layout: &mut crate::layout::Layout,
+    layout: &mut Layout,
     text_start: u32,
     relax: &Relax,
     callback: &C,
@@ -100,7 +101,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         let pass_number = iteration + 1;
 
         // Step 1: Calculate addresses based on current size guesses
-        crate::layout::compute_offsets(source, layout);
+        compute_offsets(source, layout);
 
         if show_progress {
             eprintln!(
@@ -114,8 +115,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
 
         // Step 2: Compute segment addresses and calculate all symbol values upfront
         layout.set_segment_addresses(text_start);
-        let symbol_values =
-            expressions::eval_symbol_values(source, symbol_links, layout)?;
+        let symbol_values = eval_symbol_values(source, symbol_links, layout)?;
 
         // Callback: after symbol values computed
         callback.on_values_computed(

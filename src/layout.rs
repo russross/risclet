@@ -65,9 +65,9 @@ impl Layout {
         }
     }
 
-    /// Get layout info for a specific line (returns None if not found)
-    pub fn get(&self, pointer: &LinePointer) -> Option<&LineLayout> {
-        self.lines.get(pointer)
+    /// Get layout info for a specific line (panics if not found)
+    pub fn get(&self, pointer: &LinePointer) -> &LineLayout {
+        self.lines.get(pointer).unwrap()
     }
 
     /// Set layout info for a specific line
@@ -98,15 +98,14 @@ impl Layout {
     /// Given a line pointer, returns the absolute address in the executable where
     /// this line's content will reside, accounting for segment base address and
     /// offset within the segment.
-    pub fn get_line_address(&self, pointer: &LinePointer) -> Option<u32> {
-        self.get(pointer).map(|line_layout| {
-            let segment_start = match line_layout.segment {
-                Segment::Text => self.text_start,
-                Segment::Data => self.data_start,
-                Segment::Bss => self.bss_start,
-            };
-            segment_start + line_layout.offset
-        })
+    pub fn get_line_address(&self, pointer: &LinePointer) -> u32 {
+        let line_layout = self.get(pointer);
+        let segment_start = match line_layout.segment {
+            Segment::Text => self.text_start,
+            Segment::Data => self.data_start,
+            Segment::Bss => self.bss_start,
+        };
+        segment_start + line_layout.offset
     }
 }
 
@@ -246,10 +245,7 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
 
             // Get the size: use layout if available (which may have been updated during encoding),
             // otherwise fall back to guess
-            let size = layout
-                .get(&pointer)
-                .map(|l| l.size)
-                .unwrap_or_else(|| guess_line_size(&line.content));
+            let size = layout.get(&pointer).size;
 
             // Compute offset based on current segment
             let offset = match current_segment {

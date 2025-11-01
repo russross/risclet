@@ -1,6 +1,7 @@
 use ast::{Line, Source, SourceFile};
 use encoder::Relax;
 use error::AssemblerError;
+use layout::Layout;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
@@ -276,7 +277,7 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         is_final: bool,
         source: &Source,
         symbol_values: &expressions::SymbolValues,
-        layout: &crate::layout::Layout,
+        layout: &Layout,
     ) {
         if let Some(ref spec) = self.dump_config.dump_values {
             dump::dump_values(
@@ -296,7 +297,7 @@ impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
         is_final: bool,
         source: &Source,
         symbol_values: &expressions::SymbolValues,
-        layout: &crate::layout::Layout,
+        layout: &Layout,
         text_bytes: &[u8],
         data_bytes: &[u8],
     ) {
@@ -499,13 +500,7 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
             symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
             let pointer = g.definition_pointer.clone();
-            if let Some(addr) = layout.get_line_address(&pointer) {
-                Ok(addr as u64)
-            } else {
-                Err(AssemblerError::no_context(
-                    "_start symbol not found in layout".to_string(),
-                ))
-            }
+            Ok(layout.get_line_address(&pointer) as u64)
         } else {
             Err(AssemblerError::no_context(
                 "_start symbol not defined".to_string(),

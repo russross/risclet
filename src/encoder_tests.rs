@@ -6,6 +6,7 @@
 use crate::assembler::{NoOpCallback, converge_and_encode};
 use crate::ast::{Source, SourceFile};
 use crate::encoder::Relax;
+use crate::layout::create_initial_layout;
 use crate::parser::parse;
 use crate::symbols::{create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
@@ -69,7 +70,7 @@ fn assemble(
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    let mut layout = crate::layout::create_initial_layout(&source);
+    let mut layout = create_initial_layout(&source);
     converge_and_encode(
         &mut source,
         &symbols,

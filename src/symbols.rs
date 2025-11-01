@@ -705,22 +705,23 @@ fn extract_refs_from_compressed_operands(
     operands: &CompressedOperands,
     refs: &mut Vec<String>,
 ) {
-    use crate::ast::CompressedOperands::*;
-
     match operands {
         // Operands with no expressions
-        CR { .. } | CRSingle { .. } | CA { .. } | None => {}
+        CompressedOperands::CR { .. }
+        | CompressedOperands::CRSingle { .. }
+        | CompressedOperands::CA { .. }
+        | CompressedOperands::None => {}
 
         // Operands with expressions
-        CI { imm, .. }
-        | CIStackLoad { offset: imm, .. }
-        | CSSStackStore { offset: imm, .. }
-        | CIW { imm, .. }
-        | CL { offset: imm, .. }
-        | CS { offset: imm, .. }
-        | CBImm { imm, .. }
-        | CBBranch { offset: imm, .. }
-        | CJOpnd { offset: imm } => {
+        CompressedOperands::CI { imm, .. }
+        | CompressedOperands::CIStackLoad { offset: imm, .. }
+        | CompressedOperands::CSSStackStore { offset: imm, .. }
+        | CompressedOperands::CIW { imm, .. }
+        | CompressedOperands::CL { offset: imm, .. }
+        | CompressedOperands::CS { offset: imm, .. }
+        | CompressedOperands::CBImm { imm, .. }
+        | CompressedOperands::CBBranch { offset: imm, .. }
+        | CompressedOperands::CJOpnd { offset: imm } => {
             refs.extend(extract_from_expression(imm));
         }
     }

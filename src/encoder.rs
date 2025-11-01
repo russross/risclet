@@ -14,16 +14,16 @@
 // immediate ranges for all instruction formats.
 
 use crate::ast::{
-    BTypeOp, CompressedOp, CompressedOperands, Directive, Expression, ITypeOp,
-    Instruction, JTypeOp, Line, LineContent, LinePointer, LoadStoreOp,
-    PseudoOp, RTypeOp, Register, Segment, Source, SpecialOp, UTypeOp,
+    AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive, Expression,
+    ITypeOp, Instruction, JTypeOp, Line, LineContent, LinePointer, LoadStoreOp,
+    Location, MemoryOrdering, PseudoOp, RTypeOp, Register, Segment, Source,
+    SpecialOp, UTypeOp,
 };
 use crate::encoder_compressed;
-use crate::error::AssemblerError;
+use crate::error::{AssemblerError, Result};
 use crate::expressions::{EvaluatedValue, SymbolValues, eval_expr};
+use crate::layout::{Layout, LineLayout};
 use crate::symbols::SymbolLinks;
-
-type Result<T> = std::result::Result<T, AssemblerError>;
 
 // ============================================================================
 // Relaxation Configuration
@@ -61,31 +61,21 @@ pub struct EncodingContext<'a> {
     pub source: &'a Source,
     pub symbol_values: &'a SymbolValues,
     pub symbol_links: &'a SymbolLinks,
-    pub layout: &'a crate::layout::Layout,
+    pub layout: &'a Layout,
     pub file_index: usize,
     pub line_index: usize,
 }
 
 impl<'a> EncodingContext<'a> {
     /// Evaluate an expression in the context of the current line
-    pub fn eval_expression(
-        &self,
-        expr: &Expression,
-        line: &Line,
-    ) -> Result<EvaluatedValue> {
+    pub fn eval_expression(&self, expr: &Expression) -> Result<EvaluatedValue> {
         let pointer = LinePointer {
             file_index: self.file_index,
             line_index: self.line_index,
         };
 
         // Get address from layout
-        let address =
-            self.layout.get_line_address(&pointer).ok_or_else(|| {
-                AssemblerError::from_context(
-                    "Internal error: no layout for line".to_string(),
-                    line.location.clone(),
-                )
-            })?;
+        let address = self.layout.get_line_address(&pointer);
 
         // Get symbol references and evaluate
         let refs = self.symbol_links.get_line_refs(&pointer);
@@ -109,7 +99,7 @@ pub fn encode_source(
     source: &Source,
     symbol_values: &SymbolValues,
     symbol_links: &SymbolLinks,
-    layout: &mut crate::layout::Layout,
+    layout: &mut Layout,
     relax: &Relax,
     any_changed: &mut bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
@@ -118,20 +108,11 @@ pub fn encode_source(
     let mut bss_size: u32 = 0;
 
     // Process each file and line, updating sizes as we go
-    for file_idx in 0..source.files.len() {
-        for line_idx in 0..source.files[file_idx].lines.len() {
+    for file_index in 0..source.files.len() {
+        for line_index in 0..source.files[file_index].lines.len() {
             // Get layout info for this line
-            let pointer =
-                LinePointer { file_index: file_idx, line_index: line_idx };
-            let line_layout = layout.get(&pointer).copied().unwrap_or(
-                crate::layout::LineLayout {
-                    segment: Segment::Text,
-                    offset: 0,
-                    size: 0,
-                },
-            );
-            let old_size = line_layout.size;
-            let segment = line_layout.segment;
+            let pointer = LinePointer { file_index, line_index };
+            let &LineLayout { segment, offset, size } = layout.get(&pointer);
 
             // Create encoding context
             let context = EncodingContext {
@@ -139,12 +120,12 @@ pub fn encode_source(
                 symbol_values,
                 symbol_links,
                 layout,
-                file_index: file_idx,
-                line_index: line_idx,
+                file_index,
+                line_index,
             };
 
             // Get reference to line for encoding
-            let line = &source.files[file_idx].lines[line_idx];
+            let line = &source.files[file_index].lines[line_index];
 
             // Encode the line
             let (bytes, actual_size) = match segment {
@@ -160,9 +141,9 @@ pub fn encode_source(
             };
 
             // Update the line's size in layout if it changed
-            if old_size != actual_size {
-                let mut updated_layout = line_layout;
-                updated_layout.size = actual_size;
+            if size != actual_size {
+                let updated_layout =
+                    LineLayout { segment, offset, size: actual_size };
                 layout.set(pointer, updated_layout);
                 *any_changed = true;
             }
@@ -215,7 +196,7 @@ fn encode_bss_line(line: &Line, context: &EncodingContext) -> Result<u32> {
 
         LineContent::Directive(directive) => match directive {
             Directive::Space(expr) => {
-                let val = context.eval_expression(expr, line)?;
+                let val = context.eval_expression(expr)?;
                 let size =
                     require_integer(val, ".space in .bss", &line.location)?;
                 if size < 0 {
@@ -229,7 +210,7 @@ fn encode_bss_line(line: &Line, context: &EncodingContext) -> Result<u32> {
 
             Directive::Balign(expr) => {
                 // Evaluate the alignment boundary expression
-                let val = context.eval_expression(expr, line)?;
+                let val = context.eval_expression(expr)?;
                 let alignment = require_integer(
                     val,
                     ".balign directive in .bss",
@@ -309,7 +290,7 @@ fn directive_name(directive: &Directive) -> &str {
 fn require_integer(
     val: EvaluatedValue,
     context: &str,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<i64> {
     match val {
         EvaluatedValue::Integer(i) => Ok(i as i64),
@@ -324,7 +305,7 @@ fn require_integer(
 fn require_address(
     val: EvaluatedValue,
     context: &str,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<i64> {
     match val {
         EvaluatedValue::Address(a) => Ok(a as i64),
@@ -389,7 +370,7 @@ fn fits_signed(value: i64, bits: u32) -> bool {
 }
 
 /// Validate 12-bit signed immediate (I-type, S-type)
-fn check_i_imm(imm: i64, location: &crate::ast::Location) -> Result<()> {
+fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
     if !fits_signed(imm, 12) {
         return Err(AssemblerError::from_context(
             format!(
@@ -403,7 +384,7 @@ fn check_i_imm(imm: i64, location: &crate::ast::Location) -> Result<()> {
 }
 
 /// Validate 13-bit signed offset for branches (must be 2-byte aligned)
-fn check_b_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
+fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
             format!("Branch offset {} must be 2-byte aligned", offset),
@@ -423,7 +404,7 @@ fn check_b_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
 }
 
 /// Validate 21-bit signed offset for JAL (must be 2-byte aligned)
-fn check_j_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
+fn check_j_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
         return Err(AssemblerError::from_context(
             format!("Jump offset {} must be 2-byte aligned", offset),
@@ -443,7 +424,7 @@ fn check_j_imm(offset: i64, location: &crate::ast::Location) -> Result<()> {
 }
 
 /// Validate 20-bit immediate for U-type (upper 20 bits of 32-bit value)
-fn check_u_imm(imm: i64, location: &crate::ast::Location) -> Result<()> {
+fn check_u_imm(imm: i64, location: &Location) -> Result<()> {
     // U-type immediate is the upper 20 bits of a 32-bit value
     // So valid range is 0 to 0xFFFFF (20 bits)
     if !(0..=0xFFFFF).contains(&imm) {
@@ -490,7 +471,7 @@ fn encode_i_type(
     funct3: u32,
     rs1: Register,
     imm: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
     check_i_imm(imm, location)?;
 
@@ -512,7 +493,7 @@ fn encode_s_type(
     rs1: Register,
     rs2: Register,
     imm: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
     check_i_imm(imm, location)?;
 
@@ -537,7 +518,7 @@ fn encode_b_type(
     rs1: Register,
     rs2: Register,
     offset: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
     check_b_imm(offset, location)?;
 
@@ -566,7 +547,7 @@ fn encode_u_type(
     opcode: u32,
     rd: Register,
     imm: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
     check_u_imm(imm, location)?;
 
@@ -581,7 +562,7 @@ fn encode_j_type(
     opcode: u32,
     rd: Register,
     offset: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
     check_j_imm(offset, location)?;
 
@@ -639,7 +620,7 @@ fn encode_instruction(
 
         Instruction::IType(op, rd, rs1, imm_expr) => {
             // Evaluate immediate and check type
-            let val = context.eval_expression(imm_expr, line)?;
+            let val = context.eval_expression(imm_expr)?;
             let imm = require_integer(val, "I-type immediate", &line.location)?;
 
             // Try to relax to compressed instruction if enabled
@@ -663,7 +644,7 @@ fn encode_instruction(
 
         Instruction::BType(op, rs1, rs2, target_expr) => {
             // Evaluate target address and check type
-            let val = context.eval_expression(target_expr, line)?;
+            let val = context.eval_expression(target_expr)?;
             let target = require_address(val, "Branch target", &line.location)?;
 
             // Calculate PC-relative offset
@@ -677,7 +658,7 @@ fn encode_instruction(
 
         Instruction::UType(op, rd, imm_expr) => {
             // Evaluate immediate and check type
-            let val = context.eval_expression(imm_expr, line)?;
+            let val = context.eval_expression(imm_expr)?;
             let imm = require_integer(val, "U-type immediate", &line.location)?;
 
             let encoded = encode_u_type_inst(op, *rd, imm, &line.location)?;
@@ -686,7 +667,7 @@ fn encode_instruction(
 
         Instruction::JType(op, rd, target_expr) => {
             // Evaluate target address and check type
-            let val = context.eval_expression(target_expr, line)?;
+            let val = context.eval_expression(target_expr)?;
             let target = require_address(val, "Jump target", &line.location)?;
 
             // Calculate PC-relative offset
@@ -704,7 +685,7 @@ fn encode_instruction(
 
         Instruction::LoadStore(op, rd, offset_expr, rs) => {
             // Evaluate offset and check type
-            let val = context.eval_expression(offset_expr, line)?;
+            let val = context.eval_expression(offset_expr)?;
             let offset =
                 require_integer(val, "Load/Store offset", &line.location)?;
 
@@ -756,8 +737,6 @@ fn try_compress_instruction(
     inst: &Instruction,
     imm_or_val: Option<i64>,
 ) -> Option<(CompressedOp, CompressedOperands)> {
-    use crate::ast::ITypeOp;
-
     match inst {
         // c.add: add rd, rd, rs2 (rd == rs1, both non-zero)
         // Can be compressed to CR format using full 5-bit register encoding
@@ -793,8 +772,8 @@ fn try_compress_instruction(
                 CompressedOp::CAddi,
                 CompressedOperands::CI {
                     rd: *rd,
-                    imm: Box::new(crate::ast::Expression::Literal(
-                        imm_or_val.unwrap() as i32,
+                    imm: Box::new(Expression::Literal(
+                        imm_or_val.unwrap() as i32
                     )),
                 },
             ))
@@ -809,8 +788,8 @@ fn try_compress_instruction(
                 CompressedOp::CLi,
                 CompressedOperands::CI {
                     rd: *rd,
-                    imm: Box::new(crate::ast::Expression::Literal(
-                        imm_or_val.unwrap() as i32,
+                    imm: Box::new(Expression::Literal(
+                        imm_or_val.unwrap() as i32
                     )),
                 },
             ))
@@ -835,7 +814,7 @@ fn eval_compressed_operands(
     match operands {
         // CI format - evaluate immediate expression
         CI { rd, imm } => {
-            let val = context.eval_expression(imm, line)?;
+            let val = context.eval_expression(imm)?;
             let imm_val =
                 require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CI {
@@ -846,7 +825,7 @@ fn eval_compressed_operands(
 
         // CIW format - evaluate immediate expression
         CIW { rd_prime, imm } => {
-            let val = context.eval_expression(imm, line)?;
+            let val = context.eval_expression(imm)?;
             let imm_val =
                 require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CIW {
@@ -857,7 +836,7 @@ fn eval_compressed_operands(
 
         // CIStackLoad - evaluate offset expression
         CIStackLoad { rd, offset } => {
-            let val = context.eval_expression(offset, line)?;
+            let val = context.eval_expression(offset)?;
             let offset_val =
                 require_integer(val, "Stack offset", &line.location)?;
             Ok(CIStackLoad {
@@ -868,7 +847,7 @@ fn eval_compressed_operands(
 
         // CSSStackStore - evaluate offset expression
         CSSStackStore { rs2, offset } => {
-            let val = context.eval_expression(offset, line)?;
+            let val = context.eval_expression(offset)?;
             let offset_val =
                 require_integer(val, "Stack offset", &line.location)?;
             Ok(CSSStackStore {
@@ -879,7 +858,7 @@ fn eval_compressed_operands(
 
         // CL format - evaluate offset expression
         CL { rd_prime, rs1_prime, offset } => {
-            let val = context.eval_expression(offset, line)?;
+            let val = context.eval_expression(offset)?;
             let offset_val =
                 require_integer(val, "Load offset", &line.location)?;
             Ok(CL {
@@ -891,7 +870,7 @@ fn eval_compressed_operands(
 
         // CS format - evaluate offset expression
         CS { rs2_prime, rs1_prime, offset } => {
-            let val = context.eval_expression(offset, line)?;
+            let val = context.eval_expression(offset)?;
             let offset_val =
                 require_integer(val, "Store offset", &line.location)?;
             Ok(CS {
@@ -903,7 +882,7 @@ fn eval_compressed_operands(
 
         // CBImm format - evaluate immediate expression
         CBImm { rd_prime, imm } => {
-            let val = context.eval_expression(imm, line)?;
+            let val = context.eval_expression(imm)?;
             let imm_val =
                 require_integer(val, "Compressed immediate", &line.location)?;
             Ok(CBImm {
@@ -914,7 +893,7 @@ fn eval_compressed_operands(
 
         // CBBranch format - evaluate PC-relative offset
         CBBranch { rs1_prime, offset } => {
-            let val = context.eval_expression(offset, line)?;
+            let val = context.eval_expression(offset)?;
             let target = require_address(val, "Branch target", &line.location)?;
             let current_pc = get_line_address(context);
             let offset_val = target - current_pc;
@@ -926,7 +905,7 @@ fn eval_compressed_operands(
 
         // CJOpnd format - evaluate PC-relative offset
         CJOpnd { offset } => {
-            let val = context.eval_expression(offset, line)?;
+            let val = context.eval_expression(offset)?;
             let target = require_address(val, "Jump target", &line.location)?;
             let current_pc = get_line_address(context);
             let offset_val = target - current_pc;
@@ -948,12 +927,7 @@ fn get_line_address(context: &EncodingContext) -> i64 {
         file_index: context.file_index,
         line_index: context.line_index,
     };
-    context.layout.get_line_address(&pointer).unwrap_or_else(|| {
-        panic!(
-            "No layout info for line at {}:{}",
-            context.file_index, context.line_index
-        )
-    }) as i64
+    context.layout.get_line_address(&pointer) as i64
 }
 
 /// Encode R-type instruction with opcode lookup
@@ -963,30 +937,28 @@ fn encode_r_type_inst(
     rs1: Register,
     rs2: Register,
 ) -> u32 {
-    use crate::ast::RTypeOp::*;
-
     let (opcode, funct3, funct7) = match op {
         // Base RV32I
-        Add => (0b0110011, 0b000, 0b0000000),
-        Sub => (0b0110011, 0b000, 0b0100000),
-        Sll => (0b0110011, 0b001, 0b0000000),
-        Slt => (0b0110011, 0b010, 0b0000000),
-        Sltu => (0b0110011, 0b011, 0b0000000),
-        Xor => (0b0110011, 0b100, 0b0000000),
-        Srl => (0b0110011, 0b101, 0b0000000),
-        Sra => (0b0110011, 0b101, 0b0100000),
-        Or => (0b0110011, 0b110, 0b0000000),
-        And => (0b0110011, 0b111, 0b0000000),
+        RTypeOp::Add => (0b0110011, 0b000, 0b0000000),
+        RTypeOp::Sub => (0b0110011, 0b000, 0b0100000),
+        RTypeOp::Sll => (0b0110011, 0b001, 0b0000000),
+        RTypeOp::Slt => (0b0110011, 0b010, 0b0000000),
+        RTypeOp::Sltu => (0b0110011, 0b011, 0b0000000),
+        RTypeOp::Xor => (0b0110011, 0b100, 0b0000000),
+        RTypeOp::Srl => (0b0110011, 0b101, 0b0000000),
+        RTypeOp::Sra => (0b0110011, 0b101, 0b0100000),
+        RTypeOp::Or => (0b0110011, 0b110, 0b0000000),
+        RTypeOp::And => (0b0110011, 0b111, 0b0000000),
 
         // M extension
-        Mul => (0b0110011, 0b000, 0b0000001),
-        Mulh => (0b0110011, 0b001, 0b0000001),
-        Mulhsu => (0b0110011, 0b010, 0b0000001),
-        Mulhu => (0b0110011, 0b011, 0b0000001),
-        Div => (0b0110011, 0b100, 0b0000001),
-        Divu => (0b0110011, 0b101, 0b0000001),
-        Rem => (0b0110011, 0b110, 0b0000001),
-        Remu => (0b0110011, 0b111, 0b0000001),
+        RTypeOp::Mul => (0b0110011, 0b000, 0b0000001),
+        RTypeOp::Mulh => (0b0110011, 0b001, 0b0000001),
+        RTypeOp::Mulhsu => (0b0110011, 0b010, 0b0000001),
+        RTypeOp::Mulhu => (0b0110011, 0b011, 0b0000001),
+        RTypeOp::Div => (0b0110011, 0b100, 0b0000001),
+        RTypeOp::Divu => (0b0110011, 0b101, 0b0000001),
+        RTypeOp::Rem => (0b0110011, 0b110, 0b0000001),
+        RTypeOp::Remu => (0b0110011, 0b111, 0b0000001),
     };
 
     encode_r_type(opcode, rd, funct3, rs1, rs2, funct7)
@@ -998,26 +970,24 @@ fn encode_i_type_inst(
     rd: Register,
     rs1: Register,
     imm: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
-    use crate::ast::ITypeOp::*;
-
     let (opcode, funct3) = match op {
-        Addi => (0b0010011, 0b000),
-        Slti => (0b0010011, 0b010),
-        Sltiu => (0b0010011, 0b011),
-        Xori => (0b0010011, 0b100),
-        Ori => (0b0010011, 0b110),
-        Andi => (0b0010011, 0b111),
-        Slli => (0b0010011, 0b001), // Note: upper bits of imm must be 0
-        Srli => (0b0010011, 0b101), // Note: upper bits of imm must be 0
-        Srai => (0b0010011, 0b101), // Note: upper bits of imm must be 0x20
-        Jalr => (0b1100111, 0b000),
+        ITypeOp::Addi => (0b0010011, 0b000),
+        ITypeOp::Slti => (0b0010011, 0b010),
+        ITypeOp::Sltiu => (0b0010011, 0b011),
+        ITypeOp::Xori => (0b0010011, 0b100),
+        ITypeOp::Ori => (0b0010011, 0b110),
+        ITypeOp::Andi => (0b0010011, 0b111),
+        ITypeOp::Slli => (0b0010011, 0b001), // Note: upper bits of imm must be 0
+        ITypeOp::Srli => (0b0010011, 0b101), // Note: upper bits of imm must be 0
+        ITypeOp::Srai => (0b0010011, 0b101), // Note: upper bits of imm must be 0x20
+        ITypeOp::Jalr => (0b1100111, 0b000),
     };
 
     // For shift instructions, validate that shift amount fits in 5 bits (RV32)
     let imm_to_encode = match op {
-        Slli | Srli | Srai => {
+        ITypeOp::Slli | ITypeOp::Srli | ITypeOp::Srai => {
             if !(0..32).contains(&imm) {
                 return Err(AssemblerError::from_context(
                     format!(
@@ -1028,7 +998,7 @@ fn encode_i_type_inst(
                 ));
             }
             // For srai, set bit 10 (0x400)
-            if matches!(op, Srai) { imm | 0x400 } else { imm }
+            if matches!(op, ITypeOp::Srai) { imm | 0x400 } else { imm }
         }
         _ => imm,
     };
@@ -1042,17 +1012,15 @@ fn encode_b_type_inst(
     rs1: Register,
     rs2: Register,
     offset: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
-    use crate::ast::BTypeOp::*;
-
     let (opcode, funct3) = match op {
-        Beq => (0b1100011, 0b000),
-        Bne => (0b1100011, 0b001),
-        Blt => (0b1100011, 0b100),
-        Bge => (0b1100011, 0b101),
-        Bltu => (0b1100011, 0b110),
-        Bgeu => (0b1100011, 0b111),
+        BTypeOp::Beq => (0b1100011, 0b000),
+        BTypeOp::Bne => (0b1100011, 0b001),
+        BTypeOp::Blt => (0b1100011, 0b100),
+        BTypeOp::Bge => (0b1100011, 0b101),
+        BTypeOp::Bltu => (0b1100011, 0b110),
+        BTypeOp::Bgeu => (0b1100011, 0b111),
     };
 
     encode_b_type(opcode, funct3, rs1, rs2, offset, location)
@@ -1063,13 +1031,11 @@ fn encode_u_type_inst(
     op: &UTypeOp,
     rd: Register,
     imm: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
-    use crate::ast::UTypeOp::*;
-
     let opcode = match op {
-        Lui => 0b0110111,
-        Auipc => 0b0010111,
+        UTypeOp::Lui => 0b0110111,
+        UTypeOp::Auipc => 0b0010111,
     };
 
     encode_u_type(opcode, rd, imm, location)
@@ -1080,12 +1046,10 @@ fn encode_j_type_inst(
     op: &JTypeOp,
     rd: Register,
     offset: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
-    use crate::ast::JTypeOp::*;
-
     let opcode = match op {
-        Jal => 0b1101111,
+        JTypeOp::Jal => 0b1101111,
     };
 
     encode_j_type(opcode, rd, offset, location)
@@ -1093,11 +1057,9 @@ fn encode_j_type_inst(
 
 /// Encode special instructions
 fn encode_special(op: &SpecialOp) -> u32 {
-    use crate::ast::SpecialOp::*;
-
     match op {
-        Ecall => 0x00000073,
-        Ebreak => 0x00100073,
+        SpecialOp::Ecall => 0x00000073,
+        SpecialOp::Ebreak => 0x00100073,
     }
 }
 
@@ -1107,22 +1069,20 @@ fn encode_load_store(
     rd: Register,
     offset: i64,
     rs: Register,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<u32> {
-    use crate::ast::LoadStoreOp::*;
-
     let (opcode, funct3, is_store) = match op {
         // Loads
-        Lb => (0b0000011, 0b000, false),
-        Lh => (0b0000011, 0b001, false),
-        Lw => (0b0000011, 0b010, false),
-        Lbu => (0b0000011, 0b100, false),
-        Lhu => (0b0000011, 0b101, false),
+        LoadStoreOp::Lb => (0b0000011, 0b000, false),
+        LoadStoreOp::Lh => (0b0000011, 0b001, false),
+        LoadStoreOp::Lw => (0b0000011, 0b010, false),
+        LoadStoreOp::Lbu => (0b0000011, 0b100, false),
+        LoadStoreOp::Lhu => (0b0000011, 0b101, false),
 
         // Stores
-        Sb => (0b0100011, 0b000, true),
-        Sh => (0b0100011, 0b001, true),
-        Sw => (0b0100011, 0b010, true),
+        LoadStoreOp::Sb => (0b0100011, 0b000, true),
+        LoadStoreOp::Sh => (0b0100011, 0b001, true),
+        LoadStoreOp::Sw => (0b0100011, 0b010, true),
     };
 
     if is_store {
@@ -1146,28 +1106,25 @@ fn encode_load_store(
 /// - rs1: address register
 /// - rd: destination register
 fn encode_atomic(
-    op: &crate::ast::AtomicOp,
+    op: &AtomicOp,
     rd: Register,
     rs1: Register,
     rs2: Register,
-    ordering: &crate::ast::MemoryOrdering,
+    ordering: &MemoryOrdering,
 ) -> u32 {
-    use crate::ast::AtomicOp::*;
-    use crate::ast::MemoryOrdering;
-
     // Determine funct5 based on operation
     let funct5 = match op {
-        LrW => 0b00010,
-        ScW => 0b00011,
-        AmoswapW => 0b00001,
-        AmoaddW => 0b00000,
-        AmoxorW => 0b00100,
-        AmoandW => 0b01100,
-        AmoorW => 0b01000,
-        AmominW => 0b10000,
-        AmomaxW => 0b10100,
-        AmominuW => 0b11000,
-        AmomaxuW => 0b11100,
+        AtomicOp::LrW => 0b00010,
+        AtomicOp::ScW => 0b00011,
+        AtomicOp::AmoswapW => 0b00001,
+        AtomicOp::AmoaddW => 0b00000,
+        AtomicOp::AmoxorW => 0b00100,
+        AtomicOp::AmoandW => 0b01100,
+        AtomicOp::AmoorW => 0b01000,
+        AtomicOp::AmominW => 0b10000,
+        AtomicOp::AmomaxW => 0b10100,
+        AtomicOp::AmominuW => 0b11000,
+        AtomicOp::AmomaxuW => 0b11100,
     };
 
     // Parse ordering bits
@@ -1210,7 +1167,7 @@ fn encode_pseudo(
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
             // Evaluate immediate and check type
-            let val = context.eval_expression(imm_expr, line)?;
+            let val = context.eval_expression(imm_expr)?;
             let imm =
                 require_integer(val, "li pseudo-instruction", &line.location)?;
 
@@ -1219,7 +1176,7 @@ fn encode_pseudo(
 
         PseudoOp::La(rd, addr_expr) => {
             // Evaluate address and check type
-            let val = context.eval_expression(addr_expr, line)?;
+            let val = context.eval_expression(addr_expr)?;
             let addr =
                 require_address(val, "la pseudo-instruction", &line.location)?;
 
@@ -1231,7 +1188,7 @@ fn encode_pseudo(
 
         PseudoOp::Call(target_expr) => {
             // Evaluate target address and check type
-            let val = context.eval_expression(target_expr, line)?;
+            let val = context.eval_expression(target_expr)?;
             let target = require_address(
                 val,
                 "call pseudo-instruction",
@@ -1244,7 +1201,7 @@ fn encode_pseudo(
 
         PseudoOp::Tail(target_expr) => {
             // Evaluate target address and check type
-            let val = context.eval_expression(target_expr, line)?;
+            let val = context.eval_expression(target_expr)?;
             let target = require_address(
                 val,
                 "tail pseudo-instruction",
@@ -1257,7 +1214,7 @@ fn encode_pseudo(
 
         PseudoOp::LoadGlobal(op, rd, addr_expr) => {
             // Evaluate address and check type
-            let val = context.eval_expression(addr_expr, line)?;
+            let val = context.eval_expression(addr_expr)?;
             let addr = require_address(
                 val,
                 "load global pseudo-instruction",
@@ -1270,7 +1227,7 @@ fn encode_pseudo(
 
         PseudoOp::StoreGlobal(op, rs, addr_expr, temp) => {
             // Evaluate address and check type
-            let val = context.eval_expression(addr_expr, line)?;
+            let val = context.eval_expression(addr_expr)?;
             let addr = require_address(
                 val,
                 "store global pseudo-instruction",
@@ -1305,11 +1262,7 @@ fn split_offset_hi_lo(offset: i64) -> (i64, i64) {
 }
 
 /// Expand `li rd, imm` - Load Immediate
-fn expand_li(
-    rd: Register,
-    imm: i64,
-    location: &crate::ast::Location,
-) -> Result<Vec<u8>> {
+fn expand_li(rd: Register, imm: i64, location: &Location) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
     // Case 1: Fits in 12-bit signed immediate
@@ -1361,7 +1314,7 @@ fn expand_la(
     addr: i64,
     current_pc: i64,
     gp: i64,
-    location: &crate::ast::Location,
+    location: &Location,
     relax_gp: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -1408,7 +1361,7 @@ fn expand_la(
 fn expand_call(
     target: i64,
     current_pc: i64,
-    location: &crate::ast::Location,
+    location: &Location,
     relax_pseudo: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -1458,7 +1411,7 @@ fn expand_call(
 fn expand_tail(
     target: i64,
     current_pc: i64,
-    location: &crate::ast::Location,
+    location: &Location,
     relax_pseudo: bool,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -1505,7 +1458,7 @@ fn expand_load_global(
     rd: Register,
     addr: i64,
     current_pc: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
@@ -1530,7 +1483,7 @@ fn expand_store_global(
     addr: i64,
     temp: Register,
     current_pc: i64,
-    location: &crate::ast::Location,
+    location: &Location,
 ) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
 
@@ -1568,7 +1521,7 @@ fn encode_directive(
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = context.eval_expression(expr, line)?;
+                let val = context.eval_expression(expr)?;
                 // Allow both Integer and Address types, use the numeric value
                 let byte_val = match val {
                     EvaluatedValue::Integer(i) => i as u8,
@@ -1582,7 +1535,7 @@ fn encode_directive(
         Directive::TwoByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = context.eval_expression(expr, line)?;
+                let val = context.eval_expression(expr)?;
                 let short_val = match val {
                     EvaluatedValue::Integer(i) => i as u16,
                     EvaluatedValue::Address(a) => a as u16,
@@ -1595,7 +1548,7 @@ fn encode_directive(
         Directive::FourByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = context.eval_expression(expr, line)?;
+                let val = context.eval_expression(expr)?;
                 let word_val = match val {
                     EvaluatedValue::Integer(i) => i as u32,
                     EvaluatedValue::Address(a) => a,
@@ -1623,7 +1576,7 @@ fn encode_directive(
         }
 
         Directive::Space(expr) => {
-            let val = context.eval_expression(expr, line)?;
+            let val = context.eval_expression(expr)?;
             let size =
                 require_integer(val, ".space directive", &line.location)?;
 
@@ -1639,7 +1592,7 @@ fn encode_directive(
 
         Directive::Balign(expr) => {
             // Evaluate the alignment boundary expression
-            let val = context.eval_expression(expr, line)?;
+            let val = context.eval_expression(expr)?;
             let alignment =
                 require_integer(val, ".balign directive", &line.location)?;
 

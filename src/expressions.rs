@@ -2,13 +2,14 @@
 //
 // Expression evaluation with type checking
 //
-// This module implements lazy evaluation of expressions.
+// This module implements expression evaluation.
 // There are two types of values (Integer and Address) with strict type checking.
 
 use crate::ast::{
     Directive, Expression, LineContent, LinePointer, Location, Source,
 };
 use crate::error::{AssemblerError, Result};
+use crate::layout::Layout;
 use crate::symbols::{SymbolLinks, SymbolReference};
 use std::collections::HashMap;
 use std::fmt;
@@ -76,7 +77,7 @@ impl Default for SymbolValues {
 pub fn eval_symbol_values(
     source: &Source,
     symbol_links: &SymbolLinks,
-    layout: &crate::layout::Layout,
+    layout: &Layout,
 ) -> Result<SymbolValues> {
     // Start with empty symbol values
     let mut symbol_values = SymbolValues::new();
@@ -101,7 +102,7 @@ pub fn eval_symbol_values(
 
                 // Recursively evaluate this symbol and its dependencies
                 let mut cycle_stack = Vec::new();
-                eval_symbol_recursive(
+                eval_symbol(
                     &sym_ref,
                     source,
                     symbol_links,
@@ -117,15 +118,11 @@ pub fn eval_symbol_values(
 }
 
 /// Recursively evaluate a symbol and all its dependencies
-///
-/// This is a refactored version of `resolve_symbol_dependencies()` that works
-/// with explicit segment addresses and the new `SymbolValues` type instead of
-/// relying on mutable context.
-fn eval_symbol_recursive(
+fn eval_symbol(
     key: &SymbolReference,
     source: &Source,
     symbol_links: &SymbolLinks,
-    layout: &crate::layout::Layout,
+    layout: &Layout,
     symbol_values: &mut SymbolValues,
     cycle_stack: &mut Vec<SymbolReference>,
 ) -> Result<()> {
@@ -157,16 +154,7 @@ fn eval_symbol_recursive(
     let value = match &line.content {
         LineContent::Label(_) => {
             // Base case: label address is computed from layout
-            let addr =
-                layout.get_line_address(&key.pointer).ok_or_else(|| {
-                    AssemblerError::from_context(
-                        format!(
-                            "Internal error: no layout for label '{}'",
-                            key.symbol
-                        ),
-                        line.location.clone(),
-                    )
-                })?;
+            let addr = layout.get_line_address(&key.pointer);
             EvaluatedValue::Address(addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
@@ -176,7 +164,7 @@ fn eval_symbol_recursive(
             // Get all symbol references from this .equ line
             let sym_refs = symbol_links.get_line_refs(&key.pointer);
             for sym_ref in sym_refs {
-                eval_symbol_recursive(
+                eval_symbol(
                     sym_ref,
                     source,
                     symbol_links,
@@ -189,17 +177,7 @@ fn eval_symbol_recursive(
             cycle_stack.pop();
 
             // Now evaluate the expression (all dependencies resolved)
-            let address =
-                layout.get_line_address(&key.pointer).ok_or_else(|| {
-                    AssemblerError::from_context(
-                        format!(
-                            "Internal error: no layout for .equ '{}'",
-                            key.symbol
-                        ),
-                        line.location.clone(),
-                    )
-                })?;
-
+            let address = layout.get_line_address(&key.pointer);
             let refs = symbol_links.get_line_refs(&key.pointer);
             eval_expr(expr, address, refs, symbol_values, source, &key.pointer)?
         }

@@ -904,9 +904,6 @@ impl<'a> Parser<'a> {
     /// Parse atomic instruction name and extract operation + ordering
     /// Examples: "lr.w" -> (LrW, None), "amoswap.w.aqrl" -> (AmoswapW, AqRl)
     fn parse_atomic_name(name: &str) -> Option<(AtomicOp, MemoryOrdering)> {
-        use crate::ast::AtomicOp;
-        use crate::ast::MemoryOrdering;
-
         // Split by dots: ["lr", "w", "aq"] or ["amoswap", "w"]
         let parts: Vec<&str> = name.split('.').collect();
 
@@ -957,34 +954,31 @@ impl<'a> Parser<'a> {
         &mut self,
         op: &str,
     ) -> Result<Instruction> {
-        use CompressedOp::*;
-        use CompressedOperands::*;
-
         let (c_op, operands) = match op {
             // CR format (rd, rs2)
             "add" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
-                (CAdd, CR { rd, rs2 })
+                (CompressedOp::CAdd, CompressedOperands::CR { rd, rs2 })
             }
 
             "mv" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
-                (CMv, CR { rd, rs2 })
+                (CompressedOp::CMv, CompressedOperands::CR { rd, rs2 })
             }
 
             // CR format single register
             "jr" => {
                 let rs1 = self.parse_register()?;
-                (CJr, CRSingle { rs1 })
+                (CompressedOp::CJr, CompressedOperands::CRSingle { rs1 })
             }
 
             "jalr" => {
                 let rs1 = self.parse_register()?;
-                (CJalr, CRSingle { rs1 })
+                (CompressedOp::CJalr, CompressedOperands::CRSingle { rs1 })
             }
 
             // CI format (rd, imm)
@@ -992,21 +986,30 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CLi, CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CLi,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "lui" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CLui, CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CLui,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "addi" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CAddi, CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAddi,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "addi16sp" => {
@@ -1019,7 +1022,10 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CAddi16sp, CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAddi16sp,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "addi4spn" => {
@@ -1044,14 +1050,23 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CAddi4spn, CIW { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAddi4spn,
+                    CompressedOperands::CIW {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             "slli" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CSlli, CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CSlli,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             // CI format stack-relative load: c.lwsp rd, offset(sp)
@@ -1068,7 +1083,13 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CLwsp, CIStackLoad { rd, offset: Box::new(offset) })
+                (
+                    CompressedOp::CLwsp,
+                    CompressedOperands::CIStackLoad {
+                        rd,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CSS format stack-relative store: c.swsp rs2, offset(sp)
@@ -1085,7 +1106,13 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CSwsp, CSSStackStore { rs2, offset: Box::new(offset) })
+                (
+                    CompressedOp::CSwsp,
+                    CompressedOperands::CSSStackStore {
+                        rs2,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CL format: c.lw rd', offset(rs1')
@@ -1115,8 +1142,8 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::CloseParen)?;
                 (
-                    CLw,
-                    CL {
+                    CompressedOp::CLw,
+                    CompressedOperands::CL {
                         rd_prime: rd,
                         rs1_prime: rs1,
                         offset: Box::new(offset),
@@ -1151,8 +1178,8 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::CloseParen)?;
                 (
-                    CSw,
-                    CS {
+                    CompressedOp::CSw,
+                    CompressedOperands::CS {
                         rs2_prime: rs2,
                         rs1_prime: rs1,
                         offset: Box::new(offset),
@@ -1183,7 +1210,10 @@ impl<'a> Parser<'a> {
                         self.location(),
                     ));
                 }
-                (CAnd, CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::CAnd,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             "or" => {
@@ -1208,7 +1238,10 @@ impl<'a> Parser<'a> {
                         self.location(),
                     ));
                 }
-                (COr, CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::COr,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             "xor" => {
@@ -1233,7 +1266,10 @@ impl<'a> Parser<'a> {
                         self.location(),
                     ));
                 }
-                (CXor, CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::CXor,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             "sub" => {
@@ -1258,7 +1294,10 @@ impl<'a> Parser<'a> {
                         self.location(),
                     ));
                 }
-                (CSub, CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::CSub,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             // CB format shift/immediate: c.srli, c.srai, c.andi
@@ -1275,7 +1314,13 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CSrli, CBImm { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CSrli,
+                    CompressedOperands::CBImm {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             "srai" => {
@@ -1291,7 +1336,13 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CSrai, CBImm { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CSrai,
+                    CompressedOperands::CBImm {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             "andi" => {
@@ -1307,7 +1358,13 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CAndi, CBImm { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAndi,
+                    CompressedOperands::CBImm {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             // CB format branch: c.beqz, c.bnez
@@ -1324,7 +1381,13 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
-                (CBeqz, CBBranch { rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CompressedOp::CBeqz,
+                    CompressedOperands::CBBranch {
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             "bnez" => {
@@ -1340,23 +1403,35 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
-                (CBnez, CBBranch { rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CompressedOp::CBnez,
+                    CompressedOperands::CBBranch {
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CJ format: c.j, c.jal
             "j" => {
                 let offset = self.parse_expression()?;
-                (CJComp, CJOpnd { offset: Box::new(offset) })
+                (
+                    CompressedOp::CJComp,
+                    CompressedOperands::CJOpnd { offset: Box::new(offset) },
+                )
             }
 
             "jal" => {
                 let offset = self.parse_expression()?;
-                (CJalComp, CJOpnd { offset: Box::new(offset) })
+                (
+                    CompressedOp::CJalComp,
+                    CompressedOperands::CJOpnd { offset: Box::new(offset) },
+                )
             }
 
             // Special
-            "nop" => (CNop, None),
-            "ebreak" => (CEbreak, None),
+            "nop" => (CompressedOp::CNop, CompressedOperands::None),
+            "ebreak" => (CompressedOp::CEbreak, CompressedOperands::None),
 
             _ => {
                 return Err(AssemblerError::from_context(

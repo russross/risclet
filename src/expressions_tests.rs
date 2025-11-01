@@ -3,7 +3,7 @@
 use crate::ast::*;
 use crate::error::Result;
 use crate::expressions::*;
-use crate::symbols::SymbolLinks;
+use crate::layout::{Layout, LineLayout};
 
 #[cfg(test)]
 mod tests {
@@ -22,45 +22,16 @@ mod tests {
         }
     }
 
-    /// Helper to create minimal Symbols structure for testing
-    #[allow(dead_code)]
-    fn make_test_symbols(num_files: usize) -> SymbolLinks {
-        let mut line_refs = Vec::new();
-        for _ in 0..num_files {
-            line_refs.push(vec![vec![]]);
-        }
-        SymbolLinks {
-            line_refs,
-            local_symbols_by_file: vec![vec![]; num_files],
-            global_symbols: vec![],
-        }
-    }
-
-    /// Helper to create a test line with an expression
-    #[allow(dead_code)]
-    fn make_test_line(
-        _segment: Segment,
-        _offset: u32,
-        content: LineContent,
-    ) -> Line {
-        // Note: segment and offset are no longer part of Line; they're in Layout
-        // The _segment and _offset parameters are kept for backwards compatibility with existing tests
-        Line {
-            location: Location { file: "test.s".to_string(), line: 1 },
-            content,
-        }
-    }
-
     /// Helper to create a layout with a test line entry
     fn make_test_layout_with_line(
         segment: Segment,
         offset: u32,
         size: u32,
-    ) -> crate::layout::Layout {
-        let mut layout = crate::layout::Layout::new();
+    ) -> Layout {
+        let mut layout = Layout::new();
         layout.set(
             LinePointer { file_index: 0, line_index: 0 },
-            crate::layout::LineLayout { segment, offset, size },
+            LineLayout { segment, offset, size },
         );
         layout
     }
@@ -69,7 +40,7 @@ mod tests {
     fn eval_simple(
         expr: Expression,
         source: &Source,
-        layout: &mut crate::layout::Layout,
+        layout: &mut Layout,
         text_start: u32,
     ) -> Result<EvaluatedValue> {
         // Create empty symbol values for simple tests (no symbol references)
@@ -82,8 +53,7 @@ mod tests {
         layout.set_segment_addresses(text_start);
 
         // Look up the concrete address or use adjusted text_start as fallback
-        let address =
-            layout.get_line_address(&pointer).unwrap_or(layout.text_start);
+        let address = layout.get_line_address(&pointer);
 
         // Evaluate the expression with explicit parameters
         eval_expr(
@@ -712,7 +682,7 @@ mod tests {
     #[test]
     fn test_context_segment_addresses() {
         // Create a layout with the desired sizes (manually)
-        let mut layout = crate::layout::Layout::new();
+        let mut layout = Layout::new();
         layout.text_size = 1000; // Will cause data to be boundary
         layout.data_size = 500;
         layout.bss_size = 200;
