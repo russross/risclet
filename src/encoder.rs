@@ -19,6 +19,7 @@ use crate::ast::{
     Location, MemoryOrdering, PseudoOp, RTypeOp, Register, Segment, Source,
     SpecialOp, UTypeOp,
 };
+use crate::config::Config;
 use crate::encoder_compressed;
 use crate::error::{AssemblerError, Result};
 use crate::expressions::{EvaluatedValue, SymbolValues, eval_expr};
@@ -100,7 +101,7 @@ pub fn encode_source(
     symbol_values: &SymbolValues,
     symbol_links: &SymbolLinks,
     layout: &mut Layout,
-    relax: &Relax,
+    config: &Config,
     any_changed: &mut bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     let mut text_bytes = Vec::new();
@@ -130,7 +131,7 @@ pub fn encode_source(
             // Encode the line
             let (bytes, actual_size) = match segment {
                 Segment::Text | Segment::Data => {
-                    let bytes = encode_line(line, &context, relax)?;
+                    let bytes = encode_line(line, &context, config)?;
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
@@ -168,7 +169,7 @@ pub fn encode_source(
 pub fn encode_line(
     line: &Line,
     context: &EncodingContext,
-    relax: &Relax,
+    config: &Config,
 ) -> Result<Vec<u8>> {
     // Note: BSS segment lines are handled separately in encode_source and never reach here
 
@@ -177,7 +178,7 @@ pub fn encode_line(
         LineContent::Label(_) => Ok(Vec::new()), // Labels don't generate code
 
         LineContent::Instruction(inst) => {
-            encode_instruction(inst, line, context, relax)
+            encode_instruction(inst, line, context, config)
         }
 
         LineContent::Directive(dir) => encode_directive(dir, line, context),
@@ -596,12 +597,12 @@ fn encode_instruction(
     inst: &Instruction,
     line: &Line,
     context: &EncodingContext,
-    relax: &Relax,
+    config: &Config,
 ) -> Result<Vec<u8>> {
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
             // Try to relax to compressed instruction if enabled
-            if relax.compressed
+            if config.relax.compressed
                 && let Some((c_op, c_operands)) =
                     try_compress_instruction(inst, None)
             {
@@ -624,7 +625,7 @@ fn encode_instruction(
             let imm = require_integer(val, "I-type immediate", &line.location)?;
 
             // Try to relax to compressed instruction if enabled
-            if relax.compressed
+            if config.relax.compressed
                 && let Some((c_op, c_operands)) =
                     try_compress_instruction(inst, Some(imm))
             {
@@ -711,7 +712,7 @@ fn encode_instruction(
         }
 
         Instruction::Pseudo(pseudo) => {
-            encode_pseudo(pseudo, line, context, relax)
+            encode_pseudo(pseudo, line, context, config)
         }
     }
 }
@@ -1162,7 +1163,7 @@ fn encode_pseudo(
     pseudo: &PseudoOp,
     line: &Line,
     context: &EncodingContext,
-    relax: &Relax,
+    config: &Config,
 ) -> Result<Vec<u8>> {
     match pseudo {
         PseudoOp::Li(rd, imm_expr) => {
@@ -1183,7 +1184,7 @@ fn encode_pseudo(
             let current_pc = get_line_address(context);
             let gp = (context.layout.data_start as i64) + 2048;
 
-            expand_la(*rd, addr, current_pc, gp, &line.location, relax.gp)
+            expand_la(*rd, addr, current_pc, gp, &line.location, config.relax.gp)
         }
 
         PseudoOp::Call(target_expr) => {
@@ -1196,7 +1197,7 @@ fn encode_pseudo(
             )?;
 
             let current_pc = get_line_address(context);
-            expand_call(target, current_pc, &line.location, relax.pseudo)
+            expand_call(target, current_pc, &line.location, config.relax.pseudo)
         }
 
         PseudoOp::Tail(target_expr) => {
@@ -1209,7 +1210,7 @@ fn encode_pseudo(
             )?;
 
             let current_pc = get_line_address(context);
-            expand_tail(target, current_pc, &line.location, relax.pseudo)
+            expand_tail(target, current_pc, &line.location, config.relax.pseudo)
         }
 
         PseudoOp::LoadGlobal(op, rd, addr_expr) => {

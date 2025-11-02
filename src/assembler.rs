@@ -3,7 +3,8 @@
 // Core assembly pipeline functions shared between main.rs and tests
 
 use crate::ast::Source;
-use crate::encoder::{Relax, encode_source};
+use crate::config::Config;
+use crate::encoder::encode_source;
 use crate::error::{AssemblerError, Result};
 use crate::expressions::{SymbolValues, eval_symbol_values};
 use crate::layout::{Layout, compute_offsets};
@@ -78,20 +79,16 @@ impl ConvergenceCallback for NoOpCallback {
 ///
 /// The optional `callback` parameter allows injection of debug dump logic
 /// at specific points in the convergence loop.
-///
-/// If `show_progress` is true, prints convergence progress to stderr.
 pub fn converge_and_encode<C: ConvergenceCallback>(
     source: &mut Source,
     symbol_links: &SymbolLinks,
     layout: &mut Layout,
-    text_start: u32,
-    relax: &Relax,
+    config: &Config,
     callback: &C,
-    show_progress: bool,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     const MAX_ITERATIONS: usize = 10;
 
-    if show_progress {
+    if config.verbose {
         eprintln!("Convergence:");
         eprintln!("  Pass   Text    Data     BSS");
         eprintln!("  ----  -----  ------  ------");
@@ -103,7 +100,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         // Step 1: Calculate addresses based on current size guesses
         compute_offsets(source, layout);
 
-        if show_progress {
+        if config.verbose {
             eprintln!(
                 "  {:4}  {:5}  {:6}  {:6}",
                 pass_number,
@@ -114,7 +111,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         }
 
         // Step 2: Compute segment addresses and calculate all symbol values upfront
-        layout.set_segment_addresses(text_start);
+        layout.set_segment_addresses(config.text_start);
         let symbol_values = eval_symbol_values(source, symbol_links, layout)?;
 
         // Callback: after symbol values computed
@@ -136,7 +133,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
             &symbol_values,
             symbol_links,
             layout,
-            relax,
+            config,
             &mut any_changed,
         );
 
@@ -163,7 +160,7 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
                 &symbol_values,
                 layout,
             );
-            if show_progress {
+            if config.verbose {
                 eprintln!(
                     "  Converged after {} pass{}",
                     pass_number,
