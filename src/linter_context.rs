@@ -14,11 +14,7 @@ pub struct TestLintContext {
 
 impl TestLintContext {
     pub fn new() -> Self {
-        Self {
-            registers: [0; 32],
-            symbols: HashMap::new(),
-            other_symbols: HashMap::new(),
-        }
+        Self { registers: [0; 32], symbols: HashMap::new(), other_symbols: HashMap::new() }
     }
 
     pub fn with_register(mut self, reg: usize, value: i32) -> Self {

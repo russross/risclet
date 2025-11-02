@@ -1,8 +1,8 @@
+use crate::execution::{Instruction, Machine};
+use crate::riscv::{A_REGS, Op, R, RA, S_REGS, SP, T_REGS, ZERO};
+use crate::trace::{Effects, MemoryValue, RegisterValue};
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::execution::{Machine, Instruction};
-use crate::trace::{MemoryValue, RegisterValue, Effects};
-use crate::riscv::{Op, R, RA, ZERO, SP, T_REGS, A_REGS, S_REGS};
 
 struct FunctionRegisters {
     at_entry: [Option<usize>; 32],
@@ -263,11 +263,7 @@ impl Linter {
             }
 
             // loads
-            Op::Lb { rd, .. }
-            | Op::Lh { rd, .. }
-            | Op::Lw { rd, .. }
-            | Op::Lbu { rd, .. }
-            | Op::Lhu { rd, .. } => {
+            Op::Lb { rd, .. } | Op::Lh { rd, .. } | Op::Lw { rd, .. } | Op::Lbu { rd, .. } | Op::Lhu { rd, .. } => {
                 let Some(read) = &effects.mem_read else {
                     return Err("load instruction with no memory read".to_string());
                 };
@@ -334,9 +330,10 @@ impl Linter {
                     // only allow byte values from memory
                     for address in addr..addr + (size as u32) {
                         if let Some(val) = self.memory.get(&address)
-                            && val.size != 1 {
-                                return Err("write syscall on non-byte data".to_string());
-                            }
+                            && val.size != 1
+                        {
+                            return Err("write syscall on non-byte data".to_string());
+                        }
                     }
                 }
 
@@ -348,9 +345,10 @@ impl Linter {
                     for address in addr..addr + (size as u32) {
                         // do not allow overwrite of non-byte data
                         if let Some(val) = self.memory.get(&address)
-                            && val.size != 1 {
-                                return Err("read syscall overwriting non-byte data".to_string());
-                            }
+                            && val.size != 1
+                        {
+                            return Err("read syscall overwriting non-byte data".to_string());
+                        }
 
                         // record data as individual bytes
                         let n = self.new_n();

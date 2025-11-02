@@ -1,14 +1,14 @@
-use crate::memory::{MemoryManager, CpuState, Segment};
-use crate::riscv::{Op, Field};
-use crate::linter::Linter;
-use crate::trace::{ExecutionTrace, Effects, MemoryValue, RegisterValue};
-use crate::io_abstraction::{IoProvider, SystemIo};
 use crate::execution_context::ExecutionContext;
+use crate::io_abstraction::{IoProvider, SystemIo};
+use crate::linter::Linter;
 use crate::linter_context::LintContext;
+use crate::memory::{CpuState, MemoryManager, Segment};
+use crate::riscv::{Field, Op};
+use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
+use crossterm::tty::IsTty;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::rc::Rc;
-use crossterm::tty::IsTty;
 
 pub struct Machine {
     state: CpuState,
@@ -31,14 +31,7 @@ impl Machine {
         address_symbols: HashMap<u32, String>,
         other_symbols: HashMap<String, u32>,
     ) -> Self {
-        Self::with_io_provider(
-            segments,
-            pc_start,
-            global_pointer,
-            address_symbols,
-            other_symbols,
-            Box::new(SystemIo),
-        )
+        Self::with_io_provider(segments, pc_start, global_pointer, address_symbols, other_symbols, Box::new(SystemIo))
     }
 
     pub fn with_io_provider(
@@ -51,13 +44,11 @@ impl Machine {
     ) -> Self {
         let mut memory = MemoryManager::new(segments);
         memory.reset();
-        
+
         let mut state = CpuState::new(pc_start);
         state.reset(pc_start, memory.layout.stack_end);
 
         let trace = ExecutionTrace::new(memory.layout);
-
-        
 
         Self {
             state,
@@ -78,9 +69,7 @@ impl Machine {
     }
 
     pub fn for_testing() -> Self {
-        MachineBuilder::new()
-            .with_flat_memory(1024 * 1024)
-            .build()
+        MachineBuilder::new().with_flat_memory(1024 * 1024).build()
     }
 
     pub fn reset(&mut self) {
@@ -131,13 +120,14 @@ impl Machine {
 
     pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<(), String> {
         if let Some(effects) = &mut self.current_effect
-            && let Ok(old_val) = self.memory.load(addr, raw.len() as u32) {
-                assert!(effects.mem_write.is_none());
-                effects.mem_write = Some((
-                    MemoryValue { address: addr, value: old_val },
-                    MemoryValue { address: addr, value: raw.to_vec() },
-                ));
-            }
+            && let Ok(old_val) = self.memory.load(addr, raw.len() as u32)
+        {
+            assert!(effects.mem_write.is_none());
+            effects.mem_write = Some((
+                MemoryValue { address: addr, value: old_val },
+                MemoryValue { address: addr, value: raw.to_vec() },
+            ));
+        }
         self.memory.store(addr, raw)
     }
 
@@ -156,10 +146,8 @@ impl Machine {
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.reg_write.is_none());
             let old_val = self.state.get_reg(reg);
-            effects.reg_write = Some((
-                RegisterValue { register: reg, value: old_val },
-                RegisterValue { register: reg, value },
-            ));
+            effects.reg_write =
+                Some((RegisterValue { register: reg, value: old_val }, RegisterValue { register: reg, value }));
         }
         self.state.set_reg(reg, value);
     }
@@ -196,12 +184,11 @@ impl Machine {
 
         self.trace.add(effects.clone());
         self.current_effect = None;
-        
+
         effects
     }
 
-    pub fn set_most_recent_memory(&mut self, _sequence: &[Effects], _index: usize) {
-    }
+    pub fn set_most_recent_memory(&mut self, _sequence: &[Effects], _index: usize) {}
 
     pub fn most_recent_memory(&self) -> u32 {
         let (addr, _, _) = self.trace.set_most_recent_memory();
@@ -534,26 +521,32 @@ pub fn trace(
         let mut effects = m.execute_and_collect_effects(instruction);
         i += 1;
 
-        if !effects.terminate && ["run", "debug"].contains(&mode)
-            && let Some(output) = &effects.stdout {
-                let mut handle = io::stdout().lock();
-                if let Err(e) = handle.write(output) {
-                    effects.error(format!("error echoing stdout: {}", e));
-                }
+        if !effects.terminate
+            && ["run", "debug"].contains(&mode)
+            && let Some(output) = &effects.stdout
+        {
+            let mut handle = io::stdout().lock();
+            if let Err(e) = handle.write(output) {
+                effects.error(format!("error echoing stdout: {}", e));
             }
+        }
 
-        if !effects.terminate && echo_in
-            && let Some(input) = &effects.stdin {
-                let mut handle = io::stdout().lock();
-                if let Err(e) = handle.write(input) {
-                    effects.error(format!("error echoing stdin: {}", e));
-                }
+        if !effects.terminate
+            && echo_in
+            && let Some(input) = &effects.stdin
+        {
+            let mut handle = io::stdout().lock();
+            if let Err(e) = handle.write(input) {
+                effects.error(format!("error echoing stdin: {}", e));
             }
+        }
 
-        if !effects.terminate && lint
-            && let Err(msg) = linter.check_instruction(m, instruction, &mut effects) {
-                effects.error(msg);
-            }
+        if !effects.terminate
+            && lint
+            && let Err(msg) = linter.check_instruction(m, instruction, &mut effects)
+        {
+            effects.error(msg);
+        }
 
         let terminate = effects.terminate;
         sequence.push(effects);
@@ -563,9 +556,10 @@ pub fn trace(
 
         if steps == max_steps {
             if let Some(last) = sequence.last_mut()
-                && last.other_message.is_none() {
-                    last.error(format!("stopped after {} steps", max_steps));
-                }
+                && last.other_message.is_none()
+            {
+                last.error(format!("stopped after {} steps", max_steps));
+            }
         } else if mode != "debug" {
             sequence.clear();
         }

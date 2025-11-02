@@ -2,22 +2,22 @@
 mod riscv_isa_tests {
     use crate::io_abstraction::TestIo;
     use crate::riscv::Op;
-    
+
     const MAX_STEPS: usize = 100000;
-    
+
     fn run_test_binary(binary: &[u8]) -> Result<i32, String> {
         let io = TestIo::new();
         let mut machine = crate::elf::load_elf_from_bytes(binary, Box::new(io))?;
-        
+
         for _step in 0..MAX_STEPS {
             let pc = machine.pc();
-            
-            let (raw_instruction, length) = machine.load_instruction(pc)
-                .map_err(|e| format!("Failed to load instruction at {:x}: {}", pc, e))?;
-            
+
+            let (raw_instruction, length) =
+                machine.load_instruction(pc).map_err(|e| format!("Failed to load instruction at {:x}: {}", pc, e))?;
+
             let op = Op::new(raw_instruction);
             let is_ecall = matches!(op, Op::Ecall);
-            
+
             machine.execute_and_collect_effects(&std::rc::Rc::new(crate::execution::Instruction {
                 address: pc,
                 op,
@@ -26,22 +26,21 @@ mod riscv_isa_tests {
                 verbose_fields: Vec::new(),
                 pseudo_fields: Vec::new(),
             }));
-            
+
             if is_ecall {
                 let exit_code = machine.get_reg(10);
                 return Ok(exit_code);
             }
         }
-        
+
         Err(format!("Test did not complete within {} steps", MAX_STEPS))
     }
-    
+
     macro_rules! riscv_test {
         ($test_name:ident, $binary:expr) => {
             #[test]
             fn $test_name() {
-                let exit_code = run_test_binary($binary)
-                    .expect("Test execution failed");
+                let exit_code = run_test_binary($binary).expect("Test execution failed");
 
                 assert_eq!(exit_code, 0, "Test failed with exit code {}", exit_code);
             }
@@ -110,5 +109,4 @@ mod riscv_isa_tests {
     riscv_test!(test_amominu_w, include_bytes!("test_binaries/amominu_w"));
     riscv_test!(test_amomaxu_w, include_bytes!("test_binaries/amomaxu_w"));
     riscv_test!(test_lrsc, include_bytes!("test_binaries/lrsc"));
-
 }

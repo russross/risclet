@@ -1,25 +1,25 @@
-pub mod memory;
-pub mod riscv;
-pub mod ui;
-pub mod elf;
-pub mod linter;
-pub mod trace;
-pub mod execution;
-pub mod io_abstraction;
-pub mod execution_context;
-pub mod memory_interface;
-pub mod linter_context;
 pub mod decoder;
-pub mod test_utils;
+pub mod elf;
+pub mod execution;
+pub mod execution_context;
+pub mod io_abstraction;
 pub mod isa_tests;
+pub mod linter;
+pub mod linter_context;
+pub mod memory;
+pub mod memory_interface;
+pub mod riscv;
+pub mod test_utils;
+pub mod trace;
+pub mod ui;
 
-use self::execution::{Machine, Instruction, add_local_labels, trace};
+use self::elf::*;
+use self::execution::{Instruction, Machine, add_local_labels, trace};
+use self::riscv::{Op, fields_to_string, get_pseudo_sequence};
 use self::trace::Effects;
 use self::ui::*;
-use self::elf::*;
-use self::riscv::{Op, get_pseudo_sequence, fields_to_string};
-use std::collections::HashMap;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
@@ -193,10 +193,12 @@ fn main() -> Result<(), String> {
 
     if let Some(effects) = sequence.last() {
         if let (Op::Ecall, Some(msg)) = (&effects.instruction.op, &effects.other_message)
-            && msg.starts_with("exit(") && msg.ends_with(")") {
-                let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
-                std::process::exit(n);
-            }
+            && msg.starts_with("exit(")
+            && msg.ends_with(")")
+        {
+            let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
+            std::process::exit(n);
+        }
 
         if let Some(msg) = &effects.other_message {
             eprintln!("{}", msg);

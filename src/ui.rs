@@ -1,9 +1,9 @@
 use super::riscv::*;
 use super::*;
+use std::fmt::Write;
+use std::io::{self, Write as IoWrite};
 use std::mem::take;
 use std::rc::Rc;
-use std::io::{self, Write as IoWrite};
-use std::fmt::Write;
 
 use crossterm::{
     cursor::MoveTo,
@@ -136,9 +136,10 @@ impl Tui {
             // Draw the current state
             let source_height = self.draw()?;
             if let Event::Key(key_event) = serr!(event::read())?
-                && self.handle_key(key_event, source_height)? {
-                    break;
-                }
+                && self.handle_key(key_event, source_height)?
+            {
+                break;
+            }
         }
         Ok(())
     }
@@ -242,9 +243,11 @@ impl Tui {
                     let effects = &self.sequence[self.sequence_index];
                     let pc = effects.instruction.address;
                     if let Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } = effects.instruction.op
-                        && func_start_pc <= pc && pc < func_end_pc {
-                            break;
-                        };
+                        && func_start_pc <= pc
+                        && pc < func_end_pc
+                    {
+                        break;
+                    };
                     self.machine.apply(effects, true);
                     self.sequence_index += 1;
                 }
@@ -345,15 +348,16 @@ impl Tui {
         let mut source = Pane::new(out, self.normal_color, 0, 0, size_x, size_y, true);
 
         // an 80-column terminal gets source and memory views, narrower does not
-        let (stack, data, out) = if size_x >= 80 && (self.show_stack || self.show_data && self.machine.data_start() > 0) {
+        let (stack, data, out) = if size_x >= 80 && (self.show_stack || self.show_data && self.machine.data_start() > 0)
+        {
             let mut mem = source.split_right(39, false, &mut corners);
             if mem.height >= 22 && self.show_stack && self.show_data && self.machine.data_start() > 0 {
                 let mut data = mem.split_bottom(mem.height * 2 / 3, false, &mut corners);
                 let out = take(&mut data.out);
                 (Some(mem), Some(data), out)
-             } else if self.show_stack
-                 && (self.machine.most_recent_memory() >= self.machine.stack_start() || !self.show_data)
-             {
+            } else if self.show_stack
+                && (self.machine.most_recent_memory() >= self.machine.stack_start() || !self.show_data)
+            {
                 let out = take(&mut mem.out);
                 (Some(mem), None, out)
             } else {
@@ -647,24 +651,24 @@ impl Tui {
                 mr_start,
                 mr_start + mr_size as u32,
             )
-         } else {
-              pane.label("Data");
+        } else {
+            pane.label("Data");
 
-              let (mr_start, mr_size) = self.machine.most_recent_data();
-              let (start, _end) = calc_range(
-                  ((self.machine.data_end() - self.machine.data_start()) / 8) as usize,
-                  ((mr_start - self.machine.data_start()) / 8) as usize,
-                  pane.height,
-              );
-             (
-                 &self.data_colors,
-                 start,
-                 self.machine.data_start(),
-                 self.machine.data_end(),
-                 mr_start,
-                 mr_start + mr_size as u32,
-             )
-         };
+            let (mr_start, mr_size) = self.machine.most_recent_data();
+            let (start, _end) = calc_range(
+                ((self.machine.data_end() - self.machine.data_start()) / 8) as usize,
+                ((mr_start - self.machine.data_start()) / 8) as usize,
+                pane.height,
+            );
+            (
+                &self.data_colors,
+                start,
+                self.machine.data_start(),
+                self.machine.data_end(),
+                mr_start,
+                mr_start + mr_size as u32,
+            )
+        };
 
         // render each memory line
         let mut current_region = 0;
@@ -1011,17 +1015,19 @@ fn find_function_bounds(
     let (mut start_pc, mut end_pc) = (instructions[0].address, instructions.last().unwrap().address);
     for instruction in instructions[0..=current].iter().rev() {
         if let Some(label) = symbols.get(&instruction.address)
-            && label.parse::<usize>().is_err() {
-                start_pc = instruction.address;
-                break;
-            }
+            && label.parse::<usize>().is_err()
+        {
+            start_pc = instruction.address;
+            break;
+        }
     }
     for instruction in instructions[current + 1..].iter() {
         if let Some(label) = symbols.get(&instruction.address)
-            && label.parse::<usize>().is_err() {
-                end_pc = instruction.address;
-                break;
-            }
+            && label.parse::<usize>().is_err()
+        {
+            end_pc = instruction.address;
+            break;
+        }
     }
     (start_pc, end_pc)
 }
