@@ -21,13 +21,13 @@ pub struct LineLayout {
     pub segment: Segment,
     /// Offset within the segment (in bytes)
     pub offset: u32,
-    /// Size in bytes (calculated or conservative estimate during convergence)
+    /// Size in bytes (guessed initially)
     pub size: u32,
 }
 
 /// Complete layout information for the assembled program
 ///
-/// Created after symbol linking and updated during convergence iterations.
+/// Created after symbol linking and updated during relaxation iterations.
 /// This structure replaces the scattered layout fields that used to live in
 /// Source, SourceFile, and Line.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,8 +66,8 @@ impl Layout {
     }
 
     /// Get layout info for a specific line (panics if not found)
-    pub fn get(&self, pointer: &LinePointer) -> &LineLayout {
-        self.lines.get(pointer).unwrap()
+    pub fn get(&self, pointer: LinePointer) -> &LineLayout {
+        self.lines.get(&pointer).unwrap()
     }
 
     /// Set layout info for a specific line
@@ -98,7 +98,7 @@ impl Layout {
     /// Given a line pointer, returns the absolute address in the executable where
     /// this line's content will reside, accounting for segment base address and
     /// offset within the segment.
-    pub fn get_line_address(&self, pointer: &LinePointer) -> u32 {
+    pub fn get_line_address(&self, pointer: LinePointer) -> u32 {
         let line_layout = self.get(pointer);
         let segment_start = match line_layout.segment {
             Segment::Text => self.text_start,
@@ -128,7 +128,7 @@ impl Default for Layout {
 /// - Labels: 0 bytes
 /// - Directives: varies based on operands
 ///
-/// During convergence, actual sizes may shrink (e.g., pseudo → 4 bytes, instructions → 2 bytes)
+/// During relaxation, actual sizes may shrink (e.g., pseudo → 4 bytes, instructions → 2 bytes)
 pub fn guess_line_size(content: &LineContent) -> u32 {
     (match content {
         LineContent::Instruction(inst) => match inst {
@@ -245,7 +245,7 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
 
             // Get the size: use layout if available (which may have been updated during encoding),
             // otherwise fall back to guess
-            let size = layout.get(&pointer).size;
+            let size = layout.get(pointer).size;
 
             // Compute offset based on current segment
             let offset = match current_segment {
@@ -289,7 +289,7 @@ pub fn compute_offsets(source: &Source, layout: &mut Layout) {
 /// Create initial layout after symbol linking is complete.
 ///
 /// This function is called after parsing and symbol linking but before the
-/// convergence loop. It initializes the Layout with:
+/// relaxation loop. It initializes the Layout with:
 /// - Initial size guesses for each line
 /// - Segment assignments based on directives
 /// - Computed offsets for each line

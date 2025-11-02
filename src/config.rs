@@ -179,7 +179,7 @@ fn print_help(program_name: &str) -> String {
 Options:
     -o <file>            Write output to <file> (default: a.out)
     -t <address>         Set text start address (default: 0x10000)
-    -v, --verbose        Show input statistics and convergence progress
+    -v, --verbose        Show input statistics and relaxation progress
     --no-relax           Disable all relaxations
     --relax-gp           Enable GP-relative 'la' optimization (default: on)
     --no-relax-gp        Disable GP-relative 'la' optimization
@@ -191,7 +191,7 @@ Options:
 
 Output Behavior:
   By default, successful assembly produces no output
-  Use -v to see input statistics and convergence progress during assembly.
+  Use -v to see input statistics and relaxation progress during assembly.
   Use --dump-* options for detailed inspections (AST, symbols, code, ELF) - disables output file.
 
 Debug Dump Options:
@@ -223,7 +223,7 @@ Debug Dump Options:
 
 Examples:
   ./assembler program.s                        # Silent on success
-  ./assembler -v program.s                     # Show input stats and convergence progress
+  ./assembler -v program.s                     # Show input stats and relaxation progress
   ./assembler --dump-code program.s            # Dump generated code (no stats)
   ./assembler -v --dump-code program.s         # Show stats AND code dump
   ./assembler --dump-elf=headers,symbols prog.s # Dump ELF metadata

@@ -33,7 +33,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if let Err(e) = drive_assembler(config) {
+    if let Err(e) = drive_assembler(&config) {
         eprintln!("{}", e);
         std::process::exit(1);
     }

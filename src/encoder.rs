@@ -7,6 +7,7 @@
 // Each instruction family is handled in one place with all encoding variants inline.
 
 #![allow(clippy::unusual_byte_groupings)]
+#![allow(clippy::too_many_arguments)]
 
 use crate::ast::{
     AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive, Expression,
@@ -24,41 +25,16 @@ use crate::symbols::SymbolLinks;
 // Public API
 // ============================================================================
 
-/// Encoding context containing source and symbol values
-pub struct EncodingContext<'a> {
-    pub source: &'a Source,
-    pub symbol_values: &'a SymbolValues,
-    pub symbol_links: &'a SymbolLinks,
-    pub layout: &'a Layout,
-    pub pointer: LinePointer,
-}
-
-impl<'a> EncodingContext<'a> {
-    /// Evaluate an expression in the context of the current line
-    pub fn eval_expression(&self, expr: &Expression) -> Result<EvaluatedValue> {
-        let address = self.layout.get_line_address(&self.pointer);
-        let refs = self.symbol_links.get_line_refs(&self.pointer);
-        eval_expr(
-            expr,
-            address,
-            refs,
-            self.symbol_values,
-            self.source,
-            &self.pointer,
-        )
-    }
-}
-
 /// Encode all lines and track if any sizes changed
 ///
 /// Returns (any_changed, text_bytes, data_bytes, bss_size) where any_changed
 /// is true if any line's actual size differs from its guessed size.
 pub fn encode(
-    source: &Source,
-    symbol_values: &SymbolValues,
-    symbol_links: &SymbolLinks,
-    layout: &mut Layout,
     config: &Config,
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    symbol_values: &SymbolValues,
+    layout: &mut Layout,
 ) -> Result<(bool, Vec<u8>, Vec<u8>, u32)> {
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
@@ -68,26 +44,36 @@ pub fn encode(
     for file_index in 0..source.files.len() {
         for line_index in 0..source.files[file_index].lines.len() {
             let pointer = LinePointer { file_index, line_index };
-            let &LineLayout { segment, offset, size } = layout.get(&pointer);
-
-            let context = EncodingContext {
-                source,
-                symbol_values,
-                symbol_links,
-                layout,
-                pointer,
-            };
+            let &LineLayout { segment, offset, size } = layout.get(pointer);
+            let current_address = layout.get_line_address(pointer);
+            let data_start = layout.data_start;
 
             let line = &source.files[file_index].lines[line_index];
 
             let (bytes, actual_size) = match segment {
                 Segment::Text | Segment::Data => {
-                    let bytes = encode_line(line, &context, config)?;
+                    let bytes = encode_line(
+                        config,
+                        source,
+                        symbol_links,
+                        symbol_values,
+                        line,
+                        pointer,
+                        current_address,
+                        data_start,
+                    )?;
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
                 Segment::Bss => {
-                    let size = encode_bss_line(line, &context)?;
+                    let size = encode_bss_line(
+                        source,
+                        symbol_links,
+                        symbol_values,
+                        line,
+                        pointer,
+                        current_address,
+                    )?;
                     (None, size)
                 }
             };
@@ -116,25 +102,61 @@ pub fn encode(
 
 /// Encode a single line
 fn encode_line(
-    line: &Line,
-    context: &EncodingContext,
     config: &Config,
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    symbol_values: &SymbolValues,
+    line: &Line,
+    pointer: LinePointer,
+    current_address: u32,
+    data_start: u32,
 ) -> Result<Vec<u8>> {
     match &line.content {
         LineContent::Label(_) => Ok(Vec::new()),
-        LineContent::Instruction(inst) => {
-            encode_instruction(inst, line, context, config)
-        }
-        LineContent::Directive(dir) => encode_directive(dir, line, context),
+        LineContent::Instruction(inst) => encode_instruction(
+            config,
+            source,
+            symbol_links,
+            symbol_values,
+            line,
+            pointer,
+            inst,
+            current_address,
+            data_start,
+        ),
+        LineContent::Directive(dir) => encode_directive(
+            dir,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+        ),
     }
 }
 
 /// Encode BSS segment line (must be space directive only)
-fn encode_bss_line(line: &Line, context: &EncodingContext) -> Result<u32> {
+fn encode_bss_line(
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    symbol_values: &SymbolValues,
+    line: &Line,
+    pointer: LinePointer,
+    current_address: u32,
+) -> Result<u32> {
     match &line.content {
         LineContent::Label(_) => Ok(0),
         LineContent::Directive(Directive::Space(expr)) => {
-            let val = context.eval_expression(expr)?;
+            let refs = symbol_links.get_line_refs(pointer);
+            let val = eval_expr(
+                expr,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let size =
                 require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
@@ -182,23 +204,44 @@ fn encode_bss_line(line: &Line, context: &EncodingContext) -> Result<u32> {
 // ============================================================================
 
 fn encode_instruction(
-    inst: &Instruction,
-    line: &Line,
-    context: &EncodingContext,
     config: &Config,
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    symbol_values: &SymbolValues,
+    line: &Line,
+    pointer: LinePointer,
+    inst: &Instruction,
+    current_address: u32,
+    data_start: u32,
 ) -> Result<Vec<u8>> {
+    let refs = symbol_links.get_line_refs(pointer);
+
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
-            encode_r_type_family(op, *rd, *rs1, *rs2, config)
+            encode_r_type_family(config, op, *rd, *rs1, *rs2)
         }
         Instruction::IType(op, rd, rs1, imm) => {
-            let val = context.eval_expression(imm)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val =
                 require_integer(val, "I-type immediate", &line.location)?;
-            encode_i_type_family(op, *rd, *rs1, imm_val, &line.location, config)
+            encode_i_type_family(config, &line.location, op, *rd, *rs1, imm_val)
         }
         Instruction::LoadStore(op, rd_or_rs, offset, rs1) => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val =
                 require_integer(val, "Load/Store offset", &line.location)?;
             encode_load_store_family(
@@ -211,37 +254,73 @@ fn encode_instruction(
             )
         }
         Instruction::BType(op, rs1, rs2, target) => {
-            let target_val = context.eval_expression(target)?;
+            let target_val = eval_expr(
+                target,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let target_addr =
                 require_address(target_val, "Branch target", &line.location)?;
-            let current_pc = get_line_address(context);
+            let current_pc = current_address as i64;
             let offset = target_addr as i64 - current_pc;
             encode_branch_family(op, *rs1, *rs2, offset, &line.location, config)
         }
         Instruction::UType(op, rd, imm) => {
-            let val = context.eval_expression(imm)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val =
                 require_integer(val, "U-type immediate", &line.location)?;
             encode_u_type_family(op, *rd, imm_val, &line.location)
         }
         Instruction::JType(_op, rd, target) => {
-            let target_val = context.eval_expression(target)?;
+            let target_val = eval_expr(
+                target,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let target_addr =
                 require_address(target_val, "Jump target", &line.location)?;
-            let current_pc = get_line_address(context);
+            let current_pc = current_address as i64;
             let offset = target_addr as i64 - current_pc;
             encode_jal_family(*rd, offset, &line.location, config)
         }
-        Instruction::Pseudo(pseudo_op) => {
-            encode_pseudo(pseudo_op, line, context, config)
-        }
+        Instruction::Pseudo(pseudo_op) => encode_pseudo(
+            pseudo_op,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            data_start,
+            config,
+        ),
         Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
             encode_atomic(op, *rd, *rs1, *rs2, ordering)
         }
         Instruction::Special(op) => encode_special(op),
-        Instruction::Compressed(op, operands) => {
-            encode_compressed_explicit(op, operands, line, context)
-        }
+        Instruction::Compressed(op, operands) => encode_compressed_explicit(
+            op,
+            operands,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+        ),
     }
 }
 
@@ -250,11 +329,11 @@ fn encode_instruction(
 // ============================================================================
 
 fn encode_r_type_family(
+    config: &Config,
     op: &RTypeOp,
     rd: Register,
     rs1: Register,
     rs2: Register,
-    config: &Config,
 ) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
     if config.relax.compressed {
@@ -323,16 +402,16 @@ fn encode_r_type_family(
 // ============================================================================
 
 fn encode_i_type_family(
+    config: &Config,
+    location: &Location,
     op: &ITypeOp,
     rd: Register,
     rs1: Register,
     imm: i64,
-    location: &Location,
-    config: &Config,
 ) -> Result<Vec<u8>> {
     // Special handling for JALR (it can become c.jr or c.jalr)
     if matches!(op, ITypeOp::Jalr) {
-        return encode_jalr_family(rd, rs1, imm, location, config);
+        return encode_jalr_family(config, location, rd, rs1, imm);
     }
 
     // Try compressed encoding if enabled
@@ -442,11 +521,11 @@ fn encode_i_type_family(
 // ============================================================================
 
 fn encode_jalr_family(
+    config: &Config,
+    location: &Location,
     rd: Register,
     rs1: Register,
     offset: i64,
-    location: &Location,
-    config: &Config,
 ) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
     if config.relax.compressed && offset == 0 {
@@ -659,21 +738,82 @@ fn encode_u_type_family(
 fn encode_pseudo(
     op: &PseudoOp,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
+    data_start: u32,
     config: &Config,
 ) -> Result<Vec<u8>> {
     match op {
-        PseudoOp::Li(rd, imm) => encode_li(*rd, imm, line, context, config),
-        PseudoOp::La(rd, addr_expr) => {
-            encode_la(*rd, addr_expr, line, context, config)
-        }
-        PseudoOp::Call(target) => encode_call(target, line, context, config),
-        PseudoOp::Tail(target) => encode_tail(target, line, context, config),
-        PseudoOp::LoadGlobal(op, rd, addr) => {
-            encode_load_global_pseudo(op, *rd, addr, line, context)
-        }
+        PseudoOp::Li(rd, imm) => encode_li(
+            *rd,
+            imm,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            config,
+        ),
+        PseudoOp::La(rd, addr_expr) => encode_la(
+            *rd,
+            addr_expr,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            data_start,
+            config,
+        ),
+        PseudoOp::Call(target) => encode_call(
+            target,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            config,
+        ),
+        PseudoOp::Tail(target) => encode_tail(
+            target,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            config,
+        ),
+        PseudoOp::LoadGlobal(op, rd, addr) => encode_load_global_pseudo(
+            op,
+            *rd,
+            addr,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+        ),
         PseudoOp::StoreGlobal(op, rs, addr, temp) => {
-            encode_store_global_pseudo(op, *rs, addr, *temp, line, context)
+            encode_store_global_pseudo(
+                op,
+                *rs,
+                addr,
+                *temp,
+                line,
+                current_address,
+                source,
+                symbol_values,
+                symbol_links,
+                pointer,
+            )
         }
     }
 }
@@ -683,21 +823,33 @@ fn encode_li(
     rd: Register,
     imm_expr: &Expression,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
     config: &Config,
 ) -> Result<Vec<u8>> {
-    let val = context.eval_expression(imm_expr)?;
+    let refs = symbol_links.get_line_refs(pointer);
+    let val = eval_expr(
+        imm_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let imm = require_integer(val, "li immediate", &line.location)?;
 
     // If immediate fits in 12-bit signed, use addi rd, x0, imm
     if fits_signed(imm, 12) {
         return encode_i_type_family(
+            config,
+            &line.location,
             &ITypeOp::Addi,
             rd,
             Register::X0,
             imm,
-            &line.location,
-            config,
         );
     }
 
@@ -713,12 +865,12 @@ fn encode_li(
     // addi rd, rd, lo
     if lo != 0 {
         let addi_bytes = encode_i_type_family(
+            config,
+            &line.location,
             &ITypeOp::Addi,
             rd,
             rd,
             lo,
-            &line.location,
-            config,
         )?;
         bytes.extend_from_slice(&addi_bytes);
     }
@@ -731,12 +883,25 @@ fn encode_la(
     rd: Register,
     addr_expr: &Expression,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
+    data_start: u32,
     config: &Config,
 ) -> Result<Vec<u8>> {
-    let target_val = context.eval_expression(addr_expr)?;
+    let refs = symbol_links.get_line_refs(pointer);
+    let target_val = eval_expr(
+        addr_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let target_addr = require_address(target_val, "la target", &line.location)?;
-    let current_pc = get_line_address(context);
+    let current_pc = current_address as i64;
 
     // Check if initializing GP register itself (can't use GP-relative addressing to init GP)
     let is_gp_init = rd == Register::X3;
@@ -744,18 +909,18 @@ fn encode_la(
     // Try GP-relative encoding if enabled and not initializing GP
     if !is_gp_init && config.relax.gp {
         // GP value is always data_start + 2048
-        let gp_addr = context.layout.data_start as i64 + 2048;
+        let gp_addr = data_start as i64 + 2048;
         let gp_offset = target_addr as i64 - gp_addr;
 
         // If within ±2 KiB of GP, use addi rd, gp, offset
         if fits_signed(gp_offset, 12) {
             return encode_i_type_family(
+                config,
+                &line.location,
                 &ITypeOp::Addi,
                 rd,
                 Register::X3,
                 gp_offset,
-                &line.location,
-                config,
             );
         }
     }
@@ -772,12 +937,12 @@ fn encode_la(
 
     // addi rd, rd, lo
     let addi_bytes = encode_i_type_family(
+        config,
+        &line.location,
         &ITypeOp::Addi,
         rd,
         rd,
         lo,
-        &line.location,
-        config,
     )?;
     bytes.extend_from_slice(&addi_bytes);
 
@@ -788,13 +953,25 @@ fn encode_la(
 fn encode_call(
     target_expr: &Expression,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
     config: &Config,
 ) -> Result<Vec<u8>> {
-    let target_val = context.eval_expression(target_expr)?;
+    let refs = symbol_links.get_line_refs(pointer);
+    let target_val = eval_expr(
+        target_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let target_addr =
         require_address(target_val, "call target", &line.location)?;
-    let current_pc = get_line_address(context);
+    let current_pc = current_address as i64;
     let offset = target_addr as i64 - current_pc;
 
     // Try relaxed encoding if enabled and within range
@@ -818,11 +995,11 @@ fn encode_call(
 
     // jalr ra, ra, lo
     let jalr_bytes = encode_jalr_family(
+        config,
+        &line.location,
         Register::X1,
         Register::X1,
         lo,
-        &line.location,
-        config,
     )?;
     bytes.extend_from_slice(&jalr_bytes);
 
@@ -833,13 +1010,25 @@ fn encode_call(
 fn encode_tail(
     target_expr: &Expression,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
     config: &Config,
 ) -> Result<Vec<u8>> {
-    let target_val = context.eval_expression(target_expr)?;
+    let refs = symbol_links.get_line_refs(pointer);
+    let target_val = eval_expr(
+        target_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let target_addr =
         require_address(target_val, "tail target", &line.location)?;
-    let current_pc = get_line_address(context);
+    let current_pc = current_address as i64;
     let offset = target_addr as i64 - current_pc;
 
     // Try relaxed encoding if enabled and within range
@@ -863,11 +1052,11 @@ fn encode_tail(
 
     // jalr x0, t1, lo
     let jalr_bytes = encode_jalr_family(
+        config,
+        &line.location,
         Register::X0,
         Register::X6,
         lo,
-        &line.location,
-        config,
     )?;
     bytes.extend_from_slice(&jalr_bytes);
 
@@ -880,12 +1069,24 @@ fn encode_load_global_pseudo(
     rd: Register,
     addr_expr: &Expression,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
 ) -> Result<Vec<u8>> {
-    let addr_val = context.eval_expression(addr_expr)?;
+    let refs = symbol_links.get_line_refs(pointer);
+    let addr_val = eval_expr(
+        addr_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let addr =
         require_address(addr_val, "load global address", &line.location)?;
-    let current_pc = get_line_address(context);
+    let current_pc = current_address as i64;
 
     let mut bytes = Vec::new();
     let offset = addr as i64 - current_pc;
@@ -910,12 +1111,24 @@ fn encode_store_global_pseudo(
     addr_expr: &Expression,
     temp: Register,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
 ) -> Result<Vec<u8>> {
-    let addr_val = context.eval_expression(addr_expr)?;
+    let refs = symbol_links.get_line_refs(pointer);
+    let addr_val = eval_expr(
+        addr_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let addr =
         require_address(addr_val, "store global address", &line.location)?;
-    let current_pc = get_line_address(context);
+    let current_pc = current_address as i64;
 
     let mut bytes = Vec::new();
     let offset = addr as i64 - current_pc;
@@ -941,10 +1154,21 @@ fn encode_compressed_explicit(
     op: &CompressedOp,
     operands: &CompressedOperands,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
 ) -> Result<Vec<u8>> {
     // Evaluate any expressions in operands first
-    let evaluated_operands = eval_compressed_operands(operands, context)?;
+    let evaluated_operands = eval_compressed_operands(
+        operands,
+        current_address,
+        source,
+        symbol_values,
+        symbol_links,
+        pointer,
+    )?;
 
     let inst = encode_compressed_inst(op, &evaluated_operands, &line.location)?;
     Ok(inst.to_le_bytes().to_vec())
@@ -1006,8 +1230,14 @@ fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
 fn encode_directive(
     dir: &Directive,
     line: &Line,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
 ) -> Result<Vec<u8>> {
+    let refs = symbol_links.get_line_refs(pointer);
+
     match dir {
         Directive::Text
         | Directive::Data
@@ -1018,7 +1248,14 @@ fn encode_directive(
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = context.eval_expression(expr)?;
+                let val = eval_expr(
+                    expr,
+                    current_address,
+                    refs,
+                    symbol_values,
+                    source,
+                    pointer,
+                )?;
                 let byte_val = match val {
                     EvaluatedValue::Integer(i) => i as u8,
                     EvaluatedValue::Address(a) => a as u8,
@@ -1031,7 +1268,14 @@ fn encode_directive(
         Directive::TwoByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = context.eval_expression(expr)?;
+                let val = eval_expr(
+                    expr,
+                    current_address,
+                    refs,
+                    symbol_values,
+                    source,
+                    pointer,
+                )?;
                 let short_val = match val {
                     EvaluatedValue::Integer(i) => i as u16,
                     EvaluatedValue::Address(a) => a as u16,
@@ -1044,7 +1288,14 @@ fn encode_directive(
         Directive::FourByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = context.eval_expression(expr)?;
+                let val = eval_expr(
+                    expr,
+                    current_address,
+                    refs,
+                    symbol_values,
+                    source,
+                    pointer,
+                )?;
                 let word_val = match val {
                     EvaluatedValue::Integer(i) => i as u32,
                     EvaluatedValue::Address(a) => a,
@@ -1072,7 +1323,14 @@ fn encode_directive(
         }
 
         Directive::Space(expr) => {
-            let val = context.eval_expression(expr)?;
+            let val = eval_expr(
+                expr,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let size =
                 require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
@@ -1085,7 +1343,14 @@ fn encode_directive(
         }
 
         Directive::Balign(expr) => {
-            let val = context.eval_expression(expr)?;
+            let val = eval_expr(
+                expr,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let alignment =
                 require_integer(val, ".balign directive", &line.location)?;
             if alignment <= 0 {
@@ -1097,7 +1362,7 @@ fn encode_directive(
                     line.location.clone(),
                 ));
             }
-            let abs_addr = get_line_address(context);
+            let abs_addr = current_address as i64;
             let padding = (alignment - (abs_addr % alignment)) % alignment;
             Ok(vec![0; padding as usize])
         }
@@ -1886,8 +2151,14 @@ enum EvaluatedCompressedOperands {
 
 fn eval_compressed_operands(
     operands: &CompressedOperands,
-    context: &EncodingContext,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
 ) -> Result<EvaluatedCompressedOperands> {
+    let refs = symbol_links.get_line_refs(pointer);
+
     match operands {
         CompressedOperands::None => Ok(EvaluatedCompressedOperands::None),
         CompressedOperands::CR { rd, rs2 } => {
@@ -1897,7 +2168,14 @@ fn eval_compressed_operands(
             Ok(EvaluatedCompressedOperands::CRSingle { rs1: *rs1 })
         }
         CompressedOperands::CI { rd, imm } => {
-            let val = context.eval_expression(imm)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1905,7 +2183,14 @@ fn eval_compressed_operands(
             Ok(EvaluatedCompressedOperands::CI { rd: *rd, imm: imm_val })
         }
         CompressedOperands::CIStackLoad { rd, offset } => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1916,7 +2201,14 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CSSStackStore { rs2, offset } => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1927,7 +2219,14 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CIW { rd_prime, imm } => {
-            let val = context.eval_expression(imm)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1938,7 +2237,14 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CL { rd_prime, rs1_prime, offset } => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1950,7 +2256,14 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CS { rs2_prime, rs1_prime, offset } => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1968,7 +2281,14 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CBImm { rd_prime, imm } => {
-            let val = context.eval_expression(imm)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1979,11 +2299,18 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CBBranch { rs1_prime, offset } => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 // For branches, if we get an address, compute PC-relative offset
                 EvaluatedValue::Address(target_addr) => {
-                    let current_pc = get_line_address(context);
+                    let current_pc = current_address as i64;
                     (target_addr as i64 - current_pc) as i32
                 }
                 // If it's an integer, use it directly as the offset
@@ -1995,11 +2322,18 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CJOpnd { offset } => {
-            let val = context.eval_expression(offset)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 // For jumps, if we get an address, compute PC-relative offset
                 EvaluatedValue::Address(target_addr) => {
-                    let current_pc = get_line_address(context);
+                    let current_pc = current_address as i64;
                     (target_addr as i64 - current_pc) as i32
                 }
                 // If it's an integer, use it directly as the offset
@@ -2013,10 +2347,6 @@ fn eval_compressed_operands(
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-fn get_line_address(context: &EncodingContext) -> i64 {
-    context.layout.get_line_address(&context.pointer) as i64
-}
 
 fn reg_to_u32(reg: Register) -> u32 {
     match reg {

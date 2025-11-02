@@ -1,11 +1,11 @@
 // assembler.rs
 //
-// Core assembly pipeline: convergence loop, file input, and statistics
+// Core assembly pipeline: relaxation loop, file input, and statistics
 
 use crate::ast::{Line, LineContent, Location, Source, SourceFile};
 use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
-use crate::elf::{ElfBuilder, build_symbol_table};
+use crate::elf::ElfBuilder;
 use crate::encoder::encode;
 use crate::error::{AssemblerError, Result};
 use crate::expressions::eval_symbol_values;
@@ -17,63 +17,17 @@ use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
 
-// Assembly phases - each phase has a checkpoint where we can dump and optionally exit
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phase {
-    Parse,         // After parsing source files into AST
-    SymbolLinking, // After linking all symbols
-    Convergence,   // During/after code generation convergence
-    Elf,           // After ELF generation
-}
-
-// Helper: Check if we should dump at this phase
-fn should_dump_phase(config: &Config, phase: Phase) -> bool {
-    match phase {
-        Phase::Parse => config.dump.dump_ast.is_some(),
-        Phase::SymbolLinking => config.dump.dump_symbols.is_some(),
-        Phase::Convergence => {
-            config.dump.dump_values.is_some() || config.dump.dump_code.is_some()
-        }
-        Phase::Elf => config.dump.dump_elf.is_some(),
-    }
-}
-
-// Helper: Check if this is the last phase we need to execute (early exit after dump)
-fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
-    // If this phase has a dump option, check if any later phases also have dump options
-    if !should_dump_phase(config, phase) {
-        return false;
-    }
-
-    match phase {
-        Phase::Parse => {
-            !should_dump_phase(config, Phase::SymbolLinking)
-                && !should_dump_phase(config, Phase::Convergence)
-                && !should_dump_phase(config, Phase::Elf)
-        }
-        Phase::SymbolLinking => {
-            !should_dump_phase(config, Phase::Convergence)
-                && !should_dump_phase(config, Phase::Elf)
-        }
-        Phase::Convergence => !should_dump_phase(config, Phase::Elf),
-        Phase::Elf => {
-            // ELF is always terminal if we're dumping it
-            true
-        }
-    }
-}
-
 /// Main assembly driver - processing flow with output dump checkpoints
-pub fn drive_assembler(config: Config) -> Result<()> {
+pub fn drive_assembler(config: &Config) -> Result<()> {
     // ========================================================================
     // Phase 1: Parse source files into AST
     // ========================================================================
-    let source = process_files(config.input_files.clone())?;
+    let source = &process_files(&config.input_files)?;
 
     // Checkpoint: dump AST if requested
-    if should_dump_phase(&config, Phase::Parse) {
-        dump_ast(&source, config.dump.dump_ast.as_ref().unwrap());
-        if is_terminal_phase(&config, Phase::Parse) {
+    if should_dump_phase(config, Phase::Parse) {
+        dump_ast(config, source);
+        if is_terminal_phase(config, Phase::Parse) {
             println!("\n(No output file generated)");
             return Ok(());
         }
@@ -83,16 +37,12 @@ pub fn drive_assembler(config: Config) -> Result<()> {
     // ========================================================================
     // Phase 2: Link symbols (connect symbol uses to their definitions)
     // ========================================================================
-    let symbol_links = link_symbols(&source)?;
+    let symbol_links = &link_symbols(source)?;
 
     // Checkpoint: dump symbol linking if requested
-    if should_dump_phase(&config, Phase::SymbolLinking) {
-        dump_symbols(
-            &source,
-            &symbol_links,
-            config.dump.dump_symbols.as_ref().unwrap(),
-        );
-        if is_terminal_phase(&config, Phase::SymbolLinking) {
+    if should_dump_phase(config, Phase::SymbolLinking) {
+        dump_symbols(config, source, symbol_links);
+        if is_terminal_phase(config, Phase::SymbolLinking) {
             println!("\n(No output file generated)");
             return Ok(());
         }
@@ -100,23 +50,23 @@ pub fn drive_assembler(config: Config) -> Result<()> {
     }
 
     // Create initial layout after symbol linking
-    let mut layout = create_initial_layout(&source);
+    let mut layout = create_initial_layout(source);
 
     // ========================================================================
-    // Phase 3: Convergence - iteratively compute offsets and encode until stable
+    // Phase 3: Relaxation - iteratively compute offsets and encode until stable
     // ========================================================================
 
-    // Show input statistics before convergence if verbose
+    // Show input statistics before relaxation loop if verbose
     if config.verbose {
-        print_input_statistics(&source, &symbol_links);
+        print_input_statistics(source, symbol_links);
     }
 
     let (text_bytes, data_bytes, _bss_size) =
-        converge_and_encode(&source, &symbol_links, &mut layout, &config)?;
+        relaxation_loop(config, source, symbol_links, &mut layout)?;
 
-    // Checkpoint: after convergence, check if we should exit before ELF generation
-    if should_dump_phase(&config, Phase::Convergence)
-        && is_terminal_phase(&config, Phase::Convergence)
+    // Checkpoint: after relaxation, check if we should exit before ELF generation
+    if should_dump_phase(config, Phase::Relaxation)
+        && is_terminal_phase(config, Phase::Relaxation)
     {
         println!("\n(No output file generated)");
         return Ok(());
@@ -126,16 +76,15 @@ pub fn drive_assembler(config: Config) -> Result<()> {
     // Phase 4: Generate ELF binary
     // ========================================================================
 
-    let mut elf_builder =
-        ElfBuilder::new(&layout, text_bytes, data_bytes);
+    let mut elf_builder = ElfBuilder::new(&layout, text_bytes, data_bytes);
 
     // Build symbol table
-    build_symbol_table(&source, &symbol_links, &layout, &mut elf_builder);
+    elf_builder.build_symbol_table(source, symbol_links);
 
     // Checkpoint: dump ELF if requested
-    if should_dump_phase(&config, Phase::Elf) {
-        dump_elf(&elf_builder, config.dump.dump_elf.as_ref().unwrap());
-        if is_terminal_phase(&config, Phase::Elf) {
+    if should_dump_phase(config, Phase::Elf) {
+        dump_elf(config, &elf_builder);
+        if is_terminal_phase(config, Phase::Elf) {
             println!("\n(No output file generated)");
             return Ok(());
         }
@@ -158,7 +107,7 @@ pub fn drive_assembler(config: Config) -> Result<()> {
             symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
             let pointer = g.definition_pointer;
-            Ok(layout.get_line_address(&pointer) as u64)
+            Ok(layout.get_line_address(pointer))
         } else {
             Err(AssemblerError::no_context(
                 "_start symbol not defined".to_string(),
@@ -166,7 +115,7 @@ pub fn drive_assembler(config: Config) -> Result<()> {
         }
     }?;
 
-    let elf_bytes = elf_builder.build(entry_point as u32);
+    let elf_bytes = elf_builder.build(entry_point);
 
     // Write to output file
     let mut file = File::create(&config.output_file)
@@ -183,13 +132,12 @@ pub fn drive_assembler(config: Config) -> Result<()> {
     std::fs::set_permissions(&config.output_file, permissions)
         .map_err(|e| AssemblerError::no_context(e.to_string()))?;
 
-    // Default: silent on success (Unix style)
-    // Verbose mode only shows stats/progress during convergence, not detailed listing
+    // Default: silent on success
 
     Ok(())
 }
 
-/// Converge line sizes and offsets by iterating until stable
+/// Iterate until line sizes and offsets are stable
 ///
 /// This function repeatedly:
 /// 1. Computes addresses/offsets based on current size guesses
@@ -198,18 +146,18 @@ pub fn drive_assembler(config: Config) -> Result<()> {
 /// 4. Encodes/generates code, which determines actual instruction sizes
 /// 5. Checks if any sizes changed from the guess
 ///
-/// Loops until convergence (no size changes) or max iterations reached.
-/// Returns Ok((text, data, bss_size)) on convergence with the final encoding.
-pub fn converge_and_encode(
+/// Loops until there are no size changes or max iterations reached.
+/// Returns Ok((text, data, bss_size)) with the final encoding.
+pub fn relaxation_loop(
+    config: &Config,
     source: &Source,
     symbol_links: &SymbolLinks,
     layout: &mut Layout,
-    config: &Config,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     const MAX_ITERATIONS: usize = 10;
 
     if config.verbose {
-        eprintln!("Convergence:");
+        eprintln!("Relaxation:");
         eprintln!("  Pass   Text    Data     BSS");
         eprintln!("  ----  -----  ------  ------");
     }
@@ -242,7 +190,7 @@ pub fn converge_and_encode(
         // Step 3: Encode everything and update line sizes
         // Encode and collect results
         let (any_changed, text_bytes, data_bytes, bss_size) =
-            encode(source, &symbol_values, symbol_links, layout, config)?;
+            encode(config, source, symbol_links, &symbol_values, layout)?;
 
         // Dump generated code if requested
         if let Some(ref spec) = config.dump.dump_code {
@@ -257,17 +205,8 @@ pub fn converge_and_encode(
             );
         }
 
-        // Step 4: Check convergence
+        // Step 4: Check relaxation
         if !any_changed {
-            // Converged! Verify that layout segment sizes match encoder's calculated sizes
-            // Since no sizes changed, layout.bss_size (calculated at start of this pass)
-            // should match the bss_size calculated by the encoder
-            debug_assert_eq!(
-                layout.bss_size, bss_size,
-                "Layout bss_size ({}) doesn't match encoder bss_size ({})",
-                layout.bss_size, bss_size
-            );
-
             // Dump final symbol values if requested
             if let Some(ref spec) = config.dump.dump_values {
                 dump_values(pass_number, true, source, layout, spec);
@@ -292,11 +231,57 @@ pub fn converge_and_encode(
     )))
 }
 
+// Assembly phases - each phase has a checkpoint where we can dump and optionally exit
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Parse,         // After parsing source files into AST
+    SymbolLinking, // After linking all symbols
+    Relaxation,    // During/after code generation and relaxation
+    Elf,           // After ELF generation
+}
+
+// Helper: Check if we should dump at this phase
+fn should_dump_phase(config: &Config, phase: Phase) -> bool {
+    match phase {
+        Phase::Parse => config.dump.dump_ast.is_some(),
+        Phase::SymbolLinking => config.dump.dump_symbols.is_some(),
+        Phase::Relaxation => {
+            config.dump.dump_values.is_some() || config.dump.dump_code.is_some()
+        }
+        Phase::Elf => config.dump.dump_elf.is_some(),
+    }
+}
+
+// Helper: Check if this is the last phase we need to execute (early exit after dump)
+fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
+    // If this phase has a dump option, check if any later phases also have dump options
+    if !should_dump_phase(config, phase) {
+        return false;
+    }
+
+    match phase {
+        Phase::Parse => {
+            !should_dump_phase(config, Phase::SymbolLinking)
+                && !should_dump_phase(config, Phase::Relaxation)
+                && !should_dump_phase(config, Phase::Elf)
+        }
+        Phase::SymbolLinking => {
+            !should_dump_phase(config, Phase::Relaxation)
+                && !should_dump_phase(config, Phase::Elf)
+        }
+        Phase::Relaxation => !should_dump_phase(config, Phase::Elf),
+        Phase::Elf => {
+            // ELF is always terminal if we're dumping it
+            true
+        }
+    }
+}
+
 /// Read and parse input files into AST
-pub fn process_files(files: Vec<String>) -> Result<Source> {
+pub fn process_files(files: &[String]) -> Result<Source> {
     let mut source = Source { files: Vec::new() };
 
-    for file_path in &files {
+    for file_path in files {
         let source_file = process_file(file_path)?;
         source.files.push(source_file);
     }

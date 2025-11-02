@@ -69,7 +69,7 @@ impl Default for SymbolValues {
 
 /// Evaluate all symbols (labels and .equ definitions) in the program
 ///
-/// This function computes all symbol values upfront, once per convergence iteration.
+/// This function computes all symbol values upfront, once per relaxation iteration.
 /// It replaces the per-line evaluation approach by processing all symbols globally
 /// with full dependency resolution and cycle detection.
 ///
@@ -135,7 +135,7 @@ fn eval_symbol(
     if cycle_stack.contains(key) {
         let cycle_chain: Vec<String> =
             cycle_stack.iter().map(|k| k.symbol.clone()).collect();
-        let line = source.get_line(&key.pointer)?;
+        let line = source.get_line(key.pointer)?;
         return Err(AssemblerError::from_context(
             format!(
                 "Circular reference in symbol '{}': {} -> {}",
@@ -148,13 +148,13 @@ fn eval_symbol(
     }
 
     // Get the line where this symbol is defined
-    let line = source.get_line(&key.pointer)?;
+    let line = source.get_line(key.pointer)?;
 
     // Compute value based on line content
     let value = match &line.content {
         LineContent::Label(_) => {
             // Base case: label address is computed from layout
-            let addr = layout.get_line_address(&key.pointer);
+            let addr = layout.get_line_address(key.pointer);
             EvaluatedValue::Address(addr)
         }
         LineContent::Directive(Directive::Equ(_, expr)) => {
@@ -162,7 +162,7 @@ fn eval_symbol(
             cycle_stack.push(key.clone());
 
             // Get all symbol references from this .equ line
-            let sym_refs = symbol_links.get_line_refs(&key.pointer);
+            let sym_refs = symbol_links.get_line_refs(key.pointer);
             for sym_ref in sym_refs {
                 eval_symbol(
                     &sym_ref.definition,
@@ -177,9 +177,9 @@ fn eval_symbol(
             cycle_stack.pop();
 
             // Now evaluate the expression (all dependencies resolved)
-            let address = layout.get_line_address(&key.pointer);
-            let refs = symbol_links.get_line_refs(&key.pointer);
-            eval_expr(expr, address, refs, symbol_values, source, &key.pointer)?
+            let address = layout.get_line_address(key.pointer);
+            let refs = symbol_links.get_line_refs(key.pointer);
+            eval_expr(expr, address, refs, symbol_values, source, key.pointer)?
         }
         _ => {
             return Err(AssemblerError::from_context(
@@ -215,7 +215,7 @@ pub fn eval_expr(
     refs: &[SymbolReference],
     symbol_values: &SymbolValues,
     source: &Source,
-    pointer: &LinePointer,
+    pointer: LinePointer,
 ) -> Result<EvaluatedValue> {
     // Get the line for error reporting
     let line = source.get_line(pointer)?;

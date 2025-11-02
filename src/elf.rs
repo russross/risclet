@@ -494,7 +494,9 @@ impl<'a> ElfBuilder<'a> {
 
         // .data section is page-aligned in the file to support mmap.
         // Pad the file with zeros to align the data offset.
-        let data_offset = if !self.data_data.is_empty() || self.layout.bss_size > 0 {
+        let data_offset = if !self.data_data.is_empty()
+            || self.layout.bss_size > 0
+        {
             let current_len = output.len() as u32;
             let padding = (page_size - (current_len % page_size)) % page_size;
             output.resize(output.len() + padding as usize, 0);
@@ -774,291 +776,290 @@ impl<'a> ElfBuilder<'a> {
             sh_entsize: 0,
         });
     }
-}
 
-// ============================================================================
-// Symbol Table Generation
-// ============================================================================
+    /// Build symbol table from Source and SymbolLinks
+    ///
+    /// Symbol ordering matches GNU toolchain:
+    /// 1. Null symbol (entry 0)
+    /// 2. Section symbols (.text, .data, .bss if present)
+    /// 3. For each source file:
+    ///    a. FILE symbol
+    ///    b. Special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
+    ///    c. Local labels from that file
+    /// 4. Global symbols (including linker-provided symbols)
+    pub fn build_symbol_table(
+        &mut self,
+        source: &Source,
+        symbol_links: &SymbolLinks,
+    ) {
+        // Infer has_data and has_bss from layout
+        let has_data = self.layout.data_size > 0;
+        let has_bss = self.layout.bss_size > 0;
+        let text_start = self.layout.text_start;
+        let data_start = self.layout.data_start;
+        let bss_start = self.layout.bss_start;
 
-/// Build symbol table from Source and Symbols
-///
-/// Symbol ordering matches GNU toolchain:
-/// 1. Null symbol (entry 0)
-/// 2. Section symbols (.text, .data, .bss if present)
-/// 3. For each source file:
-///    a. FILE symbol
-///    b. Special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
-///    c. Local labels from that file
-/// 4. Global symbols (including linker-provided symbols)
-pub fn build_symbol_table<'a>(
-    source: &Source,
-    symbol_links: &SymbolLinks,
-    layout: &Layout,
-    builder: &mut ElfBuilder<'a>,
-) {
-    // Infer has_data and has_bss from layout
-    let has_data = layout.data_size > 0;
-    let has_bss = layout.bss_size > 0;
-    let text_start = layout.text_start;
-    let data_start = layout.data_start;
-    let bss_start = layout.bss_start;
+        // Entry 0: Null symbol
+        self.add_symbol(ElfSymbol::null());
 
-    // Entry 0: Null symbol
-    builder.add_symbol(ElfSymbol::null());
+        // Section symbols
+        let text_section_index = 1u16;
+        self.add_symbol(ElfSymbol::section(text_section_index));
 
-    // Section symbols
-    let text_section_index = 1u16;
-    builder.add_symbol(ElfSymbol::section(text_section_index));
-
-    let mut data_section_index = None;
-    if has_data {
-        data_section_index = Some(2u16);
-        builder.add_symbol(ElfSymbol::section(2));
-    }
-
-    let mut bss_section_index = None;
-    if has_bss {
-        let idx = if has_data { 3u16 } else { 2u16 };
-        bss_section_index = Some(idx);
-        builder.add_symbol(ElfSymbol::section(idx));
-    }
-
-    // For each source file, add FILE symbol and local labels
-    // Skip the builtin file (last file) as it's not a real source file
-    let skip = source.files.len() - 1;
-    for (file_index, source_file) in source.files.iter().enumerate() {
-        if file_index == skip {
-            continue;
+        let mut data_section_index = None;
+        if has_data {
+            data_section_index = Some(2u16);
+            self.add_symbol(ElfSymbol::section(2));
         }
 
-        // FILE symbol (basename of source file)
-        let file_name = std::path::Path::new(&source_file.file)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(&source_file.file);
-        let file_name_idx = builder.symbol_names.add(file_name);
-        builder.add_symbol(ElfSymbol::file(file_name_idx));
+        let mut bss_section_index = None;
+        if has_bss {
+            let idx = if has_data { 3u16 } else { 2u16 };
+            bss_section_index = Some(idx);
+            self.add_symbol(ElfSymbol::section(idx));
+        }
 
-        // Add special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
-        // This marks the start of code from this file
-        let marker_name = builder.symbol_names.add("$xrv32i2p1_m2p0_a2p1_c2p0");
+        // For each source file, add FILE symbol and local labels
+        // Skip the builtin file (last file) as it's not a real source file
+        let skip = source.files.len() - 1;
+        for (file_index, source_file) in source.files.iter().enumerate() {
+            if file_index == skip {
+                continue;
+            }
 
-        // Find the first .text line in this file to use as the marker address
-        let mut marker_addr = text_start;
-        for (line_index, _line) in source_file.lines.iter().enumerate() {
-            let pointer = LinePointer { file_index, line_index };
-            if let &LineLayout { offset, segment: Segment::Text, .. } =
-                layout.get(&pointer)
-            {
-                marker_addr = text_start + offset;
-                break;
+            // FILE symbol (basename of source file)
+            let file_name = std::path::Path::new(&source_file.file)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&source_file.file);
+            let file_name_idx = self.symbol_names.add(file_name);
+            self.add_symbol(ElfSymbol::file(file_name_idx));
+
+            // Add special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
+            // This marks the start of code from this file
+            let marker_name =
+                self.symbol_names.add("$xrv32i2p1_m2p0_a2p1_c2p0");
+
+            // Find the first .text line in this file to use as the marker address
+            let mut marker_addr = text_start;
+            for (line_index, _line) in source_file.lines.iter().enumerate() {
+                let pointer = LinePointer { file_index, line_index };
+                if let &LineLayout { offset, segment: Segment::Text, .. } =
+                    self.layout.get(pointer)
+                {
+                    marker_addr = text_start + offset;
+                    break;
+                }
+            }
+
+            self.add_symbol(ElfSymbol {
+                st_name: marker_name,
+                st_value: marker_addr,
+                st_size: 0,
+                st_info: make_st_info(STB_LOCAL, STT_NOTYPE),
+                st_other: 0,
+                st_shndx: text_section_index,
+            });
+
+            // Add local labels (non-global labels and non-.equ symbols)
+            for (line_index, line) in source_file.lines.iter().enumerate() {
+                if let LineContent::Label(name) = &line.content {
+                    // Skip if this label is declared global
+                    let is_global =
+                        symbol_links.global_symbols.iter().any(|g| {
+                            &g.symbol == name
+                                && g.definition_pointer.file_index == file_index
+                                && g.definition_pointer.line_index == line_index
+                        });
+
+                    // Skip numeric labels (they are local/temporary)
+                    if name.chars().all(|c| c.is_ascii_digit()) {
+                        continue;
+                    }
+
+                    if !is_global {
+                        let pointer = LinePointer { file_index, line_index };
+                        let line_layout = self.layout.get(pointer);
+                        let (addr, section_idx) = match line_layout.segment {
+                            Segment::Text => (
+                                text_start + line_layout.offset,
+                                text_section_index,
+                            ),
+                            Segment::Data => (
+                                data_start + line_layout.offset,
+                                data_section_index.unwrap(),
+                            ),
+                            Segment::Bss => (
+                                bss_start + line_layout.offset,
+                                bss_section_index.unwrap(),
+                            ),
+                        };
+                        let name_idx = self.symbol_names.add(name);
+
+                        self.add_symbol(ElfSymbol {
+                            st_name: name_idx,
+                            st_info: make_st_info(STB_LOCAL, STT_NOTYPE),
+                            st_other: 0,
+                            st_shndx: section_idx,
+                            st_value: addr,
+                            st_size: 0,
+                        });
+                    }
+                }
             }
         }
 
-        builder.add_symbol(ElfSymbol {
-            st_name: marker_name,
-            st_value: marker_addr,
-            st_size: 0,
-            st_info: make_st_info(STB_LOCAL, STT_NOTYPE),
+        // Add linker-provided symbols (all global)
+        // These come before user-defined global symbols
+
+        // __global_pointer$ = data_start + 0x800
+        let gp_name = self.symbol_names.add("__global_pointer$");
+        self.add_symbol(ElfSymbol {
+            st_name: gp_name,
+            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
             st_other: 0,
-            st_shndx: text_section_index,
+            st_shndx: SHN_ABS,
+            st_value: data_start + 0x800,
+            st_size: 0,
         });
 
-        // Add local labels (non-global labels and non-.equ symbols)
-        for (line_index, line) in source_file.lines.iter().enumerate() {
-            if let LineContent::Label(name) = &line.content {
-                // Skip if this label is declared global
-                let is_global = symbol_links.global_symbols.iter().any(|g| {
-                    &g.symbol == name
-                        && g.definition_pointer.file_index == file_index
-                        && g.definition_pointer.line_index == line_index
-                });
-
-                // Skip numeric labels (they are local/temporary)
-                if name.chars().all(|c| c.is_ascii_digit()) {
-                    continue;
-                }
-
-                if !is_global {
-                    let pointer = LinePointer { file_index, line_index };
-                    let line_layout = layout.get(&pointer);
-                    let (addr, section_idx) = match line_layout.segment {
-                        Segment::Text => (
-                            text_start + line_layout.offset,
-                            text_section_index,
-                        ),
-                        Segment::Data => (
-                            data_start + line_layout.offset,
-                            data_section_index.unwrap(),
-                        ),
-                        Segment::Bss => (
-                            bss_start + line_layout.offset,
-                            bss_section_index.unwrap(),
-                        ),
-                    };
-                    let name_idx = builder.symbol_names.add(name);
-
-                    builder.add_symbol(ElfSymbol {
-                        st_name: name_idx,
-                        st_info: make_st_info(STB_LOCAL, STT_NOTYPE),
-                        st_other: 0,
-                        st_shndx: section_idx,
-                        st_value: addr,
-                        st_size: 0,
-                    });
-                }
-            }
+        // __SDATA_BEGIN__ = data_start (if data exists)
+        if has_data || has_bss {
+            let sdata_begin = self.symbol_names.add("__SDATA_BEGIN__");
+            let section = if has_data {
+                data_section_index.unwrap()
+            } else {
+                bss_section_index.unwrap()
+            };
+            let addr = if has_data { data_start } else { bss_start };
+            self.add_symbol(ElfSymbol {
+                st_name: sdata_begin,
+                st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
+                st_other: 0,
+                st_shndx: section,
+                st_value: addr,
+                st_size: 0,
+            });
         }
-    }
 
-    // Add linker-provided symbols (all global)
-    // These come before user-defined global symbols
+        // Add user-defined global symbols
+        for global in &symbol_links.global_symbols {
+            // Skip __global_pointer$ - it's already emitted above as a linker-provided symbol
+            if global.symbol == "__global_pointer$" {
+                continue;
+            }
 
-    // __global_pointer$ = data_start + 0x800
-    let gp_name = builder.symbol_names.add("__global_pointer$");
-    builder.add_symbol(ElfSymbol {
-        st_name: gp_name,
-        st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-        st_other: 0,
-        st_shndx: SHN_ABS,
-        st_value: data_start + 0x800,
-        st_size: 0,
-    });
+            let file_index = global.definition_pointer.file_index;
+            let line_index = global.definition_pointer.line_index;
 
-    // __SDATA_BEGIN__ = data_start (if data exists)
-    if has_data || has_bss {
-        let sdata_begin = builder.symbol_names.add("__SDATA_BEGIN__");
-        let section = if has_data {
+            let name_idx = self.symbol_names.add(&global.symbol);
+            let (addr, section_idx) = {
+                let pointer = LinePointer { file_index, line_index };
+                let line_layout = self.layout.get(pointer);
+                match line_layout.segment {
+                    Segment::Text => {
+                        (text_start + line_layout.offset, text_section_index)
+                    }
+                    Segment::Data => (
+                        data_start + line_layout.offset,
+                        data_section_index.unwrap(),
+                    ),
+                    Segment::Bss => (
+                        bss_start + line_layout.offset,
+                        bss_section_index.unwrap(),
+                    ),
+                }
+            };
+
+            self.add_symbol(ElfSymbol {
+                st_name: name_idx,
+                st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
+                st_other: 0,
+                st_shndx: section_idx,
+                st_value: addr,
+                st_size: 0,
+            });
+        }
+
+        // More linker-provided symbols (at end)
+        let end_text = text_start + self.layout.text_size;
+        let end_data = if has_data {
+            data_start + self.layout.data_size
+        } else if has_bss {
+            bss_start
+        } else {
+            end_text
+        };
+        let end_bss =
+            if has_bss { bss_start + self.layout.bss_size } else { end_data };
+
+        // __bss_start
+        let bss_start_name = self.symbol_names.add("__bss_start");
+        let bss_start_section = if has_bss {
+            bss_section_index.unwrap()
+        } else if has_data {
             data_section_index.unwrap()
         } else {
+            text_section_index
+        };
+        self.add_symbol(ElfSymbol {
+            st_name: bss_start_name,
+            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
+            st_other: 0,
+            st_shndx: bss_start_section,
+            st_value: if has_bss { bss_start } else { end_data },
+            st_size: 0,
+        });
+
+        // __DATA_BEGIN__
+        let data_begin_name = self.symbol_names.add("__DATA_BEGIN__");
+        self.add_symbol(ElfSymbol {
+            st_name: data_begin_name,
+            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
+            st_other: 0,
+            st_shndx: bss_start_section,
+            st_value: if has_bss { bss_start } else { end_data },
+            st_size: 0,
+        });
+
+        // __BSS_END__
+        let bss_end_name = self.symbol_names.add("__BSS_END__");
+        let bss_end_section = if has_bss {
             bss_section_index.unwrap()
+        } else if has_data {
+            data_section_index.unwrap()
+        } else {
+            text_section_index
         };
-        let addr = if has_data { data_start } else { bss_start };
-        builder.add_symbol(ElfSymbol {
-            st_name: sdata_begin,
+        self.add_symbol(ElfSymbol {
+            st_name: bss_end_name,
             st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
             st_other: 0,
-            st_shndx: section,
-            st_value: addr,
+            st_shndx: bss_end_section,
+            st_value: end_bss,
+            st_size: 0,
+        });
+
+        // _edata = end of .data (or end of .bss if no .data)
+        let edata_name = self.symbol_names.add("_edata");
+        self.add_symbol(ElfSymbol {
+            st_name: edata_name,
+            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
+            st_other: 0,
+            st_shndx: bss_start_section,
+            st_value: if has_bss { bss_start } else { end_data },
+            st_size: 0,
+        });
+
+        // _end = absolute end of all sections
+        let end_name = self.symbol_names.add("_end");
+        self.add_symbol(ElfSymbol {
+            st_name: end_name,
+            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
+            st_other: 0,
+            st_shndx: bss_end_section,
+            st_value: end_bss,
             st_size: 0,
         });
     }
-
-    // Add user-defined global symbols
-    for global in &symbol_links.global_symbols {
-        // Skip __global_pointer$ - it's already emitted above as a linker-provided symbol
-        if global.symbol == "__global_pointer$" {
-            continue;
-        }
-
-        let file_index = global.definition_pointer.file_index;
-        let line_index = global.definition_pointer.line_index;
-
-        let name_idx = builder.symbol_names.add(&global.symbol);
-        let (addr, section_idx) = {
-            let pointer = LinePointer { file_index, line_index };
-            let line_layout = layout.get(&pointer);
-            match line_layout.segment {
-                Segment::Text => {
-                    (text_start + line_layout.offset, text_section_index)
-                }
-                Segment::Data => (
-                    data_start + line_layout.offset,
-                    data_section_index.unwrap(),
-                ),
-                Segment::Bss => {
-                    (bss_start + line_layout.offset, bss_section_index.unwrap())
-                }
-            }
-        };
-
-        builder.add_symbol(ElfSymbol {
-            st_name: name_idx,
-            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-            st_other: 0,
-            st_shndx: section_idx,
-            st_value: addr,
-            st_size: 0,
-        });
-    }
-
-    // More linker-provided symbols (at end)
-    let end_text = text_start + layout.text_size;
-    let end_data = if has_data {
-        data_start + layout.data_size
-    } else if has_bss {
-        bss_start
-    } else {
-        end_text
-    };
-    let end_bss = if has_bss { bss_start + layout.bss_size } else { end_data };
-
-    // __bss_start
-    let bss_start_name = builder.symbol_names.add("__bss_start");
-    let bss_start_section = if has_bss {
-        bss_section_index.unwrap()
-    } else if has_data {
-        data_section_index.unwrap()
-    } else {
-        text_section_index
-    };
-    builder.add_symbol(ElfSymbol {
-        st_name: bss_start_name,
-        st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-        st_other: 0,
-        st_shndx: bss_start_section,
-        st_value: if has_bss { bss_start } else { end_data },
-        st_size: 0,
-    });
-
-    // __DATA_BEGIN__
-    let data_begin_name = builder.symbol_names.add("__DATA_BEGIN__");
-    builder.add_symbol(ElfSymbol {
-        st_name: data_begin_name,
-        st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-        st_other: 0,
-        st_shndx: bss_start_section,
-        st_value: if has_bss { bss_start } else { end_data },
-        st_size: 0,
-    });
-
-    // __BSS_END__
-    let bss_end_name = builder.symbol_names.add("__BSS_END__");
-    let bss_end_section = if has_bss {
-        bss_section_index.unwrap()
-    } else if has_data {
-        data_section_index.unwrap()
-    } else {
-        text_section_index
-    };
-    builder.add_symbol(ElfSymbol {
-        st_name: bss_end_name,
-        st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-        st_other: 0,
-        st_shndx: bss_end_section,
-        st_value: end_bss,
-        st_size: 0,
-    });
-
-    // _edata = end of .data (or end of .bss if no .data)
-    let edata_name = builder.symbol_names.add("_edata");
-    builder.add_symbol(ElfSymbol {
-        st_name: edata_name,
-        st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-        st_other: 0,
-        st_shndx: bss_start_section,
-        st_value: if has_bss { bss_start } else { end_data },
-        st_size: 0,
-    });
-
-    // _end = absolute end of all sections
-    let end_name = builder.symbol_names.add("_end");
-    builder.add_symbol(ElfSymbol {
-        st_name: end_name,
-        st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-        st_other: 0,
-        st_shndx: bss_end_section,
-        st_value: end_bss,
-        st_size: 0,
-    });
 }

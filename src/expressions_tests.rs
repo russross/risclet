@@ -53,7 +53,7 @@ mod tests {
         layout.set_segment_addresses(text_start);
 
         // Look up the concrete address or use adjusted text_start as fallback
-        let address = layout.get_line_address(&pointer);
+        let address = layout.get_line_address(pointer);
 
         // Evaluate the expression with explicit parameters
         eval_expr(
@@ -62,7 +62,7 @@ mod tests {
             &[], // no symbol references in simple tests
             &symbol_values,
             source,
-            &pointer,
+            pointer,
         )
     }
 
@@ -100,7 +100,7 @@ mod tests {
             &[],
             &symbol_values,
             &source,
-            &pointer,
+            pointer,
         )
         .unwrap();
 
