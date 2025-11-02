@@ -266,6 +266,21 @@ pub enum Op {
     Rem { rd: usize, rs1: usize, rs2: usize },
     Remu { rd: usize, rs1: usize, rs2: usize },
 
+    // a extension - load reserved / store conditional
+    LrW { rd: usize, rs1: usize, aq: bool, rl: bool },
+    ScW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+
+    // a extension - atomic memory operations
+    AmoswapW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmoaddW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmoxorW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmoandW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmoorW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmominW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmomaxW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmominuW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+    AmomaxuW { rd: usize, rs1: usize, rs2: usize, aq: bool, rl: bool },
+
     Unimplemented { inst: i32, note: String },
 }
 
@@ -911,6 +926,111 @@ impl Op {
                 m.set(*rd, val);
             }
 
+            // a extension - load reserved
+            Op::LrW { rd, rs1, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let val = m.load_i32(addr)?;
+                m.set(*rd, val);
+                m.set_reservation(addr);
+            }
+
+            // a extension - store conditional
+            Op::ScW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                if m.check_and_clear_reservation(addr) {
+                    let val = m.get(*rs2) as u32;
+                    m.store(addr, &val.to_le_bytes())?;
+                    m.set(*rd, 0);  // Success
+                } else {
+                    m.set(*rd, 1);  // Failure
+                }
+            }
+
+            // a extension - atomic swap
+            Op::AmoswapW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let new_val = m.get(*rs2) as u32;
+                m.store(addr, &new_val.to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic add
+            Op::AmoaddW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let new_val = old_val.wrapping_add(m.get(*rs2));
+                m.store(addr, &(new_val as u32).to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic xor
+            Op::AmoxorW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let new_val = old_val ^ m.get(*rs2);
+                m.store(addr, &(new_val as u32).to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic and
+            Op::AmoandW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let new_val = old_val & m.get(*rs2);
+                m.store(addr, &(new_val as u32).to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic or
+            Op::AmoorW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let new_val = old_val | m.get(*rs2);
+                m.store(addr, &(new_val as u32).to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic min (signed)
+            Op::AmominW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let rs2_val = m.get(*rs2);
+                let new_val = if old_val < rs2_val { old_val } else { rs2_val };
+                m.store(addr, &(new_val as u32).to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic max (signed)
+            Op::AmomaxW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)?;
+                let rs2_val = m.get(*rs2);
+                let new_val = if old_val > rs2_val { old_val } else { rs2_val };
+                m.store(addr, &(new_val as u32).to_le_bytes())?;
+                m.set(*rd, old_val);
+            }
+
+            // a extension - atomic min (unsigned)
+            Op::AmominuW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)? as u32;
+                let rs2_val = m.get(*rs2) as u32;
+                let new_val = if old_val < rs2_val { old_val } else { rs2_val };
+                m.store(addr, &new_val.to_le_bytes())?;
+                m.set(*rd, old_val as i32);
+            }
+
+            // a extension - atomic max (unsigned)
+            Op::AmomaxuW { rd, rs1, rs2, aq: _, rl: _ } => {
+                let addr = m.get(*rs1) as u32;
+                let old_val = m.load_i32(addr)? as u32;
+                let rs2_val = m.get(*rs2) as u32;
+                let new_val = if old_val > rs2_val { old_val } else { rs2_val };
+                m.store(addr, &new_val.to_le_bytes())?;
+                m.set(*rd, old_val as i32);
+            }
+
             Op::Unimplemented { inst, note } => {
                 return Err(format!("inst: 0x{:x} note: {}", inst, note));
             }
@@ -1154,6 +1274,13 @@ impl Op {
                 ctx.write_register(*rd, val);
             }
 
+            // a extension - atomic operations not implemented for ExecutionContext
+            Op::LrW { .. } | Op::ScW { .. } | Op::AmoswapW { .. } | Op::AmoaddW { .. } |
+            Op::AmoxorW { .. } | Op::AmoandW { .. } | Op::AmoorW { .. } | Op::AmominW { .. } |
+            Op::AmomaxW { .. } | Op::AmominuW { .. } | Op::AmomaxuW { .. } => {
+                return Err("atomic operations not implemented for ExecutionContext".to_string());
+            }
+
             Op::Unimplemented { inst, note } => {
                 return Err(format!("inst: 0x{:x} note: {}", inst, note));
             }
@@ -1252,6 +1379,21 @@ impl Op {
             Op::Divu { rd, rs1, rs2 } => vec![Field::Opcode("divu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
             Op::Rem { rd, rs1, rs2 } => vec![Field::Opcode("rem"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
             Op::Remu { rd, rs1, rs2 } => vec![Field::Opcode("remu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
+
+            // a extension - load reserved / store conditional
+            Op::LrW { rd, rs1, .. } => vec![Field::Opcode("lr.w"), Field::Reg(rd), Field::Indirect(0, rs1)],
+            Op::ScW { rd, rs1, rs2, .. } => vec![Field::Opcode("sc.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+
+            // a extension - atomic memory operations
+            Op::AmoswapW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoswap.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmoaddW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoadd.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmoxorW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoxor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmoandW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoand.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmoorW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmominW { rd, rs1, rs2, .. } => vec![Field::Opcode("amomin.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmomaxW { rd, rs1, rs2, .. } => vec![Field::Opcode("amomax.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmominuW { rd, rs1, rs2, .. } => vec![Field::Opcode("amominu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmomaxuW { rd, rs1, rs2, .. } => vec![Field::Opcode("amomaxu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
 
             // unknown instructions
             Op::Unimplemented { .. } => vec![Field::Opcode("???")],

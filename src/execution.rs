@@ -20,6 +20,7 @@ pub struct Machine {
     pub other_symbols: HashMap<String, u32>,
     current_effect: Option<Effects>,
     io_provider: Box<dyn IoProvider>,
+    reservation_set: Option<u32>,
 }
 
 impl Machine {
@@ -68,6 +69,7 @@ impl Machine {
             other_symbols,
             current_effect: None,
             io_provider,
+            reservation_set: None,
         }
     }
 
@@ -86,6 +88,7 @@ impl Machine {
         self.state.reset(self.pc_start, self.memory.layout.stack_end);
         self.trace.clear();
         self.current_effect = None;
+        self.reservation_set = None;
     }
 
     pub fn load(&mut self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
@@ -330,6 +333,23 @@ impl Machine {
 
     pub fn io_provider_mut(&mut self) -> &mut dyn IoProvider {
         &mut *self.io_provider
+    }
+
+    pub fn set_reservation(&mut self, addr: u32) {
+        self.reservation_set = Some(addr);
+    }
+
+    pub fn check_and_clear_reservation(&mut self, addr: u32) -> bool {
+        if self.reservation_set == Some(addr) {
+            self.reservation_set = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn clear_reservation(&mut self) {
+        self.reservation_set = None;
     }
 }
 

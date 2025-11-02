@@ -98,6 +98,17 @@ mod riscv_isa_tests {
     riscv_test!(test_sw, include_bytes!("test_binaries/sw"));
     riscv_test!(test_xor, include_bytes!("test_binaries/xor"));
     riscv_test!(test_xori, include_bytes!("test_binaries/xori"));
-    
+
+    // A extension - atomic instructions
+    riscv_test!(test_amoadd_w, include_bytes!("test_binaries/amoadd_w"));
+    riscv_test!(test_amoand_w, include_bytes!("test_binaries/amoand_w"));
+    riscv_test!(test_amoor_w, include_bytes!("test_binaries/amoor_w"));
+    riscv_test!(test_amoxor_w, include_bytes!("test_binaries/amoxor_w"));
+    riscv_test!(test_amoswap_w, include_bytes!("test_binaries/amoswap_w"));
+    riscv_test!(test_amomin_w, include_bytes!("test_binaries/amomin_w"));
+    riscv_test!(test_amomax_w, include_bytes!("test_binaries/amomax_w"));
+    riscv_test!(test_amominu_w, include_bytes!("test_binaries/amominu_w"));
+    riscv_test!(test_amomaxu_w, include_bytes!("test_binaries/amomaxu_w"));
+    riscv_test!(test_lrsc, include_bytes!("test_binaries/lrsc"));
 
 }

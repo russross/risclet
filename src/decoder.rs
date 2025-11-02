@@ -28,6 +28,7 @@ impl InstructionDecoder {
             }
             0x03 => Self::decode_load(inst),
             0x23 => Self::decode_store(inst),
+            0x2f => Self::decode_atomic(inst),
             0x37 => Op::Lui { rd: get_rd(inst), imm: get_imm_u(inst) },
             0x17 => Op::Auipc { rd: get_rd(inst), imm: get_imm_u(inst) },
             0x0f => Op::Fence,
@@ -161,6 +162,42 @@ impl InstructionDecoder {
             _ => Op::Unimplemented {
                 inst,
                 note: format!("alu instruction of unknown type {} subtype {}", funct3, funct7),
+            },
+        }
+    }
+
+    fn decode_atomic(inst: i32) -> Op {
+        let funct5 = (inst >> 27) & 0x1f;
+        let aq = ((inst >> 26) & 1) != 0;
+        let rl = ((inst >> 25) & 1) != 0;
+        let rs2 = get_rs2(inst);
+        let rs1 = get_rs1(inst);
+        let funct3 = get_funct3(inst);
+        let rd = get_rd(inst);
+
+        // Only support .W variants for RV32
+        if funct3 != 0x2 {
+            return Op::Unimplemented {
+                inst,
+                note: format!("atomic instruction with unsupported width funct3={}", funct3),
+            };
+        }
+
+        match funct5 {
+            0x02 => Op::LrW { rd, rs1, aq, rl },
+            0x03 => Op::ScW { rd, rs1, rs2, aq, rl },
+            0x01 => Op::AmoswapW { rd, rs1, rs2, aq, rl },
+            0x00 => Op::AmoaddW { rd, rs1, rs2, aq, rl },
+            0x04 => Op::AmoxorW { rd, rs1, rs2, aq, rl },
+            0x0c => Op::AmoandW { rd, rs1, rs2, aq, rl },
+            0x08 => Op::AmoorW { rd, rs1, rs2, aq, rl },
+            0x10 => Op::AmominW { rd, rs1, rs2, aq, rl },
+            0x14 => Op::AmomaxW { rd, rs1, rs2, aq, rl },
+            0x18 => Op::AmominuW { rd, rs1, rs2, aq, rl },
+            0x1c => Op::AmomaxuW { rd, rs1, rs2, aq, rl },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("unknown atomic operation funct5={}", funct5),
             },
         }
     }
