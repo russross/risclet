@@ -28,7 +28,7 @@ mod tests {
         offset: u32,
         size: u32,
     ) -> Layout {
-        let mut layout = Layout::new();
+        let mut layout = Layout::new_empty();
         layout.set(
             LinePointer { file_index: 0, line_index: 0 },
             LineLayout { segment, offset, size },
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn test_context_segment_addresses() {
         // Create a layout with the desired sizes (manually)
-        let mut layout = Layout::new();
+        let mut layout = Layout::new_empty();
         layout.text_size = 1000; // Will cause data to be boundary
         layout.data_size = 500;
         layout.bss_size = 200;

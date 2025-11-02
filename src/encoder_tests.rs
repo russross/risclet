@@ -6,7 +6,7 @@
 use crate::assembler::relaxation_loop;
 use crate::ast::{Source, SourceFile};
 use crate::config::{Config, Relax};
-use crate::layout::create_initial_layout;
+use crate::layout::Layout;
 use crate::parser::parse;
 use crate::symbols::{create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
@@ -83,7 +83,7 @@ fn assemble(
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    let mut layout = create_initial_layout(&source);
+    let mut layout = Layout::new(&source);
     relaxation_loop(config, &source, &symbols, &mut layout)
         .map_err(|e| e.with_source_context())
 }
