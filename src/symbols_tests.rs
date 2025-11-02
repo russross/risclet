@@ -93,7 +93,7 @@ mod tests {
     ) {
         let refs = symbol_links.get_line_refs(line_ptr);
         let matching_ref = refs.iter().find(|r| {
-            r.symbol == expected_symbol && r.pointer == *expected_def_ptr
+            r.outgoing_name == expected_symbol && r.definition.pointer == *expected_def_ptr
         });
 
         assert!(
@@ -236,9 +236,9 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "target" {
+                if sym_ref.outgoing_name == "target" {
                     assert_eq!(
-                        sym_ref.pointer, label_ptr,
+                        sym_ref.definition.pointer, label_ptr,
                         "All references should point to the same label"
                     );
                     ref_count += 1;
@@ -280,13 +280,13 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                match sym_ref.symbol.as_str() {
-                    "start" => assert_eq!(sym_ref.pointer, start_ptr),
-                    "middle" => assert_eq!(sym_ref.pointer, middle_ptr),
-                    "end" => assert_eq!(sym_ref.pointer, end_ptr),
+                match sym_ref.outgoing_name.as_str() {
+                    "start" => assert_eq!(sym_ref.definition.pointer, start_ptr),
+                    "middle" => assert_eq!(sym_ref.definition.pointer, middle_ptr),
+                    "end" => assert_eq!(sym_ref.definition.pointer, end_ptr),
                     _ => panic!(
                         "Unexpected symbol reference: {}",
-                        sym_ref.symbol
+                        sym_ref.outgoing_name
                     ),
                 }
             }
@@ -316,9 +316,9 @@ mod tests {
 
         // The reference should use "1f" but point to the label "1"
         let refs = symbols.get_line_refs(&ref_ptr);
-        let matching_ref = refs.iter().find(|r| r.symbol == "1f");
+        let matching_ref = refs.iter().find(|r| r.outgoing_name == "1f");
         assert!(matching_ref.is_some(), "Should have a reference to '1f'");
-        assert_eq!(matching_ref.unwrap().pointer, label_ptr);
+        assert_eq!(matching_ref.unwrap().definition.pointer, label_ptr);
     }
 
     #[test]
@@ -343,9 +343,9 @@ mod tests {
 
         // The reference should use "1b" and point to the label "1"
         let refs = symbols.get_line_refs(&ref_ptr);
-        let matching_ref = refs.iter().find(|r| r.symbol == "1b");
+        let matching_ref = refs.iter().find(|r| r.outgoing_name == "1b");
         assert!(matching_ref.is_some(), "Should have a reference to '1b'");
-        assert_eq!(matching_ref.unwrap().pointer, label_ptr);
+        assert_eq!(matching_ref.unwrap().definition.pointer, label_ptr);
     }
 
     #[test]
@@ -392,8 +392,8 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "1f" {
-                    ref_positions.push((line_idx, sym_ref.pointer.clone()));
+                if sym_ref.outgoing_name == "1f" {
+                    ref_positions.push((line_idx, sym_ref.definition.pointer.clone()));
                 }
             }
         }
@@ -468,8 +468,8 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "1b" {
-                    ref_positions.push((line_idx, sym_ref.pointer.clone()));
+                if sym_ref.outgoing_name == "1b" {
+                    ref_positions.push((line_idx, sym_ref.definition.pointer.clone()));
                 }
             }
         }
@@ -600,9 +600,9 @@ mod tests {
             let refs = symbols.get_line_refs(&line_ptr);
             let has_start = refs
                 .iter()
-                .any(|r| r.symbol == "start" && r.pointer == start_ptr);
+                .any(|r| r.outgoing_name == "start" && r.definition.pointer == start_ptr);
             let has_end =
-                refs.iter().any(|r| r.symbol == "end" && r.pointer == end_ptr);
+                refs.iter().any(|r| r.outgoing_name == "end" && r.definition.pointer == end_ptr);
             if has_start && has_end {
                 found_both = true;
                 break;
@@ -672,7 +672,7 @@ mod tests {
         let instr_ptr = LinePointer { file_index: 0, line_index: 1 };
         let refs = symbols.get_line_refs(&instr_ptr);
         let has_ref =
-            refs.iter().any(|r| r.symbol == "loop" && r.pointer == label_ptr);
+            refs.iter().any(|r| r.outgoing_name == "loop" && r.definition.pointer == label_ptr);
         assert!(
             has_ref,
             "Instruction should have reference back to its own label"
@@ -754,7 +754,7 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "counter" {
+                if sym_ref.outgoing_name == "counter" {
                     ref_count += 1;
                 }
             }
@@ -839,7 +839,7 @@ mod tests {
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 // Each reference should point to a valid label
-                let target_line = &file.lines[sym_ref.pointer.line_index];
+                let target_line = &file.lines[sym_ref.definition.pointer.line_index];
                 assert!(
                     matches!(target_line.content, LineContent::Label(_)),
                     "Reference should point to a label"
@@ -984,7 +984,7 @@ mod tests {
             LinePointer { file_index: 0, line_index: equ_line_indices[1] };
         let second_refs = symbols.get_line_refs(&second_line_ptr);
         let has_ref_to_first = second_refs.iter().any(|r| {
-            r.symbol == "counter" && r.pointer.line_index == equ_line_indices[0]
+            r.outgoing_name == "counter" && r.definition.pointer.line_index == equ_line_indices[0]
         });
         assert!(has_ref_to_first, "Second .equ should reference first");
 
@@ -993,7 +993,7 @@ mod tests {
             LinePointer { file_index: 0, line_index: equ_line_indices[2] };
         let third_refs = symbols.get_line_refs(&third_line_ptr);
         let has_ref_to_second = third_refs.iter().any(|r| {
-            r.symbol == "counter" && r.pointer.line_index == equ_line_indices[1]
+            r.outgoing_name == "counter" && r.definition.pointer.line_index == equ_line_indices[1]
         });
         assert!(has_ref_to_second, "Third .equ should reference second");
     }
@@ -1067,9 +1067,9 @@ mod tests {
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
         let refs = symbols.get_line_refs(&ref_ptr);
-        let ref_to_value = refs.iter().find(|r| r.symbol == "value").unwrap();
+        let ref_to_value = refs.iter().find(|r| r.outgoing_name == "value").unwrap();
         assert_eq!(
-            ref_to_value.pointer.line_index, equ_indices[0],
+            ref_to_value.definition.pointer.line_index, equ_indices[0],
             "Forward reference should resolve to first .equ definition"
         );
     }
@@ -1116,8 +1116,8 @@ mod tests {
                     LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(&line_ptr);
                 for sym_ref in refs {
-                    if sym_ref.symbol == "value" {
-                        li_refs.push((line_idx, sym_ref.pointer.line_index));
+                    if sym_ref.outgoing_name == "value" {
+                        li_refs.push((line_idx, sym_ref.definition.pointer.line_index));
                     }
                 }
             }
@@ -1436,16 +1436,16 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "3b" {
+                if sym_ref.outgoing_name == "3b" {
                     assert_eq!(
-                        sym_ref.pointer.line_index,
+                        sym_ref.definition.pointer.line_index,
                         label_3_idx.unwrap(),
                         "3b should reference label 3 after 'named'"
                     );
                 }
-                if sym_ref.symbol == "4b" {
+                if sym_ref.outgoing_name == "4b" {
                     assert_eq!(
-                        sym_ref.pointer.line_index,
+                        sym_ref.definition.pointer.line_index,
                         label_4_idx.unwrap(),
                         "4b should reference label 4 after 'named'"
                     );
@@ -1492,9 +1492,9 @@ mod tests {
             LinePointer { file_index: 0, line_index: equ_line.unwrap() };
         let refs = symbols.get_line_refs(&equ_ptr);
         let has_start =
-            refs.iter().any(|r| r.symbol == "start" && r.pointer == start_ptr);
+            refs.iter().any(|r| r.outgoing_name == "start" && r.definition.pointer == start_ptr);
         let has_end =
-            refs.iter().any(|r| r.symbol == "end" && r.pointer == end_ptr);
+            refs.iter().any(|r| r.outgoing_name == "end" && r.definition.pointer == end_ptr);
         assert!(
             has_start && has_end,
             ".equ should reference both start and end"
@@ -1596,13 +1596,13 @@ mod tests {
 
         let refs = symbols.get_line_refs(&ref_ptr);
         let ref_to_counter =
-            refs.iter().find(|r| r.symbol == "counter").unwrap();
+            refs.iter().find(|r| r.outgoing_name == "counter").unwrap();
         assert_eq!(
-            ref_to_counter.pointer.file_index, 0,
+            ref_to_counter.definition.pointer.file_index, 0,
             "Should point to file1"
         );
         assert_eq!(
-            ref_to_counter.pointer.line_index, equ_indices[2],
+            ref_to_counter.definition.pointer.line_index, equ_indices[2],
             "Global should export last .equ definition"
         );
     }
@@ -1934,8 +1934,8 @@ mod tests {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "func_c" {
-                    assert_eq!(sym_ref.pointer, func_c_ptr);
+                if sym_ref.outgoing_name == "func_c" {
+                    assert_eq!(sym_ref.definition.pointer, func_c_ptr);
                     found_a_to_c = true;
                 }
             }
@@ -1945,8 +1945,8 @@ mod tests {
             let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "func_b" {
-                    assert_eq!(sym_ref.pointer, func_b_ptr);
+                if sym_ref.outgoing_name == "func_b" {
+                    assert_eq!(sym_ref.definition.pointer, func_b_ptr);
                     found_c_to_b = true;
                 }
             }
@@ -2019,13 +2019,13 @@ mod tests {
             let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.symbol == "_start" && sym_ref.pointer == start_ptr {
+                if sym_ref.outgoing_name == "_start" && sym_ref.definition.pointer == start_ptr {
                     found_start = true;
                 }
-                if sym_ref.symbol == "exit" && sym_ref.pointer == exit_ptr {
+                if sym_ref.outgoing_name == "exit" && sym_ref.definition.pointer == exit_ptr {
                     found_exit = true;
                 }
-                if sym_ref.symbol == "helper" && sym_ref.pointer == helper_ptr {
+                if sym_ref.outgoing_name == "helper" && sym_ref.definition.pointer == helper_ptr {
                     found_helper = true;
                 }
             }
@@ -2120,7 +2120,7 @@ mod tests {
                     LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(&line_ptr);
                 found_equ_with_ref =
-                    refs.iter().any(|r| r.symbol == "my_label");
+                    refs.iter().any(|r| r.outgoing_name == "my_label");
             }
         }
 
@@ -2171,5 +2171,258 @@ mod tests {
         let local_syms = &symbols.local_symbols_by_file[0];
         let has_loop = local_syms.iter().any(|sym| sym.symbol == "loop");
         assert!(has_loop, "Should have 'loop' label in local symbols");
+    }
+
+    // ============================================================================
+    // SymbolReference Structure Tests
+    // ============================================================================
+    // These tests ensure that SymbolReference correctly distinguishes between
+    // outgoing_name (how the symbol is referenced) and definition.symbol
+    // (how the symbol is defined). This is critical for numeric labels where
+    // "3f" and "3b" both refer to the definition "3".
+
+    #[test]
+    fn test_symbol_reference_outgoing_name_vs_definition_name() {
+        // This test verifies that numeric label references correctly store
+        // both the outgoing name ("1f") and the definition name ("1")
+        let source_text = "
+            .text
+                li a0, 1f
+            1:
+                ret
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&mut source).unwrap();
+
+        // Find the line with the "1f" reference
+        let ref_ptr = find_referencing_line(&source, "1f").unwrap();
+        let refs = symbols.get_line_refs(&ref_ptr);
+
+        // Should have exactly one reference
+        assert_eq!(refs.len(), 1, "Should have one reference to '1f'");
+
+        let sym_ref = &refs[0];
+        // The outgoing name should be "1f" (as written in source)
+        assert_eq!(
+            sym_ref.outgoing_name, "1f",
+            "Outgoing name should be '1f'"
+        );
+        // The definition symbol should be "1" (the actual label)
+        assert_eq!(
+            sym_ref.definition.symbol, "1",
+            "Definition symbol should be '1'"
+        );
+    }
+
+    #[test]
+    fn test_symbol_reference_backward_numeric_label() {
+        // Verify backward references also distinguish outgoing name vs definition
+        let source_text = "
+            .text
+            1:
+                li a0, 1b
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&mut source).unwrap();
+
+        let ref_ptr = find_referencing_line(&source, "1b").unwrap();
+        let refs = symbols.get_line_refs(&ref_ptr);
+
+        assert_eq!(refs.len(), 1, "Should have one reference to '1b'");
+
+        let sym_ref = &refs[0];
+        assert_eq!(
+            sym_ref.outgoing_name, "1b",
+            "Outgoing name should be '1b'"
+        );
+        assert_eq!(
+            sym_ref.definition.symbol, "1",
+            "Definition symbol should be '1'"
+        );
+    }
+
+    #[test]
+    fn test_multiple_references_from_same_line() {
+        // This is the regression test for the original issue: a line that
+        // references both "1f" and "1b" should have two distinct SymbolReferences
+        let source_text = "
+            .text
+                li a0, 10
+            1:
+                li a1, 11
+                li a2, 1f - 1b
+                li a3, 12
+            1:
+                li a4, 13
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&mut source).unwrap();
+
+        // Find the line with "1f - 1b"
+        let ref_ptr = find_referencing_line(&source, "1f").unwrap();
+        let refs = symbols.get_line_refs(&ref_ptr);
+
+        // Should have exactly two references: one to "1b" and one to "1f"
+        assert_eq!(
+            refs.len(),
+            2,
+            "Should have two references (1b and 1f) from the same line"
+        );
+
+        // Find the forward reference
+        let forward_ref = refs
+            .iter()
+            .find(|r| r.outgoing_name == "1f")
+            .expect("Should have a reference to '1f'");
+        assert_eq!(
+            forward_ref.definition.symbol, "1",
+            "Forward ref should point to definition '1'"
+        );
+
+        // Find the backward reference
+        let backward_ref = refs
+            .iter()
+            .find(|r| r.outgoing_name == "1b")
+            .expect("Should have a reference to '1b'");
+        assert_eq!(
+            backward_ref.definition.symbol, "1",
+            "Backward ref should point to definition '1'"
+        );
+
+        // Verify they point to different label instances
+        assert_ne!(
+            forward_ref.definition.pointer, backward_ref.definition.pointer,
+            "Forward and backward refs should point to different label instances"
+        );
+    }
+
+    #[test]
+    fn test_regular_symbol_outgoing_name_matches_definition() {
+        // For regular (non-numeric) symbols, outgoing_name and definition.symbol
+        // should be identical
+        let source_text = "
+            .text
+            my_label:
+                li a0, my_label
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&mut source).unwrap();
+
+        let ref_ptr = find_referencing_line(&source, "my_label").unwrap();
+        let refs = symbols.get_line_refs(&ref_ptr);
+
+        assert_eq!(refs.len(), 1, "Should have one reference to 'my_label'");
+
+        let sym_ref = &refs[0];
+        assert_eq!(
+            sym_ref.outgoing_name, "my_label",
+            "Outgoing name should be 'my_label'"
+        );
+        assert_eq!(
+            sym_ref.definition.symbol, "my_label",
+            "Definition symbol should also be 'my_label'"
+        );
+    }
+
+    #[test]
+    fn test_complex_expression_with_multiple_numeric_labels() {
+        // Test a more complex expression with multiple different numeric labels
+        let source_text = "
+            .text
+            1:
+                nop
+            2:
+                nop
+            3:
+                li a0, 1b
+                li a1, 2b
+                li a2, 3f
+            3:
+                nop
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&mut source).unwrap();
+
+        // Find the line with multiple references
+        let mut found_line = false;
+        for (line_idx, line) in source.files[0].lines.iter().enumerate() {
+            if let LineContent::Instruction(_) = &line.content {
+                let line_ptr = LinePointer {
+                    file_index: 0,
+                    line_index: line_idx,
+                };
+                let refs = symbols.get_line_refs(&line_ptr);
+
+                // Check if this is the line with "li a0, 1b"
+                if refs.iter().any(|r| r.outgoing_name == "1b") {
+                    assert_eq!(refs.len(), 1, "First li should have 1 reference");
+                    let ref_1b = &refs[0];
+                    assert_eq!(ref_1b.outgoing_name, "1b");
+                    assert_eq!(ref_1b.definition.symbol, "1");
+                }
+
+                // Check if this is the line with "li a1, 2b"
+                if refs.iter().any(|r| r.outgoing_name == "2b") {
+                    assert_eq!(refs.len(), 1, "Second li should have 1 reference");
+                    let ref_2b = &refs[0];
+                    assert_eq!(ref_2b.outgoing_name, "2b");
+                    assert_eq!(ref_2b.definition.symbol, "2");
+                }
+
+                // Check if this is the line with "li a2, 3f"
+                if refs.iter().any(|r| r.outgoing_name == "3f") {
+                    assert_eq!(refs.len(), 1, "Third li should have 1 reference");
+                    let ref_3f = &refs[0];
+                    assert_eq!(ref_3f.outgoing_name, "3f");
+                    assert_eq!(ref_3f.definition.symbol, "3");
+                    found_line = true;
+                }
+            }
+        }
+
+        assert!(found_line, "Should have found the line with 3f reference");
+    }
+
+    #[test]
+    fn test_same_numeric_label_multiple_times() {
+        // Test referencing the same numeric label multiple times from different places
+        let source_text = "
+            .text
+                j 1f
+                j 1f
+            1:
+                ret
+        ";
+
+        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&mut source).unwrap();
+
+        let label_ptr = find_line_by_label(&source, "1").unwrap();
+
+        // Both jump instructions should reference "1f"
+        let mut ref_count = 0;
+        for (line_idx, line) in source.files[0].lines.iter().enumerate() {
+            if let LineContent::Instruction(_) = &line.content {
+                let line_ptr = LinePointer {
+                    file_index: 0,
+                    line_index: line_idx,
+                };
+                let refs = symbols.get_line_refs(&line_ptr);
+
+                if !refs.is_empty() && refs[0].outgoing_name == "1f" {
+                    assert_eq!(refs.len(), 1);
+                    assert_eq!(refs[0].definition.symbol, "1");
+                    assert_eq!(refs[0].definition.pointer, label_ptr);
+                    ref_count += 1;
+                }
+            }
+        }
+
+        assert_eq!(ref_count, 2, "Should have found 2 references to '1f'");
     }
 }

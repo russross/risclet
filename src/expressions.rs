@@ -10,7 +10,7 @@ use crate::ast::{
 };
 use crate::error::{AssemblerError, Result};
 use crate::layout::Layout;
-use crate::symbols::{SymbolLinks, SymbolReference};
+use crate::symbols::{SymbolDefinition, SymbolLinks, SymbolReference};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -36,7 +36,7 @@ impl fmt::Display for EvaluatedValue {
 /// for symbol value lookup. It represents the result of evaluating all symbols
 /// in the program (both labels and .equ definitions).
 pub struct SymbolValues {
-    values: HashMap<SymbolReference, EvaluatedValue>,
+    values: HashMap<SymbolDefinition, EvaluatedValue>,
 }
 
 impl SymbolValues {
@@ -45,18 +45,18 @@ impl SymbolValues {
         SymbolValues { values: HashMap::new() }
     }
 
-    /// Look up a symbol value
-    pub fn get(&self, key: &SymbolReference) -> Option<EvaluatedValue> {
+    /// Look up a symbol value by definition
+    pub fn get(&self, key: &SymbolDefinition) -> Option<EvaluatedValue> {
         self.values.get(key).copied()
     }
 
     /// Insert or update a symbol value (internal)
-    fn insert(&mut self, key: SymbolReference, value: EvaluatedValue) {
+    fn insert(&mut self, key: SymbolDefinition, value: EvaluatedValue) {
         self.values.insert(key, value);
     }
 
     /// Check if a symbol is already evaluated (internal)
-    fn contains_key(&self, key: &SymbolReference) -> bool {
+    fn contains_key(&self, key: &SymbolDefinition) -> bool {
         self.values.contains_key(key)
     }
 }
@@ -97,13 +97,13 @@ pub fn eval_symbol_values(
             };
 
             if let Some(name) = symbol_name {
-                // Create symbol reference for this definition
-                let sym_ref = SymbolReference { symbol: name, pointer };
+                // Create symbol definition for this definition
+                let sym_def = SymbolDefinition { symbol: name, pointer };
 
                 // Recursively evaluate this symbol and its dependencies
                 let mut cycle_stack = Vec::new();
                 eval_symbol(
-                    &sym_ref,
+                    &sym_def,
                     source,
                     symbol_links,
                     layout,
@@ -119,12 +119,12 @@ pub fn eval_symbol_values(
 
 /// Recursively evaluate a symbol and all its dependencies
 fn eval_symbol(
-    key: &SymbolReference,
+    key: &SymbolDefinition,
     source: &Source,
     symbol_links: &SymbolLinks,
     layout: &Layout,
     symbol_values: &mut SymbolValues,
-    cycle_stack: &mut Vec<SymbolReference>,
+    cycle_stack: &mut Vec<SymbolDefinition>,
 ) -> Result<()> {
     // Base case: already evaluated
     if symbol_values.contains_key(key) {
@@ -165,7 +165,7 @@ fn eval_symbol(
             let sym_refs = symbol_links.get_line_refs(&key.pointer);
             for sym_ref in sym_refs {
                 eval_symbol(
-                    sym_ref,
+                    &sym_ref.definition,
                     source,
                     symbol_links,
                     layout,
@@ -228,7 +228,7 @@ pub fn eval_expr(
             // Find symbol in refs, then look up in symbol_values
             let sym_ref = refs
                 .iter()
-                .find(|r| r.symbol == *name)
+                .find(|r| r.outgoing_name == *name)
                 .ok_or_else(|| {
                     AssemblerError::from_context(
                         format!(
@@ -239,7 +239,7 @@ pub fn eval_expr(
                     )
                 })?;
 
-            symbol_values.get(sym_ref).ok_or_else(|| {
+            symbol_values.get(&sym_ref.definition).ok_or_else(|| {
                 AssemblerError::from_context(
                     format!(
                         "Symbol '{}' not resolved (internal error - should have been resolved in forward phase)",
@@ -260,7 +260,7 @@ pub fn eval_expr(
             );
             let sym_ref = refs
                 .iter()
-                .find(|r| r.symbol == label_name)
+                .find(|r| r.outgoing_name == label_name)
                 .ok_or_else(|| {
                     AssemblerError::from_context(
                         format!(
@@ -271,7 +271,7 @@ pub fn eval_expr(
                     )
                 })?;
 
-            symbol_values.get(sym_ref).ok_or_else(|| {
+            symbol_values.get(&sym_ref.definition).ok_or_else(|| {
                 AssemblerError::from_context(
                     format!(
                         "Numeric label '{}' not resolved (internal error)",

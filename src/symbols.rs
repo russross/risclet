@@ -46,18 +46,23 @@ pub const SPECIAL_GLOBAL_POINTER: &str = "__global_pointer$";
 /// Name of the builtin symbols file that's injected at the start of assembly
 pub const BUILTIN_FILE_NAME: &str = "<builtin>";
 
-/// A struct representing a symbol reference that has been linked to its definition.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct SymbolReference {
+/// A struct representing a symbol definition site in a source file.
+/// This represents where a symbol is actually defined (e.g., a label or .equ).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SymbolDefinition {
     pub symbol: String,
     pub pointer: LinePointer,
 }
 
-/// A struct representing a symbol definition site in a source file.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SymbolDefinition {
-    pub symbol: String,
-    pub pointer: LinePointer,
+/// A struct representing a symbol reference that has been linked to its definition.
+/// This represents an outgoing reference from a line to a symbol definition.
+/// The `outgoing_name` may differ from the definition name (e.g., "3f" refers to "3").
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct SymbolReference {
+    /// The name of the symbol as written in the source code (e.g., "3f", "1b", "main")
+    pub outgoing_name: String,
+    /// The symbol definition this reference points to
+    pub definition: SymbolDefinition,
 }
 
 /// A struct representing a global symbol definition, including where it was defined and declared.
@@ -382,11 +387,18 @@ fn process_symbol_references(
     let symbols = extract_references_from_line(line);
 
     for symbol in symbols {
-        if is_numeric_backward_ref(&symbol).is_some() {
+        if let Some(num) = is_numeric_backward_ref(&symbol) {
             // Backward numeric reference must already exist
-            if let Some(def_ptr) = definitions.get(&symbol) {
-                outgoing_refs
-                    .push(SymbolReference { symbol, pointer: def_ptr.clone() });
+            let backward_symbol = format!("{}b", num);
+            if let Some(def_ptr) = definitions.get(&backward_symbol) {
+                let definition = SymbolDefinition {
+                    symbol: num.to_string(),
+                    pointer: def_ptr.clone(),
+                };
+                outgoing_refs.push(SymbolReference {
+                    outgoing_name: symbol.clone(),
+                    definition,
+                });
             } else {
                 return Err(AssemblerError::from_context(
                     format!(
@@ -405,8 +417,14 @@ fn process_symbol_references(
         } else {
             // Regular symbol reference
             if let Some(def_ptr) = definitions.get(&symbol) {
-                outgoing_refs
-                    .push(SymbolReference { symbol, pointer: def_ptr.clone() });
+                let definition = SymbolDefinition {
+                    symbol: symbol.clone(),
+                    pointer: def_ptr.clone(),
+                };
+                outgoing_refs.push(SymbolReference {
+                    outgoing_name: symbol.clone(),
+                    definition,
+                });
             } else {
                 unresolved.push(UnresolvedReference {
                     symbol,
@@ -482,11 +500,15 @@ fn process_numeric_label(
     // Resolve all forward references to this numeric label
     unresolved.retain(|unref| {
         if unref.symbol == forward_symbol {
+            let definition = SymbolDefinition {
+                symbol: label.to_string(),
+                pointer: line_ptr.clone(),
+            };
             patches.push((
                 unref.referencing_pointer.line_index,
                 SymbolReference {
-                    symbol: forward_symbol.clone(),
-                    pointer: line_ptr.clone(),
+                    outgoing_name: forward_symbol.clone(),
+                    definition,
                 },
             ));
             false // Remove from unresolved
@@ -568,11 +590,15 @@ fn resolve_forward_references(
 ) {
     unresolved.retain(|unref| {
         if unref.symbol == symbol {
+            let definition = SymbolDefinition {
+                symbol: symbol.to_string(),
+                pointer: definition_ptr.clone(),
+            };
             patches.push((
                 unref.referencing_pointer.line_index,
                 SymbolReference {
-                    symbol: symbol.to_string(),
-                    pointer: definition_ptr.clone(),
+                    outgoing_name: unref.symbol.clone(),
+                    definition,
                 },
             ));
             false // Remove from unresolved
@@ -830,12 +856,16 @@ fn link_cross_file(
     for unref in unresolved {
         if let Some(global_def) = globals.get(&unref.symbol) {
             // Found a global definition for this reference
+            let definition = SymbolDefinition {
+                symbol: global_def.symbol.clone(),
+                pointer: global_def.definition_pointer.clone(),
+            };
             cross_file_refs.push((
                 unref.referencing_pointer.file_index,
                 unref.referencing_pointer.line_index,
                 SymbolReference {
-                    symbol: unref.symbol,
-                    pointer: global_def.definition_pointer.clone(),
+                    outgoing_name: unref.symbol,
+                    definition,
                 },
             ));
         } else {

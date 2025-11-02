@@ -601,10 +601,10 @@ pub fn dump_symbols(
                             print!(",");
                         }
                         let def_file =
-                            &source.files[ref_item.pointer.file_index];
+                            &source.files[ref_item.definition.pointer.file_index];
                         let def_line =
-                            &def_file.lines[ref_item.pointer.line_index];
-                        print!(" {}@{}", ref_item.symbol, def_line.location);
+                            &def_file.lines[ref_item.definition.pointer.line_index];
+                        print!(" {}@{}", ref_item.outgoing_name, def_line.location);
                     }
                 }
 
