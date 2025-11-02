@@ -137,7 +137,12 @@ impl MemoryManager {
         Err(format!("segfault: store addr=0x{:x} size={}", addr, size))
     }
 
-    pub fn store_with_tracking(&mut self, addr: u32, raw: &[u8], mem_write: &mut Option<(Vec<u8>, Vec<u8>)>) -> Result<(), String> {
+    pub fn store_with_tracking(
+        &mut self,
+        addr: u32,
+        raw: &[u8],
+        mem_write: &mut Option<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<(), String> {
         let size = raw.len() as u32;
         for segment in &mut self.segments {
             if segment.in_range(addr, size) && segment.writeable {

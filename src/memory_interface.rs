@@ -1,5 +1,3 @@
-
-
 pub trait MemoryInterface {
     fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>, String>;
     fn load_raw(&self, addr: u32, size: u32) -> Result<&[u8], String>;
@@ -16,11 +14,7 @@ pub struct FlatMemory {
 
 impl FlatMemory {
     pub fn new(base: u32, size: u32) -> Self {
-        Self {
-            data: vec![0; size as usize],
-            base,
-            size,
-        }
+        Self { data: vec![0; size as usize], base, size }
     }
 
     pub fn with_init(base: u32, init_data: &[u8]) -> Self {

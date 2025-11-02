@@ -538,10 +538,9 @@ impl Op {
                             (0, 1) => Op::Xor { rd, rs1: rd, rs2 },
                             (0, 2) => Op::Or { rd, rs1: rd, rs2 },
                             (0, 3) => Op::And { rd, rs1: rd, rs2 },
-                            (1, 0) | (1, 1) => Op::Unimplemented {
-                                inst,
-                                note: "C.SUBW/C.ADDW are not supported in RV32".to_string(),
-                            },
+                            (1, 0) | (1, 1) => {
+                                Op::Unimplemented { inst, note: "C.SUBW/C.ADDW are not supported in RV32".to_string() }
+                            }
                             _ => Op::Unimplemented {
                                 inst,
                                 note: "Reserved compressed instruction at (1, 4)".to_string(),
@@ -831,56 +830,56 @@ impl Op {
             Op::Ecall => {
                 match m.get(17) {
                     63 => {
-                         // read system call
-                         m.current_effect_mut().unwrap().other_message =
-                              Some(format!("read({}, 0x{:x}, {})", m.get(10), m.get(11), m.get(12)));
-                          let fd = m.get(A0);
-                          let buf_addr = m.get(A1) as u32;
-                          let count = m.get(A2);
+                        // read system call
+                        m.current_effect_mut().unwrap().other_message =
+                            Some(format!("read({}, 0x{:x}, {})", m.get(10), m.get(11), m.get(12)));
+                        let fd = m.get(A0);
+                        let buf_addr = m.get(A1) as u32;
+                        let count = m.get(A2);
 
-                          if fd != 0 {
-                              return Err(format!("read syscall: only stdin (fd 0) supported, not {fd}"));
-                          }
-                          if count < 0 {
-                              return Err(format!("read syscall: invalid buffer size: {count}"));
-                          }
+                        if fd != 0 {
+                            return Err(format!("read syscall: only stdin (fd 0) supported, not {fd}"));
+                        }
+                        if count < 0 {
+                            return Err(format!("read syscall: invalid buffer size: {count}"));
+                        }
 
-                          // make a buffer and read from stdin
-                          let mut read_buffer = vec![0; count as usize];
-                          let n = m.io_provider_mut().read_stdin(&mut read_buffer)?;
-                          read_buffer.truncate(n);
+                        // make a buffer and read from stdin
+                        let mut read_buffer = vec![0; count as usize];
+                        let n = m.io_provider_mut().read_stdin(&mut read_buffer)?;
+                        read_buffer.truncate(n);
 
-                          m.store(buf_addr, &read_buffer)?;
-                          m.set(A0, read_buffer.len() as i32);
-                          m.stdin_mut().extend_from_slice(&read_buffer);
-                          m.current_effect_mut().unwrap().stdin = Some(read_buffer);
-                      }
-                     64 => {
-                          // write system call
-                          m.current_effect_mut().unwrap().other_message =
-                              Some(format!("write({}, 0x{:x}, {})", m.get(A0), m.get(A1), m.get(A2)));
-                          let fd = m.get(A0);
-                          let buf_addr = m.get(11) as u32;
-                          let count = m.get(12);
+                        m.store(buf_addr, &read_buffer)?;
+                        m.set(A0, read_buffer.len() as i32);
+                        m.stdin_mut().extend_from_slice(&read_buffer);
+                        m.current_effect_mut().unwrap().stdin = Some(read_buffer);
+                    }
+                    64 => {
+                        // write system call
+                        m.current_effect_mut().unwrap().other_message =
+                            Some(format!("write({}, 0x{:x}, {})", m.get(A0), m.get(A1), m.get(A2)));
+                        let fd = m.get(A0);
+                        let buf_addr = m.get(11) as u32;
+                        let count = m.get(12);
 
-                          if fd != 1 {
-                              return Err(format!("write syscall: only stdout (fd 1) supported, not {fd}"));
-                          }
-                          if count < 0 {
-                              return Err(format!("write syscall: invalid buffer size: {count}"));
-                          }
+                        if fd != 1 {
+                            return Err(format!("write syscall: only stdout (fd 1) supported, not {fd}"));
+                        }
+                        if count < 0 {
+                            return Err(format!("write syscall: invalid buffer size: {count}"));
+                        }
 
-                          let write_buffer = m.load(buf_addr, count as u32)?;
-                          m.io_provider_mut().write_stdout(&write_buffer)?;
-                          m.set(A0, write_buffer.len() as i32);
-                          m.stdout_mut().extend_from_slice(&write_buffer);
-                          m.current_effect_mut().unwrap().stdout = Some(write_buffer);
-                      }
-                     93 => {
-                         // exit system call
-                         let status = m.get(A0) & 0xff;
-                         return Err(format!("exit({})", status));
-                     }
+                        let write_buffer = m.load(buf_addr, count as u32)?;
+                        m.io_provider_mut().write_stdout(&write_buffer)?;
+                        m.set(A0, write_buffer.len() as i32);
+                        m.stdout_mut().extend_from_slice(&write_buffer);
+                        m.current_effect_mut().unwrap().stdout = Some(write_buffer);
+                    }
+                    93 => {
+                        // exit system call
+                        let status = m.get(A0) & 0xff;
+                        return Err(format!("exit({})", status));
+                    }
                     syscall => return Err(format!("unsupported syscall {syscall}")),
                 }
             }
@@ -940,9 +939,9 @@ impl Op {
                 if m.check_and_clear_reservation(addr) {
                     let val = m.get(*rs2) as u32;
                     m.store(addr, &val.to_le_bytes())?;
-                    m.set(*rd, 0);  // Success
+                    m.set(*rd, 0); // Success
                 } else {
-                    m.set(*rd, 1);  // Failure
+                    m.set(*rd, 1); // Failure
                 }
             }
 
@@ -1227,8 +1226,7 @@ impl Op {
             }
 
             // misc
-            Op::Fence => {
-            }
+            Op::Fence => {}
             Op::Ecall => {
                 return Err("ecall execution via ExecutionContext not yet implemented".to_string());
             }
@@ -1250,7 +1248,8 @@ impl Op {
                 ctx.write_register(*rd, val);
             }
             Op::Mulhu { rd, rs1, rs2 } => {
-                let val = (((ctx.read_register(*rs1) as u32 as u64) * (ctx.read_register(*rs2) as u32 as u64)) >> 32) as i32;
+                let val =
+                    (((ctx.read_register(*rs1) as u32 as u64) * (ctx.read_register(*rs2) as u32 as u64)) >> 32) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Div { rd, rs1, rs2 } => {
@@ -1260,24 +1259,38 @@ impl Op {
             }
             Op::Divu { rd, rs1, rs2 } => {
                 let rs2_val = ctx.read_register(*rs2) as u32;
-                let val = if rs2_val == 0 { -1 } else { ((ctx.read_register(*rs1) as u32).wrapping_div(rs2_val)) as i32 };
+                let val =
+                    if rs2_val == 0 { -1 } else { ((ctx.read_register(*rs1) as u32).wrapping_div(rs2_val)) as i32 };
                 ctx.write_register(*rd, val);
             }
             Op::Rem { rd, rs1, rs2 } => {
                 let rs2_val = ctx.read_register(*rs2);
-                let val = if rs2_val == 0 { ctx.read_register(*rs1) } else { ctx.read_register(*rs1).wrapping_rem(rs2_val) };
+                let val =
+                    if rs2_val == 0 { ctx.read_register(*rs1) } else { ctx.read_register(*rs1).wrapping_rem(rs2_val) };
                 ctx.write_register(*rd, val);
             }
             Op::Remu { rd, rs1, rs2 } => {
                 let rs2_val = ctx.read_register(*rs2) as u32;
-                let val = if rs2_val == 0 { ctx.read_register(*rs1) } else { ((ctx.read_register(*rs1) as u32).wrapping_rem(rs2_val)) as i32 };
+                let val = if rs2_val == 0 {
+                    ctx.read_register(*rs1)
+                } else {
+                    ((ctx.read_register(*rs1) as u32).wrapping_rem(rs2_val)) as i32
+                };
                 ctx.write_register(*rd, val);
             }
 
             // a extension - atomic operations not implemented for ExecutionContext
-            Op::LrW { .. } | Op::ScW { .. } | Op::AmoswapW { .. } | Op::AmoaddW { .. } |
-            Op::AmoxorW { .. } | Op::AmoandW { .. } | Op::AmoorW { .. } | Op::AmominW { .. } |
-            Op::AmomaxW { .. } | Op::AmominuW { .. } | Op::AmomaxuW { .. } => {
+            Op::LrW { .. }
+            | Op::ScW { .. }
+            | Op::AmoswapW { .. }
+            | Op::AmoaddW { .. }
+            | Op::AmoxorW { .. }
+            | Op::AmoandW { .. }
+            | Op::AmoorW { .. }
+            | Op::AmominW { .. }
+            | Op::AmomaxW { .. }
+            | Op::AmominuW { .. }
+            | Op::AmomaxuW { .. } => {
                 return Err("atomic operations not implemented for ExecutionContext".to_string());
             }
 
@@ -1382,18 +1395,38 @@ impl Op {
 
             // a extension - load reserved / store conditional
             Op::LrW { rd, rs1, .. } => vec![Field::Opcode("lr.w"), Field::Reg(rd), Field::Indirect(0, rs1)],
-            Op::ScW { rd, rs1, rs2, .. } => vec![Field::Opcode("sc.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::ScW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("sc.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
 
             // a extension - atomic memory operations
-            Op::AmoswapW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoswap.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmoaddW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoadd.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmoxorW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoxor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmoandW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoand.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmoorW { rd, rs1, rs2, .. } => vec![Field::Opcode("amoor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmominW { rd, rs1, rs2, .. } => vec![Field::Opcode("amomin.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmomaxW { rd, rs1, rs2, .. } => vec![Field::Opcode("amomax.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmominuW { rd, rs1, rs2, .. } => vec![Field::Opcode("amominu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
-            Op::AmomaxuW { rd, rs1, rs2, .. } => vec![Field::Opcode("amomaxu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)],
+            Op::AmoswapW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amoswap.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmoaddW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amoadd.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmoxorW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amoxor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmoandW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amoand.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmoorW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amoor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmominW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amomin.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmomaxW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amomax.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmominuW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amominu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
+            Op::AmomaxuW { rd, rs1, rs2, .. } => {
+                vec![Field::Opcode("amomaxu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+            }
 
             // unknown instructions
             Op::Unimplemented { .. } => vec![Field::Opcode("???")],

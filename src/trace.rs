@@ -1,4 +1,4 @@
-use crate::memory::{MemoryLayout, CpuState};
+use crate::memory::{CpuState, MemoryLayout};
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -97,10 +97,7 @@ pub struct ExecutionTrace {
 
 impl ExecutionTrace {
     pub fn new(layout: MemoryLayout) -> Self {
-        Self {
-            effects: Vec::new(),
-            layout,
-        }
+        Self { effects: Vec::new(), layout }
     }
 
     pub fn add(&mut self, effect: Effects) {
@@ -120,7 +117,8 @@ impl ExecutionTrace {
     }
 
     pub fn set_most_recent_memory(&self) -> (u32, (u32, usize), (u32, usize)) {
-        let mut most_recent_memory = if self.layout.data_start > 0 { self.layout.data_start } else { self.layout.stack_end.saturating_sub(8) };
+        let mut most_recent_memory =
+            if self.layout.data_start > 0 { self.layout.data_start } else { self.layout.stack_end.saturating_sub(8) };
         let mut most_recent_data = (self.layout.data_start, 0);
         let mut most_recent_stack = (self.layout.stack_end.saturating_sub(8), 0);
 

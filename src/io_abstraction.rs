@@ -27,11 +27,7 @@ pub struct TestIo {
 
 impl TestIo {
     pub fn new() -> Self {
-        Self {
-            stdin_data: Vec::new(),
-            stdin_pos: 0,
-            stdout_buffer: Vec::new(),
-        }
+        Self { stdin_data: Vec::new(), stdin_pos: 0, stdout_buffer: Vec::new() }
     }
 
     pub fn with_stdin(mut self, data: Vec<u8>) -> Self {
