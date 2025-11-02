@@ -413,7 +413,7 @@ pub fn generate_riscv_attributes() -> Vec<u8> {
 // ELF Builder
 // ============================================================================
 
-pub struct ElfBuilder {
+pub struct ElfBuilder<'a> {
     pub header: ElfHeader,
     pub program_headers: Vec<ElfProgramHeader>,
     pub section_headers: Vec<ElfSectionHeader>,
@@ -422,16 +422,16 @@ pub struct ElfBuilder {
     pub symbol_names: StringTable,
     pub text_data: Vec<u8>,
     pub data_data: Vec<u8>,
-    pub bss_size: u32,
     pub riscv_attributes: Vec<u8>,
-    pub text_start: u32,
-    pub data_start: u32,
-    pub bss_start: u32,
-    estimated_header_size: u32,
+    layout: &'a Layout,
 }
 
-impl ElfBuilder {
-    pub fn new(text_start: u32, estimated_header_size: u32) -> Self {
+impl<'a> ElfBuilder<'a> {
+    pub fn new(
+        layout: &'a Layout,
+        text_data: Vec<u8>,
+        data_data: Vec<u8>,
+    ) -> Self {
         Self {
             header: ElfHeader::new(),
             program_headers: Vec::new(),
@@ -439,31 +439,11 @@ impl ElfBuilder {
             section_names: StringTable::new(),
             symbol_table: Vec::new(),
             symbol_names: StringTable::new(),
-            text_data: Vec::new(),
-            data_data: Vec::new(),
-            bss_size: 0,
+            text_data,
+            data_data,
             riscv_attributes: generate_riscv_attributes(),
-            text_start,
-            data_start: 0,
-            bss_start: 0,
-            estimated_header_size,
+            layout,
         }
-    }
-
-    /// Set segment data
-    pub fn set_segments(
-        &mut self,
-        text: Vec<u8>,
-        data: Vec<u8>,
-        bss_size: u32,
-        data_start: u32,
-        bss_start: u32,
-    ) {
-        self.text_data = text;
-        self.data_data = data;
-        self.bss_size = bss_size;
-        self.data_start = data_start;
-        self.bss_start = bss_start;
     }
 
     /// Add a symbol to the symbol table
@@ -483,7 +463,7 @@ impl ElfBuilder {
         if !self.data_data.is_empty() {
             self.section_names.add(".data");
         }
-        if self.bss_size > 0 {
+        if self.layout.bss_size > 0 {
             self.section_names.add(".bss");
         }
         self.section_names.add(".riscv.attributes");
@@ -500,7 +480,7 @@ impl ElfBuilder {
         // Verification check: ensure the estimated header size matches the actual size.
         // A mismatch indicates a bug in the program header count estimation.
         assert_eq!(
-            self.estimated_header_size, actual_header_size,
+            self.layout.header_size, actual_header_size,
             "Mismatch between estimated and actual ELF header size. The number of program headers was likely estimated incorrectly."
         );
         output.resize(output.len() + ph_size as usize, 0);
@@ -514,7 +494,7 @@ impl ElfBuilder {
 
         // .data section is page-aligned in the file to support mmap.
         // Pad the file with zeros to align the data offset.
-        let data_offset = if !self.data_data.is_empty() || self.bss_size > 0 {
+        let data_offset = if !self.data_data.is_empty() || self.layout.bss_size > 0 {
             let current_len = output.len() as u32;
             let padding = (page_size - (current_len % page_size)) % page_size;
             output.resize(output.len() + padding as usize, 0);
@@ -569,10 +549,10 @@ impl ElfBuilder {
         // --- Finalize Program Headers ---
         // Now that all offsets and sizes are known, update the program headers.
         let headers_size = phoff + ph_size;
-        // self.text_start is the address of the first instruction (e.g., _start),
+        // self.layout.text_start is the address of the first instruction (e.g., _start),
         // which is located after the file headers. The segment's base vaddr is
         // therefore text_start - headers_size.
-        let base_vaddr = self.text_start.saturating_sub(headers_size);
+        let base_vaddr = self.layout.text_start.saturating_sub(headers_size);
 
         // Program Header 0: RISCV_ATTRIBUTES
         if let Some(ph) = self.program_headers.get_mut(0) {
@@ -639,8 +619,8 @@ impl ElfBuilder {
         self.program_headers.push(ElfProgramHeader {
             p_type: PT_LOAD,
             p_offset: 0, // Will be set during build (0x1000 page aligned)
-            p_vaddr: self.text_start,
-            p_paddr: self.text_start,
+            p_vaddr: self.layout.text_start,
+            p_paddr: self.layout.text_start,
             p_filesz: text_filesz,
             p_memsz: text_filesz,
             p_flags: PF_R | PF_X,
@@ -648,15 +628,15 @@ impl ElfBuilder {
         });
 
         // LOAD segment for .data + .bss (if present)
-        if !self.data_data.is_empty() || self.bss_size > 0 {
+        if !self.data_data.is_empty() || self.layout.bss_size > 0 {
             let data_filesz = self.data_data.len() as u32;
-            let data_memsz = data_filesz + self.bss_size;
+            let data_memsz = data_filesz + self.layout.bss_size;
 
             self.program_headers.push(ElfProgramHeader {
                 p_type: PT_LOAD,
                 p_offset: 0, // Will be set during build
-                p_vaddr: self.data_start,
-                p_paddr: self.data_start,
+                p_vaddr: self.layout.data_start,
+                p_paddr: self.layout.data_start,
                 p_filesz: data_filesz,
                 p_memsz: data_memsz,
                 p_flags: PF_R | PF_W,
@@ -685,7 +665,7 @@ impl ElfBuilder {
             sh_name: self.section_names.add(".text"),
             sh_type: SHT_PROGBITS,
             sh_flags: SHF_ALLOC | SHF_EXECINSTR,
-            sh_addr: self.text_start,
+            sh_addr: self.layout.text_start,
             sh_offset: text_offset,
             sh_size: self.text_data.len() as u32,
             sh_link: 0,
@@ -701,7 +681,7 @@ impl ElfBuilder {
                 sh_name: self.section_names.add(".data"),
                 sh_type: SHT_PROGBITS,
                 sh_flags: SHF_WRITE | SHF_ALLOC,
-                sh_addr: self.data_start,
+                sh_addr: self.layout.data_start,
                 sh_offset: data_offset.unwrap(),
                 sh_size: self.data_data.len() as u32,
                 sh_link: 0,
@@ -713,15 +693,15 @@ impl ElfBuilder {
         }
 
         // Section 3: .bss (if present)
-        if self.bss_size > 0 {
+        if self.layout.bss_size > 0 {
             self.section_headers.push(ElfSectionHeader {
                 sh_name: self.section_names.add(".bss"),
                 sh_type: SHT_NOBITS,
                 sh_flags: SHF_WRITE | SHF_ALLOC,
-                sh_addr: self.bss_start,
+                sh_addr: self.layout.bss_start,
                 sh_offset: data_offset
                     .unwrap_or(text_offset + self.text_data.len() as u32),
-                sh_size: self.bss_size,
+                sh_size: self.layout.bss_size,
                 sh_link: 0,
                 sh_info: 0,
                 sh_addralign: 1,
@@ -810,18 +790,19 @@ impl ElfBuilder {
 ///    b. Special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
 ///    c. Local labels from that file
 /// 4. Global symbols (including linker-provided symbols)
-#[allow(clippy::too_many_arguments)]
-pub fn build_symbol_table(
+pub fn build_symbol_table<'a>(
     source: &Source,
     symbol_links: &SymbolLinks,
     layout: &Layout,
-    builder: &mut ElfBuilder,
-    text_start: u32,
-    data_start: u32,
-    bss_start: u32,
-    has_data: bool,
-    has_bss: bool,
+    builder: &mut ElfBuilder<'a>,
 ) {
+    // Infer has_data and has_bss from layout
+    let has_data = layout.data_size > 0;
+    let has_bss = layout.bss_size > 0;
+    let text_start = layout.text_start;
+    let data_start = layout.data_start;
+    let bss_start = layout.bss_start;
+
     // Entry 0: Null symbol
     builder.add_symbol(ElfSymbol::null());
 

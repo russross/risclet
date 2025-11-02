@@ -393,7 +393,7 @@ fn process_symbol_references(
             if let Some(def_ptr) = definitions.get(&backward_symbol) {
                 let definition = SymbolDefinition {
                     symbol: num.to_string(),
-                    pointer: def_ptr.clone(),
+                    pointer: *def_ptr,
                 };
                 outgoing_refs.push(SymbolReference {
                     outgoing_name: symbol.clone(),
@@ -412,14 +412,14 @@ fn process_symbol_references(
             // Forward numeric reference to be resolved later
             unresolved.push(UnresolvedReference {
                 symbol,
-                referencing_pointer: line_ptr.clone(),
+                referencing_pointer: *line_ptr,
             });
         } else {
             // Regular symbol reference
             if let Some(def_ptr) = definitions.get(&symbol) {
                 let definition = SymbolDefinition {
                     symbol: symbol.clone(),
-                    pointer: def_ptr.clone(),
+                    pointer: *def_ptr,
                 };
                 outgoing_refs.push(SymbolReference {
                     outgoing_name: symbol.clone(),
@@ -428,7 +428,7 @@ fn process_symbol_references(
             } else {
                 unresolved.push(UnresolvedReference {
                     symbol,
-                    referencing_pointer: line_ptr.clone(),
+                    referencing_pointer: *line_ptr,
                 });
             }
         }
@@ -502,7 +502,7 @@ fn process_numeric_label(
         if unref.symbol == forward_symbol {
             let definition = SymbolDefinition {
                 symbol: label.to_string(),
-                pointer: line_ptr.clone(),
+                pointer: *line_ptr,
             };
             patches.push((
                 unref.referencing_pointer.line_index,
@@ -592,7 +592,7 @@ fn resolve_forward_references(
         if unref.symbol == symbol {
             let definition = SymbolDefinition {
                 symbol: symbol.to_string(),
-                pointer: definition_ptr.clone(),
+                pointer: *definition_ptr,
             };
             patches.push((
                 unref.referencing_pointer.line_index,
@@ -637,8 +637,8 @@ fn process_global_declarations(
         unfinalized_globals.insert(
             symbol.clone(),
             UnfinalizedGlobal {
-                definition: definitions.get(symbol).cloned(),
-                declaration_pointer: line_ptr.clone(),
+                definition: definitions.get(symbol).copied(),
+                declaration_pointer: *line_ptr,
             },
         );
     }
@@ -858,7 +858,7 @@ fn link_cross_file(
             // Found a global definition for this reference
             let definition = SymbolDefinition {
                 symbol: global_def.symbol.clone(),
-                pointer: global_def.definition_pointer.clone(),
+                pointer: global_def.definition_pointer,
             };
             cross_file_refs.push((
                 unref.referencing_pointer.file_index,

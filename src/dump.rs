@@ -8,7 +8,6 @@ use crate::ast::{
     Location, PseudoOp, Segment, Source, SourceFile,
 };
 use crate::elf::ElfBuilder;
-use crate::expressions;
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::{BUILTIN_FILE_NAME, SymbolLinks};
 
@@ -648,7 +647,6 @@ pub fn dump_values(
     pass_number: usize,
     is_final: bool,
     source: &Source,
-    symbol_values: &expressions::SymbolValues,
     layout: &Layout,
     spec: &DumpSpec,
 ) {
@@ -696,8 +694,7 @@ pub fn dump_values(
             );
 
             // Collect and show evaluated expression values
-            let expr_values =
-                collect_expression_values(line, symbol_values, layout);
+            let expr_values = collect_expression_values(line);
             if !expr_values.is_empty() {
                 print!("  # ");
                 for (i, val_str) in expr_values.iter().enumerate() {
@@ -724,7 +721,6 @@ pub fn dump_code(
     pass_number: usize,
     is_final: bool,
     source: &Source,
-    _symbol_values: &expressions::SymbolValues,
     layout: &Layout,
     text_bytes: &[u8],
     data_bytes: &[u8],
@@ -937,7 +933,7 @@ pub fn dump_code(
 // ELF Dump
 // ============================================================================
 
-pub fn dump_elf(builder: &ElfBuilder, _source: &Source, parts: &ElfDumpParts) {
+pub fn dump_elf<'a>(builder: &ElfBuilder<'a>, parts: &ElfDumpParts) {
     println!("========== ELF DUMP ==========\n");
 
     if parts.headers {
@@ -953,7 +949,7 @@ pub fn dump_elf(builder: &ElfBuilder, _source: &Source, parts: &ElfDumpParts) {
     }
 }
 
-fn dump_elf_headers(builder: &ElfBuilder) {
+fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
     println!("ELF Header:");
     println!("{}", "-".repeat(79));
 
@@ -1041,7 +1037,7 @@ fn dump_elf_headers(builder: &ElfBuilder) {
     println!();
 }
 
-fn dump_elf_sections(builder: &ElfBuilder) {
+fn dump_elf_sections<'a>(builder: &ElfBuilder<'a>) {
     println!("Section Headers:");
     println!("{}", "-".repeat(79));
     println!(
@@ -1104,7 +1100,7 @@ fn dump_elf_sections(builder: &ElfBuilder) {
     println!();
 }
 
-fn dump_elf_symbols(builder: &ElfBuilder) {
+fn dump_elf_symbols<'a>(builder: &ElfBuilder<'a>) {
     println!("Symbol Table:");
     println!("{}", "-".repeat(79));
     println!("  Num:    Value          Size Type    Bind   Ndx Name");
@@ -1260,11 +1256,7 @@ fn get_encoded_bytes_with_layout(
     }
 }
 
-fn collect_expression_values(
-    line: &Line,
-    _symbol_values: &expressions::SymbolValues,
-    _layout: &Layout,
-) -> Vec<String> {
+fn collect_expression_values(line: &Line) -> Vec<String> {
     let mut results = Vec::new();
 
     // Helper to extract expressions from different line content types

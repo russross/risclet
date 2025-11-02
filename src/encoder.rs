@@ -30,27 +30,21 @@ pub struct EncodingContext<'a> {
     pub symbol_values: &'a SymbolValues,
     pub symbol_links: &'a SymbolLinks,
     pub layout: &'a Layout,
-    pub file_index: usize,
-    pub line_index: usize,
+    pub pointer: LinePointer,
 }
 
 impl<'a> EncodingContext<'a> {
     /// Evaluate an expression in the context of the current line
     pub fn eval_expression(&self, expr: &Expression) -> Result<EvaluatedValue> {
-        let pointer = LinePointer {
-            file_index: self.file_index,
-            line_index: self.line_index,
-        };
-
-        let address = self.layout.get_line_address(&pointer);
-        let refs = self.symbol_links.get_line_refs(&pointer);
+        let address = self.layout.get_line_address(&self.pointer);
+        let refs = self.symbol_links.get_line_refs(&self.pointer);
         eval_expr(
             expr,
             address,
             refs,
             self.symbol_values,
             self.source,
-            &pointer,
+            &self.pointer,
         )
     }
 }
@@ -81,8 +75,7 @@ pub fn encode(
                 symbol_values,
                 symbol_links,
                 layout,
-                file_index,
-                line_index,
+                pointer,
             };
 
             let line = &source.files[file_index].lines[line_index];
@@ -196,7 +189,7 @@ fn encode_instruction(
 ) -> Result<Vec<u8>> {
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
-            encode_r_type_family(op, *rd, *rs1, *rs2, &line.location, config)
+            encode_r_type_family(op, *rd, *rs1, *rs2, config)
         }
         Instruction::IType(op, rd, rs1, imm) => {
             let val = context.eval_expression(imm)?;
@@ -243,9 +236,9 @@ fn encode_instruction(
             encode_pseudo(pseudo_op, line, context, config)
         }
         Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
-            encode_atomic(op, *rd, *rs1, *rs2, ordering, &line.location)
+            encode_atomic(op, *rd, *rs1, *rs2, ordering)
         }
-        Instruction::Special(op) => encode_special(op, &line.location),
+        Instruction::Special(op) => encode_special(op),
         Instruction::Compressed(op, operands) => {
             encode_compressed_explicit(op, operands, line, context)
         }
@@ -261,7 +254,6 @@ fn encode_r_type_family(
     rd: Register,
     rs1: Register,
     rs2: Register,
-    _location: &Location,
     config: &Config,
 ) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
@@ -968,7 +960,6 @@ fn encode_atomic(
     rs1: Register,
     rs2: Register,
     ordering: &MemoryOrdering,
-    _location: &Location,
 ) -> Result<Vec<u8>> {
     let (funct5, funct3) = match op {
         AtomicOp::LrW => (0b00010, 0b010),
@@ -1000,7 +991,7 @@ fn encode_atomic(
 // Special Instructions
 // ============================================================================
 
-fn encode_special(op: &SpecialOp, _location: &Location) -> Result<Vec<u8>> {
+fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
     let inst = match op {
         SpecialOp::Ecall => 0b00000000000000000000000001110011u32,
         SpecialOp::Ebreak => 0b00000000000100000000000001110011u32,
@@ -2024,11 +2015,7 @@ fn eval_compressed_operands(
 // ============================================================================
 
 fn get_line_address(context: &EncodingContext) -> i64 {
-    let pointer = LinePointer {
-        file_index: context.file_index,
-        line_index: context.line_index,
-    };
-    context.layout.get_line_address(&pointer) as i64
+    context.layout.get_line_address(&context.pointer) as i64
 }
 
 fn reg_to_u32(reg: Register) -> u32 {

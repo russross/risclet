@@ -2,17 +2,17 @@
 //
 // Core assembly pipeline: convergence loop, file input, and statistics
 
-use crate::ast::{Line, Source, SourceFile, LineContent, Location};
+use crate::ast::{Line, LineContent, Location, Source, SourceFile};
 use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
-use crate::elf::{build_symbol_table, ElfBuilder};
+use crate::elf::{ElfBuilder, build_symbol_table};
 use crate::encoder::encode;
 use crate::error::{AssemblerError, Result};
-use crate::layout::{compute_offsets, create_initial_layout, Layout};
-use crate::symbols::{link_symbols, create_builtin_symbols_file, SymbolLinks};
 use crate::expressions::eval_symbol_values;
-use crate::tokenizer::tokenize;
+use crate::layout::{Layout, compute_offsets, create_initial_layout};
 use crate::parser::parse;
+use crate::symbols::{SymbolLinks, create_builtin_symbols_file, link_symbols};
+use crate::tokenizer::tokenize;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -63,12 +63,12 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
     }
 }
 
-/// Main assembly driver - unified flow with checkpoints
+/// Main assembly driver - processing flow with output dump checkpoints
 pub fn drive_assembler(config: Config) -> Result<()> {
     // ========================================================================
     // Phase 1: Parse source files into AST
     // ========================================================================
-    let mut source = process_files(config.input_files.clone())?;
+    let source = process_files(config.input_files.clone())?;
 
     // Checkpoint: dump AST if requested
     if should_dump_phase(&config, Phase::Parse) {
@@ -111,12 +111,8 @@ pub fn drive_assembler(config: Config) -> Result<()> {
         print_input_statistics(&source, &symbol_links);
     }
 
-    let (text_bytes, data_bytes, bss_size) = converge_and_encode(
-        &mut source,
-        &symbol_links,
-        &mut layout,
-        &config,
-    )?;
+    let (text_bytes, data_bytes, _bss_size) =
+        converge_and_encode(&source, &symbol_links, &mut layout, &config)?;
 
     // Checkpoint: after convergence, check if we should exit before ELF generation
     if should_dump_phase(&config, Phase::Convergence)
@@ -130,40 +126,15 @@ pub fn drive_assembler(config: Config) -> Result<()> {
     // Phase 4: Generate ELF binary
     // ========================================================================
 
-    // Build ELF binary
-    let has_data = !data_bytes.is_empty();
-    let has_bss = bss_size > 0;
-
     let mut elf_builder =
-        ElfBuilder::new(layout.text_start, layout.header_size as u32);
-    elf_builder.set_segments(
-        text_bytes.clone(),
-        data_bytes.clone(),
-        bss_size,
-        layout.data_start,
-        layout.bss_start,
-    );
+        ElfBuilder::new(&layout, text_bytes, data_bytes);
 
     // Build symbol table
-    build_symbol_table(
-        &source,
-        &symbol_links,
-        &layout,
-        &mut elf_builder,
-        layout.text_start,
-        layout.data_start,
-        layout.bss_start,
-        has_data,
-        has_bss,
-    );
+    build_symbol_table(&source, &symbol_links, &layout, &mut elf_builder);
 
     // Checkpoint: dump ELF if requested
     if should_dump_phase(&config, Phase::Elf) {
-        dump_elf(
-            &elf_builder,
-            &source,
-            config.dump.dump_elf.as_ref().unwrap(),
-        );
+        dump_elf(&elf_builder, config.dump.dump_elf.as_ref().unwrap());
         if is_terminal_phase(&config, Phase::Elf) {
             println!("\n(No output file generated)");
             return Ok(());
@@ -186,7 +157,7 @@ pub fn drive_assembler(config: Config) -> Result<()> {
         if let Some(g) =
             symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
         {
-            let pointer = g.definition_pointer.clone();
+            let pointer = g.definition_pointer;
             Ok(layout.get_line_address(&pointer) as u64)
         } else {
             Err(AssemblerError::no_context(
@@ -230,7 +201,7 @@ pub fn drive_assembler(config: Config) -> Result<()> {
 /// Loops until convergence (no size changes) or max iterations reached.
 /// Returns Ok((text, data, bss_size)) on convergence with the final encoding.
 pub fn converge_and_encode(
-    source: &mut Source,
+    source: &Source,
     symbol_links: &SymbolLinks,
     layout: &mut Layout,
     config: &Config,
@@ -265,14 +236,7 @@ pub fn converge_and_encode(
 
         // Dump symbol values if requested
         if let Some(ref spec) = config.dump.dump_values {
-            dump_values(
-                pass_number,
-                false,
-                source,
-                &symbol_values,
-                layout,
-                spec,
-            );
+            dump_values(pass_number, false, source, layout, spec);
         }
 
         // Step 3: Encode everything and update line sizes
@@ -286,7 +250,6 @@ pub fn converge_and_encode(
                 pass_number,
                 !any_changed, // is_final if no changes
                 source,
-                &symbol_values,
                 layout,
                 &text_bytes,
                 &data_bytes,
@@ -296,16 +259,18 @@ pub fn converge_and_encode(
 
         // Step 4: Check convergence
         if !any_changed {
-            // Converged! Dump final symbol values if requested
+            // Converged! Verify that layout segment sizes match encoder's calculated sizes
+            // Since no sizes changed, layout.bss_size (calculated at start of this pass)
+            // should match the bss_size calculated by the encoder
+            debug_assert_eq!(
+                layout.bss_size, bss_size,
+                "Layout bss_size ({}) doesn't match encoder bss_size ({})",
+                layout.bss_size, bss_size
+            );
+
+            // Dump final symbol values if requested
             if let Some(ref spec) = config.dump.dump_values {
-                dump_values(
-                    pass_number,
-                    true,
-                    source,
-                    &symbol_values,
-                    layout,
-                    spec,
-                );
+                dump_values(pass_number, true, source, layout, spec);
             }
             if config.verbose {
                 eprintln!(
@@ -386,10 +351,7 @@ fn process_file(file_path: &str) -> Result<SourceFile> {
 }
 
 /// Print input statistics during verbose assembly
-pub fn print_input_statistics(
-    source: &Source,
-    symbol_links: &SymbolLinks,
-) {
+pub fn print_input_statistics(source: &Source, symbol_links: &SymbolLinks) {
     let mut total_lines = 0;
     let mut total_labels = 0;
     let mut total_instructions = 0;
