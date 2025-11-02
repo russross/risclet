@@ -366,7 +366,7 @@ fn process_file(file_path: &str) -> Result<SourceFile> {
         }
 
         let location =
-            Location { file: file_path.to_string(), line: line_num };
+            Location { file: file_path.to_string(), line: line_num + 1 };
 
         let tokens = tokenize(&line)
             .map_err(|e| AssemblerError::from_context(e, location.clone()))?;
