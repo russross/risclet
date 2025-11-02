@@ -32,9 +32,6 @@ mod symbols_tests;
 #[cfg(test)]
 mod tokenizer_tests;
 
-
-
-
 fn main() {
     let config = match config::process_cli_args() {
         Ok(config) => config,
@@ -43,7 +40,7 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if let Err(e) = main_process(config) {
+    if let Err(e) = drive_assembler(config) {
         eprintln!("{}", e);
         std::process::exit(1);
     }
@@ -56,10 +53,6 @@ enum Phase {
     SymbolLinking, // After linking all symbols
     Convergence,   // During/after code generation convergence
     Elf,           // After ELF generation
-}
-
-fn main_process(config: Config) -> Result<(), AssemblerError> {
-    drive_assembler(config)
 }
 
 // Helper: Check if we should dump at this phase
