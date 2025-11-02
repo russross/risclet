@@ -189,9 +189,9 @@ impl ElfProgramHeader {
 ///
 /// # Returns
 /// The total size in bytes (ELF header + program headers).
-pub fn compute_header_size(num_segments: i64) -> i64 {
-    const ELF_HEADER_SIZE: i64 = 52; // From e_ehsize in ElfHeader
-    const PROGRAM_HEADER_SIZE: i64 = 32; // From e_phentsize in ElfHeader
+pub fn compute_header_size(num_segments: u32) -> u32 {
+    const ELF_HEADER_SIZE: u32 = 52; // From e_ehsize in ElfHeader
+    const PROGRAM_HEADER_SIZE: u32 = 32; // From e_phentsize in ElfHeader
 
     ELF_HEADER_SIZE + (num_segments * PROGRAM_HEADER_SIZE)
 }

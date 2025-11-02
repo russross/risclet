@@ -51,8 +51,8 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Create a new empty layout
-    pub fn new() -> Self {
+    /// Create a new empty layout (used by test code)
+    pub fn new_empty() -> Self {
         Layout {
             lines: HashMap::new(),
             header_size: 0,
@@ -107,11 +107,178 @@ impl Layout {
         };
         segment_start + line_layout.offset
     }
+
+    /// Create initial layout after symbol linking is complete.
+    ///
+    /// This constructor is called after parsing and symbol linking but before the
+    /// relaxation loop. It initializes the Layout with:
+    /// - Initial size guesses for each line
+    /// - Segment assignments based on directives
+    /// - Computed offsets for each line
+    pub fn new(source: &Source) -> Layout {
+        let mut layout = Layout::new_empty();
+
+        // Track current segment as we iterate through lines
+        let mut current_segment = Segment::Text;
+
+        // Set initial size guesses and segment for all lines
+        for (file_index, file) in source.files.iter().enumerate() {
+            for (line_index, line) in file.lines.iter().enumerate() {
+                let pointer = LinePointer { file_index, line_index };
+
+                // Update current segment based on directives
+                if let LineContent::Directive(directive) = &line.content {
+                    match directive {
+                        Directive::Text => current_segment = Segment::Text,
+                        Directive::Data => current_segment = Segment::Data,
+                        Directive::Bss => current_segment = Segment::Bss,
+                        _ => {}
+                    }
+                }
+
+                let size = guess_line_size(&line.content);
+
+                layout.set(
+                    pointer,
+                    LineLayout {
+                        segment: current_segment,
+                        offset: 0, // Will be computed by update_addresses
+                        size,
+                    },
+                );
+            }
+        }
+
+        // Compute initial offsets and segment sizes
+        layout.update_addresses(source);
+
+        layout
+    }
+
+    /// Compute offsets for all lines based on the Layout structure.
+    ///
+    /// It reads from `self.lines` (which contains sizes set by earlier passes)
+    /// and writes back the computed offsets.
+    ///
+    /// The segment for each line is computed on-the-fly by tracking directives.
+    pub fn update_addresses(&mut self, source: &Source) {
+        let mut global_text_offset: u32 = 0;
+        let mut global_data_offset: u32 = 0;
+        let mut global_bss_offset: u32 = 0;
+
+        // Track current segment as we iterate through lines
+        let mut current_segment = Segment::Text;
+
+        // Check if there's a builtin symbols file (last file)
+        if source.files.is_empty() {
+            return;
+        }
+        let has_builtin = source
+            .files
+            .last()
+            .map(|f| f.file == BUILTIN_FILE_NAME)
+            .unwrap_or(false);
+
+        for (file_index, source_file) in source.files.iter().enumerate() {
+            let is_builtin_file =
+                has_builtin && file_index == source.files.len() - 1;
+
+            // For builtin file, we use special hardcoded offsets (not cumulative)
+            // This file contains __global_pointer$ at data segment offset 2048
+            if is_builtin_file {
+                for (line_index, line) in source_file.lines.iter().enumerate() {
+                    let pointer = LinePointer { file_index, line_index };
+
+                    // Compute segment based on directives
+                    if let LineContent::Directive(directive) = &line.content {
+                        match directive {
+                            Directive::Text => current_segment = Segment::Text,
+                            Directive::Data => current_segment = Segment::Data,
+                            Directive::Bss => current_segment = Segment::Bss,
+                            _ => {}
+                        }
+                    }
+
+                    let size = guess_line_size(&line.content);
+
+                    // Special handling: __global_pointer$ label is at offset 2048 in data segment
+                    let offset = if let LineContent::Label(name) = &line.content
+                    {
+                        if name == SPECIAL_GLOBAL_POINTER { 2048 } else { 0 }
+                    } else {
+                        0
+                    };
+
+                    self.set(
+                        pointer,
+                        LineLayout { segment: current_segment, offset, size },
+                    );
+                }
+                continue;
+            }
+
+            // Track offsets within this file (continuing from global offsets)
+            let mut text_offset: u32 = global_text_offset;
+            let mut data_offset: u32 = global_data_offset;
+            let mut bss_offset: u32 = global_bss_offset;
+
+            for (line_index, line) in source_file.lines.iter().enumerate() {
+                let pointer = LinePointer { file_index, line_index };
+
+                // Update current segment based on directives
+                if let LineContent::Directive(directive) = &line.content {
+                    match directive {
+                        Directive::Text => current_segment = Segment::Text,
+                        Directive::Data => current_segment = Segment::Data,
+                        Directive::Bss => current_segment = Segment::Bss,
+                        _ => {}
+                    }
+                }
+
+                // Compute offset based on current segment
+                let offset = match current_segment {
+                    Segment::Text => text_offset,
+                    Segment::Data => data_offset,
+                    Segment::Bss => bss_offset,
+                };
+                let size = self.get(pointer).size;
+
+                // Update layout with computed offset and segment
+                self.set(
+                    pointer,
+                    LineLayout { segment: current_segment, offset, size },
+                );
+
+                // Advance offset in the appropriate segment
+                match current_segment {
+                    Segment::Text => text_offset += size,
+                    Segment::Data => data_offset += size,
+                    Segment::Bss => bss_offset += size,
+                }
+            }
+
+            // Update global offsets to continue in the next file
+            global_text_offset = text_offset;
+            global_data_offset = data_offset;
+            global_bss_offset = bss_offset;
+        }
+
+        // Update layout segment sizes (total across all files)
+        self.text_size = global_text_offset;
+        self.data_size = global_data_offset;
+        self.bss_size = global_bss_offset;
+
+        // Update header size estimate
+        // Segments: .text, .riscv.attributes, and optionally .data/.bss
+        let has_data_or_bss = self.data_size > 0 || self.bss_size > 0;
+        let num_segments = if has_data_or_bss { 3 } else { 2 };
+        self.header_size = compute_header_size(num_segments);
+    }
 }
 
 impl Default for Layout {
     fn default() -> Self {
-        Self::new()
+        Self::new_empty()
     }
 }
 
@@ -161,174 +328,4 @@ pub fn guess_line_size(content: &LineContent) -> u32 {
             _ => 0, // Non-data directives like .text, .global
         },
     }) as u32
-}
-
-/// Compute offsets for all lines based on the Layout structure.
-///
-/// This is the NEW version that works with Layout instead of mutating Source.
-/// It reads from `layout.lines` (which contains sizes set by earlier passes)
-/// and writes back the computed offsets.
-///
-/// The segment for each line is computed on-the-fly by tracking directives.
-pub fn compute_offsets(source: &Source, layout: &mut Layout) {
-    let mut global_text_offset: u32 = 0;
-    let mut global_data_offset: u32 = 0;
-    let mut global_bss_offset: u32 = 0;
-
-    // Track current segment as we iterate through lines
-    let mut current_segment = Segment::Text;
-
-    // Check if there's a builtin symbols file (last file)
-    if source.files.is_empty() {
-        return;
-    }
-    let has_builtin = source
-        .files
-        .last()
-        .map(|f| f.file == BUILTIN_FILE_NAME)
-        .unwrap_or(false);
-
-    for (file_index, source_file) in source.files.iter().enumerate() {
-        let is_builtin_file =
-            has_builtin && file_index == source.files.len() - 1;
-
-        // For builtin file, we use special hardcoded offsets (not cumulative)
-        // This file contains __global_pointer$ at data segment offset 2048
-        if is_builtin_file {
-            for (line_index, line) in source_file.lines.iter().enumerate() {
-                let pointer = LinePointer { file_index, line_index };
-
-                // Compute segment based on directives
-                if let LineContent::Directive(directive) = &line.content {
-                    match directive {
-                        Directive::Text => current_segment = Segment::Text,
-                        Directive::Data => current_segment = Segment::Data,
-                        Directive::Bss => current_segment = Segment::Bss,
-                        _ => {}
-                    }
-                }
-
-                let size = guess_line_size(&line.content);
-
-                // Special handling: __global_pointer$ label is at offset 2048 in data segment
-                let offset = if let LineContent::Label(name) = &line.content {
-                    if name == SPECIAL_GLOBAL_POINTER { 2048 } else { 0 }
-                } else {
-                    0
-                };
-
-                layout.set(
-                    pointer,
-                    LineLayout { segment: current_segment, offset, size },
-                );
-            }
-            continue;
-        }
-
-        // Track offsets within this file (continuing from global offsets)
-        let mut text_offset: u32 = global_text_offset;
-        let mut data_offset: u32 = global_data_offset;
-        let mut bss_offset: u32 = global_bss_offset;
-
-        for (line_index, line) in source_file.lines.iter().enumerate() {
-            let pointer = LinePointer { file_index, line_index };
-
-            // Update current segment based on directives
-            if let LineContent::Directive(directive) = &line.content {
-                match directive {
-                    Directive::Text => current_segment = Segment::Text,
-                    Directive::Data => current_segment = Segment::Data,
-                    Directive::Bss => current_segment = Segment::Bss,
-                    _ => {}
-                }
-            }
-
-            // Get the size: use layout if available (which may have been updated during encoding),
-            // otherwise fall back to guess
-            let size = layout.get(pointer).size;
-
-            // Compute offset based on current segment
-            let offset = match current_segment {
-                Segment::Text => text_offset,
-                Segment::Data => data_offset,
-                Segment::Bss => bss_offset,
-            };
-
-            // Update layout with computed offset and segment
-            layout.set(
-                pointer,
-                LineLayout { segment: current_segment, offset, size },
-            );
-
-            // Advance offset in the appropriate segment
-            match current_segment {
-                Segment::Text => text_offset += size,
-                Segment::Data => data_offset += size,
-                Segment::Bss => bss_offset += size,
-            }
-        }
-
-        // Update global offsets to continue in the next file
-        global_text_offset = text_offset;
-        global_data_offset = data_offset;
-        global_bss_offset = bss_offset;
-    }
-
-    // Update layout segment sizes (total across all files)
-    layout.text_size = global_text_offset;
-    layout.data_size = global_data_offset;
-    layout.bss_size = global_bss_offset;
-
-    // Update header size estimate
-    // Segments: .text, .riscv.attributes, and optionally .data/.bss
-    let has_data_or_bss = layout.data_size > 0 || layout.bss_size > 0;
-    let num_segments = if has_data_or_bss { 3 } else { 2 };
-    layout.header_size = compute_header_size(num_segments) as u32;
-}
-
-/// Create initial layout after symbol linking is complete.
-///
-/// This function is called after parsing and symbol linking but before the
-/// relaxation loop. It initializes the Layout with:
-/// - Initial size guesses for each line
-/// - Segment assignments based on directives
-/// - Computed offsets for each line
-pub fn create_initial_layout(source: &Source) -> Layout {
-    let mut layout = Layout::new();
-
-    // Track current segment as we iterate through lines
-    let mut current_segment = Segment::Text;
-
-    // Set initial size guesses and segment for all lines
-    for (file_index, file) in source.files.iter().enumerate() {
-        for (line_index, line) in file.lines.iter().enumerate() {
-            let pointer = LinePointer { file_index, line_index };
-
-            // Update current segment based on directives
-            if let LineContent::Directive(directive) = &line.content {
-                match directive {
-                    Directive::Text => current_segment = Segment::Text,
-                    Directive::Data => current_segment = Segment::Data,
-                    Directive::Bss => current_segment = Segment::Bss,
-                    _ => {}
-                }
-            }
-
-            let size = guess_line_size(&line.content);
-
-            layout.set(
-                pointer,
-                LineLayout {
-                    segment: current_segment,
-                    offset: 0, // Will be computed by compute_offsets
-                    size,
-                },
-            );
-        }
-    }
-
-    // Compute initial offsets and segment sizes
-    compute_offsets(source, &mut layout);
-
-    layout
 }

@@ -9,7 +9,7 @@ use crate::elf::ElfBuilder;
 use crate::encoder::encode;
 use crate::error::{AssemblerError, Result};
 use crate::expressions::eval_symbol_values;
-use crate::layout::{Layout, compute_offsets, create_initial_layout};
+use crate::layout::Layout;
 use crate::parser::parse;
 use crate::symbols::{SymbolLinks, create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
@@ -50,7 +50,7 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
     }
 
     // Create initial layout after symbol linking
-    let mut layout = create_initial_layout(source);
+    let mut layout = Layout::new(source);
 
     // ========================================================================
     // Phase 3: Relaxation - iteratively compute offsets and encode until stable
@@ -166,7 +166,7 @@ pub fn relaxation_loop(
         let pass_number = iteration + 1;
 
         // Step 1: Calculate addresses based on current size guesses
-        compute_offsets(source, layout);
+        layout.update_addresses(source);
 
         if config.verbose {
             eprintln!(
@@ -205,7 +205,7 @@ pub fn relaxation_loop(
             );
         }
 
-        // Step 4: Check relaxation
+        // Step 4: Check for size changes
         if !any_changed {
             // Dump final symbol values if requested
             if let Some(ref spec) = config.dump.dump_values {
