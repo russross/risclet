@@ -111,22 +111,6 @@ impl Register {
                 | Register::X15
         )
     }
-
-    /// Get 3-bit encoding for compressed registers (assumes is_compressed_register is true)
-    /// Maps x8-x15 to 0-7
-    pub fn compressed_encoding(self) -> u8 {
-        match self {
-            Register::X8 => 0,
-            Register::X9 => 1,
-            Register::X10 => 2,
-            Register::X11 => 3,
-            Register::X12 => 4,
-            Register::X13 => 5,
-            Register::X14 => 6,
-            Register::X15 => 7,
-            _ => panic!("Register {} is not in compressed register set", self),
-        }
-    }
 }
 
 /// An enum for all supported assembler directives.

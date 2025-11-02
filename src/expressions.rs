@@ -262,14 +262,14 @@ pub fn eval_expr(
                 .iter()
                 .find(|r| r.outgoing_name == label_name)
                 .ok_or_else(|| {
-                    AssemblerError::from_context(
-                        format!(
-                            "Unresolved numeric label '{}' (internal error)",
-                            nlr
-                        ),
-                        location.clone(),
-                    )
-                })?;
+                AssemblerError::from_context(
+                    format!(
+                        "Unresolved numeric label '{}' (internal error)",
+                        nlr
+                    ),
+                    location.clone(),
+                )
+            })?;
 
             symbol_values.get(&sym_ref.definition).ok_or_else(|| {
                 AssemblerError::from_context(

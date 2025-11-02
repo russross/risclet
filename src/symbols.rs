@@ -863,10 +863,7 @@ fn link_cross_file(
             cross_file_refs.push((
                 unref.referencing_pointer.file_index,
                 unref.referencing_pointer.line_index,
-                SymbolReference {
-                    outgoing_name: unref.symbol,
-                    definition,
-                },
+                SymbolReference { outgoing_name: unref.symbol, definition },
             ));
         } else {
             // Symbol is truly undefined

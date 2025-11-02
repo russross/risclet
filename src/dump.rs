@@ -600,11 +600,14 @@ pub fn dump_symbols(
                         if j > 0 {
                             print!(",");
                         }
-                        let def_file =
-                            &source.files[ref_item.definition.pointer.file_index];
-                        let def_line =
-                            &def_file.lines[ref_item.definition.pointer.line_index];
-                        print!(" {}@{}", ref_item.outgoing_name, def_line.location);
+                        let def_file = &source.files
+                            [ref_item.definition.pointer.file_index];
+                        let def_line = &def_file.lines
+                            [ref_item.definition.pointer.line_index];
+                        print!(
+                            " {}@{}",
+                            ref_item.outgoing_name, def_line.location
+                        );
                     }
                 }
 

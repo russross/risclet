@@ -78,19 +78,14 @@ fn assemble(
     source.files.push(create_builtin_symbols_file());
 
     // Resolve symbols
-    let symbols = link_symbols(&mut source)
+    let symbols = link_symbols(&source)
         .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
     let mut layout = create_initial_layout(&source);
-    converge_and_encode(
-        &mut source,
-        &symbols,
-        &mut layout,
-        config,
-    )
-    .map_err(|e| e.with_source_context())
+    converge_and_encode(&mut source, &symbols, &mut layout, config)
+        .map_err(|e| e.with_source_context())
 }
 
 /// Helper to format bytes as hex for debugging
@@ -100,8 +95,8 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// Helper to compare encoded data segment with expected bytes
 fn assert_data_match(source: &str, expected_data: &[u8]) {
-    let (text, data, bss_size) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(bss_size, 0, "Expected no BSS segment");
@@ -117,8 +112,8 @@ fn assert_data_match(source: &str, expected_data: &[u8]) {
 
 /// Helper to compare encoded instructions with expected bytes
 fn assert_instructions_match(source: &str, expected_text: &[u8]) {
-    let (text, data, bss_size) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     assert_eq!(data.len(), 0, "Expected no data segment output");
     assert_eq!(bss_size, 0, "Expected no BSS segment");
@@ -677,8 +672,8 @@ fn test_bss_space_directive() {
 .space 64
 "#;
 
-    let (text, data, bss_size) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -693,8 +688,8 @@ buffer1: .space 128
 buffer2: .space 256
 "#;
 
-    let (text, data, bss_size) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -1519,8 +1514,8 @@ data_label:
     .4byte 0x12345678
 "#;
 
-    let (text, data, _bss) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, data, _bss) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     // Verify text section
     // With relax_gp enabled (default), data_label fits within ±2KiB of gp
@@ -1552,8 +1547,8 @@ end:
     .4byte end - start
 "#;
 
-    let (text, data, _bss) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, data, _bss) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     // All calls relax to 4 bytes
     // start at 0, middle at 8, end at 16
@@ -1595,8 +1590,8 @@ target:
     nop
 "#;
 
-    let (text, _, _) =
-        assemble(source, &make_default_config()).expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, &make_default_config())
+        .expect("Assembly should succeed");
 
     // Should use auipc + addi (8 bytes for la) instead of addi rd, gp, offset (4 bytes)
     assert_eq!(
@@ -2073,6 +2068,51 @@ nop
 "#;
     let expected = &[
         0x19, 0xa0, // c.j target (offset=6)
+        0x13, 0x00, 0x00, 0x00, // nop
+        0x13, 0x00, 0x00, 0x00, // nop (target label)
+    ];
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_lui() {
+    // c.lui a0, 1
+    // CI format with upper immediate
+    let source = "c.lui a0, 1";
+    let expected = &[0x05, 0x65]; // c.lui a0, 1
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_lwsp() {
+    // c.lwsp a0, 8(sp)
+    // CI stack-relative load
+    let source = "c.lwsp a0, 8(sp)";
+    let expected = &[0x22, 0x45]; // c.lwsp a0, 8
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_swsp() {
+    // c.swsp a0, 8(sp)
+    // CSS stack-relative store
+    let source = "c.swsp a0, 8(sp)";
+    let expected = &[0x2a, 0xc4]; // c.swsp a0, 8
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_c_jal_forward() {
+    // c.jal is RV32C only (sets ra on RV32)
+    // c.jal with offset to target 6 bytes ahead
+    let source = r#"
+c.jal target
+nop
+target:
+nop
+"#;
+    let expected = &[
+        0x19, 0x20, // c.jal target (offset=6)
         0x13, 0x00, 0x00, 0x00, // nop
         0x13, 0x00, 0x00, 0x00, // nop (target label)
     ];

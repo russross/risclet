@@ -11,7 +11,6 @@ mod config;
 mod dump;
 mod elf;
 mod encoder;
-mod encoder_compressed;
 mod error;
 mod expressions;
 mod layout;
@@ -19,8 +18,6 @@ mod parser;
 mod symbols;
 mod tokenizer;
 
-#[cfg(test)]
-mod encoder_compressed_tests;
 #[cfg(test)]
 mod encoder_tests;
 #[cfg(test)]
