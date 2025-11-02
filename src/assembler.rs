@@ -5,7 +5,7 @@
 use crate::ast::Source;
 use crate::config::Config;
 use crate::dump;
-use crate::encoder::encode_source;
+use crate::encoder::encode;
 use crate::error::{AssemblerError, Result};
 use crate::expressions::eval_symbol_values;
 use crate::layout::{Layout, compute_offsets};
@@ -69,20 +69,14 @@ pub fn converge_and_encode(
         }
 
         // Step 3: Encode everything and update line sizes
-        // Track if any size changed
-        let mut any_changed = false;
-
         // Encode and collect results
-        let encode_result = encode_source(
+        let (any_changed, text_bytes, data_bytes, bss_size) = encode(
             source,
             &symbol_values,
             symbol_links,
             layout,
             config,
-            &mut any_changed,
-        );
-
-        let (text_bytes, data_bytes, bss_size) = encode_result?;
+        )?;
 
         // Dump generated code if requested
         if let Some(ref spec) = config.dump.dump_code {

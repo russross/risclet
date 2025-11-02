@@ -5,8 +5,7 @@
 
 use crate::assembler::converge_and_encode;
 use crate::ast::{Source, SourceFile};
-use crate::config::Config;
-use crate::encoder::Relax;
+use crate::config::{Config, Relax};
 use crate::layout::create_initial_layout;
 use crate::parser::parse;
 use crate::symbols::{create_builtin_symbols_file, link_symbols};

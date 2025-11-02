@@ -3,7 +3,6 @@
 // Configuration and CLI argument parsing for the RISC-V assembler
 
 use crate::dump;
-use crate::encoder::Relax;
 use std::env;
 
 /// Complete configuration for the assembler
@@ -14,6 +13,29 @@ pub struct Config {
     pub verbose: bool,
     pub dump: dump::DumpConfig,
     pub relax: Relax,
+}
+
+/// Relaxation settings for instruction optimization
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Relax {
+    /// Enable GP-relative la optimization
+    pub gp: bool,
+    /// Enable call/tail pseudo-instruction optimization
+    pub pseudo: bool,
+    /// Enable automatic RV32C compressed encoding
+    pub compressed: bool,
+}
+
+impl Relax {
+    /// Create a new Relax configuration with all optimizations enabled
+    pub fn all() -> Self {
+        Relax { gp: true, pseudo: true, compressed: true }
+    }
+
+    /// Create a new Relax configuration with all optimizations disabled
+    pub fn none() -> Self {
+        Relax { gp: false, pseudo: false, compressed: false }
+    }
 }
 
 /// Parse command-line arguments and return a Config object
