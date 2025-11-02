@@ -1,7 +1,6 @@
 use ast::{Line, Source, SourceFile};
 use config::Config;
 use error::AssemblerError;
-use layout::Layout;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -57,57 +56,6 @@ enum Phase {
     SymbolLinking, // After linking all symbols
     Convergence,   // During/after code generation convergence
     Elf,           // After ELF generation
-}
-
-// Callback for convergence dumps - implements assembler::ConvergenceCallback
-struct DumpCallback<'a> {
-    dump_config: &'a dump::DumpConfig,
-}
-
-impl<'a> assembler::ConvergenceCallback for DumpCallback<'a> {
-    fn on_values_computed(
-        &self,
-        pass: usize,
-        is_final: bool,
-        source: &Source,
-        symbol_values: &expressions::SymbolValues,
-        layout: &Layout,
-    ) {
-        if let Some(ref spec) = self.dump_config.dump_values {
-            dump::dump_values(
-                pass,
-                is_final,
-                source,
-                symbol_values,
-                layout,
-                spec,
-            );
-        }
-    }
-
-    fn on_code_generated(
-        &self,
-        pass: usize,
-        is_final: bool,
-        source: &Source,
-        symbol_values: &expressions::SymbolValues,
-        layout: &Layout,
-        text_bytes: &[u8],
-        data_bytes: &[u8],
-    ) {
-        if let Some(ref spec) = self.dump_config.dump_code {
-            dump::dump_code(
-                pass,
-                is_final,
-                source,
-                symbol_values,
-                layout,
-                text_bytes,
-                data_bytes,
-                spec,
-            );
-        }
-    }
 }
 
 fn main_process(config: Config) -> Result<(), AssemblerError> {
@@ -199,27 +147,12 @@ fn drive_assembler(config: Config) -> Result<(), AssemblerError> {
         print_input_statistics(&source, &symbol_links);
     }
 
-    let (text_bytes, data_bytes, bss_size) =
-        if should_dump_phase(&config, Phase::Convergence) {
-            // Use callback-based convergence with dump support
-            let dump_callback = DumpCallback { dump_config: &config.dump };
-            assembler::converge_and_encode(
-                &mut source,
-                &symbol_links,
-                &mut layout,
-                &config,
-                &dump_callback,
-            )?
-        } else {
-            // Use standard convergence with verbose stats if requested
-            assembler::converge_and_encode(
-                &mut source,
-                &symbol_links,
-                &mut layout,
-                &config,
-                &assembler::NoOpCallback,
-            )?
-        };
+    let (text_bytes, data_bytes, bss_size) = assembler::converge_and_encode(
+        &mut source,
+        &symbol_links,
+        &mut layout,
+        &config,
+    )?;
 
     // Checkpoint: after convergence, check if we should exit before ELF generation
     if should_dump_phase(&config, Phase::Convergence)

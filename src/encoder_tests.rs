@@ -3,7 +3,7 @@
 // Unit tests for the RISC-V instruction encoder
 // These tests compare our encoder output against GNU assembler output
 
-use crate::assembler::{NoOpCallback, converge_and_encode};
+use crate::assembler::converge_and_encode;
 use crate::ast::{Source, SourceFile};
 use crate::config::Config;
 use crate::encoder::Relax;
@@ -90,7 +90,6 @@ fn assemble(
         &symbols,
         &mut layout,
         config,
-        &NoOpCallback,
     )
     .map_err(|e| e.with_source_context())
 }
