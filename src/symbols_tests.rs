@@ -87,14 +87,14 @@ mod tests {
     /// Helper: Assert that a line has a specific outgoing reference
     fn assert_reference(
         symbol_links: &SymbolLinks,
-        line_ptr: &LinePointer,
+        line_ptr: LinePointer,
         expected_symbol: &str,
-        expected_def_ptr: &LinePointer,
+        expected_def_ptr: LinePointer,
     ) {
         let refs = symbol_links.get_line_refs(line_ptr);
         let matching_ref = refs.iter().find(|r| {
             r.outgoing_name == expected_symbol
-                && r.definition.pointer == *expected_def_ptr
+                && r.definition.pointer == expected_def_ptr
         });
 
         assert!(
@@ -133,7 +133,7 @@ mod tests {
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, _line) in file.lines.iter().enumerate() {
                 let line_ptr = LinePointer { file_index, line_index };
-                let refs = symbols.get_line_refs(&line_ptr);
+                let refs = symbols.get_line_refs(line_ptr);
                 assert!(refs.is_empty(), "No references should exist");
             }
         }
@@ -157,7 +157,7 @@ mod tests {
         let label_ptr = find_line_by_label(&source, "start").unwrap();
 
         // Verify no outgoing references on the label
-        let refs = symbols.get_line_refs(&label_ptr);
+        let refs = symbols.get_line_refs(label_ptr);
         assert!(refs.is_empty(), "Label should have no outgoing references");
     }
 
@@ -181,7 +181,7 @@ mod tests {
         let ref_ptr = find_referencing_line(&source, "loop").unwrap();
 
         // Verify the reference
-        assert_reference(&symbols, &ref_ptr, "loop", &label_ptr);
+        assert_reference(&symbols, ref_ptr, "loop", label_ptr);
     }
 
     #[test]
@@ -208,7 +208,7 @@ mod tests {
         let ref_ptr = find_referencing_line(&source, "skip").unwrap();
 
         // Verify the reference
-        assert_reference(&symbols, &ref_ptr, "skip", &label_ptr);
+        assert_reference(&symbols, ref_ptr, "skip", label_ptr);
     }
 
     #[test]
@@ -235,7 +235,7 @@ mod tests {
         let mut ref_count = 0;
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "target" {
                     assert_eq!(
@@ -279,7 +279,7 @@ mod tests {
         let file = &source.files[0];
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 match sym_ref.outgoing_name.as_str() {
                     "start" => {
@@ -320,7 +320,7 @@ mod tests {
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
 
         // The reference should use "1f" but point to the label "1"
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
         let matching_ref = refs.iter().find(|r| r.outgoing_name == "1f");
         assert!(matching_ref.is_some(), "Should have a reference to '1f'");
         assert_eq!(matching_ref.unwrap().definition.pointer, label_ptr);
@@ -347,7 +347,7 @@ mod tests {
         let ref_ptr = find_referencing_line(&source, "1b").unwrap();
 
         // The reference should use "1b" and point to the label "1"
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
         let matching_ref = refs.iter().find(|r| r.outgoing_name == "1b");
         assert!(matching_ref.is_some(), "Should have a reference to '1b'");
         assert_eq!(matching_ref.unwrap().definition.pointer, label_ptr);
@@ -395,11 +395,10 @@ mod tests {
         let mut ref_positions = Vec::new();
         for (line_idx, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "1f" {
-                    ref_positions
-                        .push((line_idx, sym_ref.definition.pointer));
+                    ref_positions.push((line_idx, sym_ref.definition.pointer));
                 }
             }
         }
@@ -472,11 +471,10 @@ mod tests {
         let mut ref_positions = Vec::new();
         for (line_idx, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "1b" {
-                    ref_positions
-                        .push((line_idx, sym_ref.definition.pointer));
+                    ref_positions.push((line_idx, sym_ref.definition.pointer));
                 }
             }
         }
@@ -604,7 +602,7 @@ mod tests {
         let mut found_both = false;
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             let has_start = refs.iter().any(|r| {
                 r.outgoing_name == "start" && r.definition.pointer == start_ptr
             });
@@ -678,7 +676,7 @@ mod tests {
         );
 
         let instr_ptr = LinePointer { file_index: 0, line_index: 1 };
-        let refs = symbols.get_line_refs(&instr_ptr);
+        let refs = symbols.get_line_refs(instr_ptr);
         let has_ref = refs.iter().any(|r| {
             r.outgoing_name == "loop" && r.definition.pointer == label_ptr
         });
@@ -719,7 +717,7 @@ mod tests {
 
         // Check that the reference points to the .equ
         let ref_ptr = find_referencing_line(&source, "CONST").unwrap();
-        assert_reference(&symbols, &ref_ptr, "CONST", &equ_ptr.unwrap());
+        assert_reference(&symbols, ref_ptr, "CONST", equ_ptr.unwrap());
     }
 
     #[test]
@@ -761,7 +759,7 @@ mod tests {
         let mut ref_count = 0;
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "counter" {
                     ref_count += 1;
@@ -845,7 +843,7 @@ mod tests {
         let file = &source.files[0];
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 // Each reference should point to a valid label
                 let target_line =
@@ -878,7 +876,7 @@ mod tests {
         // Should have a reference to 'start' but not to '.'
         let start_ptr = find_line_by_label(&source, "start").unwrap();
         let ref_ptr = find_referencing_line(&source, "start").unwrap();
-        assert_reference(&symbols, &ref_ptr, "start", &start_ptr);
+        assert_reference(&symbols, ref_ptr, "start", start_ptr);
     }
 
     // ============================================================================
@@ -992,7 +990,7 @@ mod tests {
         // Second .equ should have reference to first
         let second_line_ptr =
             LinePointer { file_index: 0, line_index: equ_line_indices[1] };
-        let second_refs = symbols.get_line_refs(&second_line_ptr);
+        let second_refs = symbols.get_line_refs(second_line_ptr);
         let has_ref_to_first = second_refs.iter().any(|r| {
             r.outgoing_name == "counter"
                 && r.definition.pointer.line_index == equ_line_indices[0]
@@ -1002,7 +1000,7 @@ mod tests {
         // Third .equ should have reference to second
         let third_line_ptr =
             LinePointer { file_index: 0, line_index: equ_line_indices[2] };
-        let third_refs = symbols.get_line_refs(&third_line_ptr);
+        let third_refs = symbols.get_line_refs(third_line_ptr);
         let has_ref_to_second = third_refs.iter().any(|r| {
             r.outgoing_name == "counter"
                 && r.definition.pointer.line_index == equ_line_indices[1]
@@ -1041,7 +1039,7 @@ mod tests {
 
         // The li instruction should reference it
         let ref_ptr = find_referencing_line(&source, "CONST").unwrap();
-        assert_reference(&symbols, &ref_ptr, "CONST", &equ_ptr.unwrap());
+        assert_reference(&symbols, ref_ptr, "CONST", equ_ptr.unwrap());
     }
 
     #[test]
@@ -1078,7 +1076,7 @@ mod tests {
 
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
         let ref_to_value =
             refs.iter().find(|r| r.outgoing_name == "value").unwrap();
         assert_eq!(
@@ -1127,7 +1125,7 @@ mod tests {
             if let LineContent::Instruction(_) = line.content {
                 let line_ptr =
                     LinePointer { file_index: 0, line_index: line_idx };
-                let refs = symbols.get_line_refs(&line_ptr);
+                let refs = symbols.get_line_refs(line_ptr);
                 for sym_ref in refs {
                     if sym_ref.outgoing_name == "value" {
                         li_refs.push((
@@ -1450,7 +1448,7 @@ mod tests {
         // Check that backward references point to the right labels
         for (line_idx, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "3b" {
                     assert_eq!(
@@ -1506,7 +1504,7 @@ mod tests {
         let symbols = result.unwrap();
         let equ_ptr =
             LinePointer { file_index: 0, line_index: equ_line.unwrap() };
-        let refs = symbols.get_line_refs(&equ_ptr);
+        let refs = symbols.get_line_refs(equ_ptr);
         let has_start = refs.iter().any(|r| {
             r.outgoing_name == "start" && r.definition.pointer == start_ptr
         });
@@ -1568,7 +1566,7 @@ mod tests {
         );
 
         // Verify the cross-file reference
-        assert_reference(&symbols, &call_ptr, "helper", &helper_ptr);
+        assert_reference(&symbols, call_ptr, "helper", helper_ptr);
     }
 
     #[test]
@@ -1612,7 +1610,7 @@ mod tests {
         let ref_ptr = find_referencing_line(&source, "counter").unwrap();
         assert_eq!(ref_ptr.file_index, 1, "Reference should be in file2");
 
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
         let ref_to_counter =
             refs.iter().find(|r| r.outgoing_name == "counter").unwrap();
         assert_eq!(
@@ -1899,7 +1897,7 @@ mod tests {
         if ref_in_file2.file_index == 1 {
             // Found the reference in file2
             let equ_ptr = LinePointer { file_index: 0, line_index: 0 };
-            assert_reference(&symbols, &ref_in_file2, "BUFFER_SIZE", &equ_ptr);
+            assert_reference(&symbols, ref_in_file2, "BUFFER_SIZE", equ_ptr);
         }
     }
 
@@ -1950,7 +1948,7 @@ mod tests {
 
         for (line_idx, _line) in file1_lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "func_c" {
                     assert_eq!(sym_ref.definition.pointer, func_c_ptr);
@@ -1961,7 +1959,7 @@ mod tests {
 
         for (line_idx, _line) in file2_lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "func_b" {
                     assert_eq!(sym_ref.definition.pointer, func_b_ptr);
@@ -2035,7 +2033,7 @@ mod tests {
 
         for (line_idx, _line) in file2.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
-            let refs = symbols.get_line_refs(&line_ptr);
+            let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "_start"
                     && sym_ref.definition.pointer == start_ptr
@@ -2142,7 +2140,7 @@ mod tests {
                 // This .equ should have an outgoing reference to my_label
                 let line_ptr =
                     LinePointer { file_index: 0, line_index: line_idx };
-                let refs = symbols.get_line_refs(&line_ptr);
+                let refs = symbols.get_line_refs(line_ptr);
                 found_equ_with_ref =
                     refs.iter().any(|r| r.outgoing_name == "my_label");
             }
@@ -2223,7 +2221,7 @@ mod tests {
 
         // Find the line with the "1f" reference
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
 
         // Should have exactly one reference
         assert_eq!(refs.len(), 1, "Should have one reference to '1f'");
@@ -2251,7 +2249,7 @@ mod tests {
         let symbols = link_symbols(&source).unwrap();
 
         let ref_ptr = find_referencing_line(&source, "1b").unwrap();
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
 
         assert_eq!(refs.len(), 1, "Should have one reference to '1b'");
 
@@ -2283,7 +2281,7 @@ mod tests {
 
         // Find the line with "1f - 1b"
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
 
         // Should have exactly two references: one to "1b" and one to "1f"
         assert_eq!(
@@ -2333,7 +2331,7 @@ mod tests {
         let symbols = link_symbols(&source).unwrap();
 
         let ref_ptr = find_referencing_line(&source, "my_label").unwrap();
-        let refs = symbols.get_line_refs(&ref_ptr);
+        let refs = symbols.get_line_refs(ref_ptr);
 
         assert_eq!(refs.len(), 1, "Should have one reference to 'my_label'");
 
@@ -2374,7 +2372,7 @@ mod tests {
             if let LineContent::Instruction(_) = &line.content {
                 let line_ptr =
                     LinePointer { file_index: 0, line_index: line_idx };
-                let refs = symbols.get_line_refs(&line_ptr);
+                let refs = symbols.get_line_refs(line_ptr);
 
                 // Check if this is the line with "li a0, 1b"
                 if refs.iter().any(|r| r.outgoing_name == "1b") {
@@ -2440,7 +2438,7 @@ mod tests {
             if let LineContent::Instruction(_) = &line.content {
                 let line_ptr =
                     LinePointer { file_index: 0, line_index: line_idx };
-                let refs = symbols.get_line_refs(&line_ptr);
+                let refs = symbols.get_line_refs(line_ptr);
 
                 if !refs.is_empty() && refs[0].outgoing_name == "1f" {
                     assert_eq!(refs.len(), 1);

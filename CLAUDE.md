@@ -12,7 +12,7 @@ cargo run -- [options] <file.s>...  # Assemble to ELF
 # Key options
 -o <file>                Output file (default: a.out)
 -t <address>             Text start address (default: 0x10000)
--v, --verbose            Show convergence progress
+-v, --verbose            Show relaxation progress
 --no-relax               Disable all relaxations
 --no-relax-gp            Disable GP-relative 'la' optimization
 --no-relax-pseudo        Disable 'call'/'tail' optimization
@@ -27,7 +27,7 @@ cargo run -- [options] <file.s>...  # Assemble to ELF
 
 ### Key Design Choices
 1. **Direct ELF generation** - No `.o` files, no separate linker
-2. **Convergence-based layout** - Iteratively refines instruction sizes until stable
+2. **Relaxation-based layout** - Iteratively refines instruction sizes until stable
 3. **Integrated symbol linking** - Back-patching handles forward references before encoding
 4. **Typed expressions** - Integer vs. Address types prevent errors (e.g., `addr1 + addr2` is invalid)
 5. **Combined assembly and linking** - Source files are assembled and linked together (but local and global scopes are still supported) outputing an ELF binary
@@ -40,20 +40,37 @@ cargo run -- [options] <file.s>...  # Assemble to ELF
 ## Module Structure
 
 ### `src/main.rs` - Entry Point
-Orchestrates: CLI parsing → tokenization → parsing → symbol linking → layout creation → convergence → ELF generation
+Minimal entry point that parses CLI args and invokes the main assembly driver.
 
 **Data flow:**
 ```
+CLI args → process_cli_args (config.rs) → Config
+                          ↓
+        drive_assembler (assembler.rs)
+                          ↓
 Input files → tokenize → parse → Source
                           ↓
             link_symbols (symbols.rs) → SymbolLinks
                           ↓
          create_initial_layout (layout.rs) → Layout
                           ↓
-         converge_and_encode (assembler.rs)
+         relaxation_loop (assembler.rs)
                           ↓
-              ELF generation (elf.rs)
+              ELF generation (elf.rs) → Output file
 ```
+
+### `src/config.rs` - Configuration & CLI Parsing
+Handles command-line argument parsing and assembler configuration.
+
+**Key types:**
+- `Config`: Complete assembler configuration (input/output files, relaxation flags, dump options, etc.)
+- `Relax`: Individual relaxation settings (gp, pseudo, compressed)
+- `DumpConfig`: Debug dump configuration (passed to dump.rs)
+
+**Key functions:**
+- `process_cli_args()`: Parse command-line arguments → Config
+- `Relax::all()`: Enable all optimizations
+- `Relax::none()`: Disable all optimizations
 
 ### `src/ast.rs` - Data Structures
 **Key types:**
@@ -110,18 +127,31 @@ struct LineLayout {
 **Key functions:**
 - `guess_line_size(content)`: Initial conservative size estimates
 - `compute_offsets(source, layout)`: Assigns offsets based on current sizes (called each iteration)
-- `create_initial_layout(source)`: Creates layout before convergence
+- `create_initial_layout(source)`: Creates layout before sizes are fully known
 
-### `src/assembler.rs` - Convergence Loop
-Iteratively refines instruction sizes until stable (max 10 iterations):
+### `src/assembler.rs` - Assembly Driver & Relaxation Loop
+Orchestrates the complete assembly pipeline with phase checkpoints and relaxation.
 
+**Key functions:**
+- `drive_assembler(config)`: Main entry point - coordinates all 4 phases (Parse → SymbolLinking → Relaxation → ELF)
+- `relaxation_loop(config, source, symbol_links, layout)`: Iteratively refines instruction sizes until stable (max 10 iterations)
+- `process_files(files)`: Read and parse input files into AST
+- `print_input_statistics()`: Display source statistics before relaxation
+
+**Phase checkpoints:**
+Each of the 4 phases has a dump checkpoint that can optionally exit early:
+1. **Parse**: After tokenization/parsing → `--dump-ast`
+2. **SymbolLinking**: After linking symbols → `--dump-symbols`
+3. **Relaxation**: During encoding iterations → `--dump-values`, `--dump-code`
+4. **ELF**: After binary generation → `--dump-elf`
+
+**Relaxation loop:**
 ```rust
 for iteration in 0..MAX_ITERATIONS {
-    layout::compute_offsets(source, layout);           // 1. Assign addresses
-    expressions::new_evaluation_context(...);          // 2. Setup eval context
-    expressions::evaluate_line_symbols(...);           // 3. Compute symbol values
-    encode_source(source, &mut eval_context, layout);  // 4. Generate code, update sizes
-    if !any_changed { return (text, data, bss); }      // 5. Check convergence
+    compute_offsets(source, layout);     // 1. Assign addresses based on current size guesses
+    eval_symbol_values(source, ...);     // 2. Compute all symbol values upfront
+    encode(config, source, ...);         // 3. Generate code, update line sizes
+    if !any_changed { return (text, data, bss); }  // 4. Check if sizes stabilized
 }
 ```
 
@@ -173,7 +203,19 @@ label_addr = segment_start + line.offset
 ```
 
 ### `src/encoder.rs` - Code Generation
-Translates AST → machine code bytes.
+Translates AST → machine code bytes with integrated relaxation support.
+
+**Architecture:**
+- Unified encoder with relaxation variants inline (no separate compilation phases)
+- All instruction families handled in one place with compression/optimization checks
+- Tracks size changes to drive relaxation loop convergence
+
+**Key functions:**
+- `encode(config, source, symbol_links, symbol_values, layout)`: Main entry point
+  - Returns `(any_changed, text_bytes, data_bytes, bss_size)`
+  - Updates line sizes in layout if relaxations change size
+- `encode_line()`: Encodes a single line (instruction, directive, or label)
+- Per-instruction-type encoders (called internally)
 
 **Instruction formats:**
 - `encode_r_type`: R-type (add, sub, etc.)
@@ -217,30 +259,65 @@ Encodes 16-bit RV32C instructions (CR, CI, CL, CS, CA, CB, CJ, CIW formats).
 - Special: `c.nop`, `c.ebreak`
 
 ### `src/dump.rs` - Debug Output
-Provides introspection for debugging:
-- `--dump-ast`: AST in s-expression format
-- `--dump-symbols`: Symbol table with cross-references
-- `--dump-values`: Expression values at specific passes
-- `--dump-code`: Machine code bytes
-- `--dump-elf`: ELF structure
+Provides introspection for debugging with flexible filtering by passes and files.
 
-Supports pass/file filtering (e.g., `--dump-ast=1-3:file.s`).
+**Key types:**
+- `DumpConfig`: Complete dump configuration (created by config.rs)
+- `PassRange`: Filtering for relaxation passes (Final, Specific, Range, From, UpTo, All)
+- `FileSelection`: Filtering for source files (All or Specific)
+- `DumpSpec`: Pass + file filtering specification
+- `ElfDumpParts`: Select which ELF parts to dump (headers, sections, symbols)
+
+**Dump functions:**
+- `dump_ast()`: AST in s-expression format (after parsing)
+- `dump_symbols()`: Symbol table with cross-references (after linking)
+- `dump_values()`: Symbol values at specific passes (during relaxation)
+- `dump_code()`: Generated machine code bytes (during relaxation)
+- `dump_elf()`: ELF structure details (before output)
+
+**Filtering syntax:**
+- Passes: empty (final), `N` (specific), `N-M` (range), `N-` (from N), `-M` (up to M), `*` (all)
+- Files: empty (all), `file1.s,file2.s` (comma-separated list)
+- Example: `--dump-code=1-3:file1.s,file2.s` dumps code from passes 1-3 for specific files
 
 ### `src/error.rs` - Error Reporting
 Displays errors with 7-line context (3 before, error line marked `>>>`, 3 after).
 
 ## Assembly Pipeline
 
-1. **Tokenization** (`main.rs:process_file`): Source lines → `Vec<Token>`
-2. **Parsing** (`main.rs:process_file`): Tokens → AST (`Source`)
-3. **Symbol Linking** (`symbols.rs:link_symbols`): Populate `outgoing_refs` in each `Line`
-4. **Initial Layout** (`layout.rs:create_initial_layout`): Guess sizes, compute initial offsets
-5. **Convergence** (`assembler.rs:converge_and_encode`): Iteratively refine sizes until stable
-6. **ELF Generation** (`elf.rs`): Build ELF binary with program headers and symbol table
+1. **CLI Parsing** (`config.rs:process_cli_args`): Command-line arguments → `Config`
+2. **Tokenization** (`assembler.rs:process_file`): Source lines → `Vec<Token>`
+3. **Parsing** (`assembler.rs:process_file`): Tokens → AST (`Source`)
+4. **Symbol Linking** (`symbols.rs:link_symbols`): Connect symbol uses to definitions
+5. **Initial Layout** (`layout.rs:create_initial_layout`): Guess sizes, compute initial offsets
+6. **Relaxation Loop** (`assembler.rs:relaxation_loop`): Iteratively refine sizes until stable
+   - Compute addresses based on current size guesses
+   - Evaluate all symbol values
+   - Encode all lines (generating code and tracking size changes)
+   - Repeat if any sizes changed, exit if stable or max iterations reached
+7. **ELF Generation** (`elf.rs:ElfBuilder`): Build ELF binary with program headers and symbol table
+8. **File Output** (`assembler.rs:drive_assembler`): Write executable to disk and set permissions
 
 ## Key Data Structures
 
 ```rust
+// Configuration (from config.rs)
+struct Config {
+    input_files: Vec<String>,
+    output_file: String,
+    text_start: u32,
+    verbose: bool,
+    dump: DumpConfig,
+    relax: Relax,
+}
+
+struct Relax {
+    gp: bool,       // Enable GP-relative la optimization
+    pseudo: bool,   // Enable call/tail pseudo-instruction optimization
+    compressed: bool, // Enable automatic RV32C compressed encoding
+}
+
+// AST and Layout
 struct Source {
     files: Vec<SourceFile>,
 }
@@ -261,13 +338,8 @@ struct Layout {
     text_size: u32, data_size: u32, bss_size: u32,
 }
 
-struct EvaluationContext {
-    source: Source,
-    symbol_links: SymbolLinks,
-    layout: Layout,
-    symbol_values: HashMap<SymbolReference, EvaluatedValue>,
-    text_start: u32, data_start: u32, bss_start: u32,
-}
+// Evaluation context (used during relaxation)
+type SymbolValues = HashMap<SymbolReference, EvaluatedValue>;
 ```
 
 ## A Extension (Atomic Instructions)
@@ -288,7 +360,7 @@ struct EvaluationContext {
 
 16-bit instruction encodings, ~25% code size reduction.
 
-**Auto-relaxation (enabled by default):** Eligible 32-bit instructions automatically encoded as 16-bit equivalents during convergence.
+**Auto-relaxation (enabled by default):** Eligible 32-bit instructions automatically encoded as 16-bit equivalents during relaxation.
 
 **Compressed register set:** x8-x15 (s0, s1, a0-a5) for most formats. CR format (c.add, c.mv, c.jr, c.jalr) uses full register set (x1-x31).
 
@@ -313,3 +385,7 @@ Key test modules: `symbols.rs::tests`, `expressions.rs::tests`, `encoder.rs::tes
 **Add directive:** Update `ast.rs` (DirectiveOp), `tokenizer.rs` (recognize), `parser.rs` (parse operands), `encoder.rs` (generate bytes)
 
 **Add pseudo-instruction:** Update `ast.rs` (PseudoOp variant), `parser.rs` (parse), `encoder.rs` (expand to base instructions)
+
+**Add CLI option:** Update `config.rs` (add field to Config, parse argument), use config throughout pipeline
+
+**Add debug dump:** Update `dump.rs` (add DumpSpec variant to DumpConfig, implement dump function), update `config.rs` (parse --dump-* option)

@@ -3,7 +3,7 @@
 // Unit tests for the RISC-V instruction encoder
 // These tests compare our encoder output against GNU assembler output
 
-use crate::assembler::converge_and_encode;
+use crate::assembler::relaxation_loop;
 use crate::ast::{Source, SourceFile};
 use crate::config::{Config, Relax};
 use crate::layout::create_initial_layout;
@@ -84,7 +84,7 @@ fn assemble(
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
     let mut layout = create_initial_layout(&source);
-    converge_and_encode(&mut source, &symbols, &mut layout, config)
+    relaxation_loop(config, &source, &symbols, &mut layout)
         .map_err(|e| e.with_source_context())
 }
 

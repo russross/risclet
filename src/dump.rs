@@ -7,6 +7,7 @@ use crate::ast::{
     Directive, Expression, Instruction, Line, LineContent, LinePointer,
     Location, PseudoOp, Segment, Source, SourceFile,
 };
+use crate::config::Config;
 use crate::elf::ElfBuilder;
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::{BUILTIN_FILE_NAME, SymbolLinks};
@@ -273,9 +274,10 @@ pub fn should_include_file(file: &str, selection: &FileSelection) -> bool {
 // AST Dump (S-Expression Format)
 // ============================================================================
 
-pub fn dump_ast(source: &Source, spec: &DumpSpec) {
+pub fn dump_ast(config: &Config, source: &Source) {
     println!("AST Dump:\n");
 
+    let spec = config.dump.dump_ast.as_ref().unwrap();
     for (i, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
             continue;
@@ -568,12 +570,13 @@ fn dump_expression_ast(expr: &Expression) {
 // ============================================================================
 
 pub fn dump_symbols(
+    config: &Config,
     source: &Source,
     symbol_links: &SymbolLinks,
-    spec: &DumpSpec,
 ) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
+    let spec = config.dump.dump_symbols.as_ref().unwrap();
     for (i, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
             continue;
@@ -592,7 +595,7 @@ pub fn dump_symbols(
 
                 // If this line has outgoing references, show them
                 let line_pointer = LinePointer { file_index: i, line_index };
-                let outgoing_refs = symbol_links.get_line_refs(&line_pointer);
+                let outgoing_refs = symbol_links.get_line_refs(line_pointer);
                 if !outgoing_refs.is_empty() {
                     print!("  →");
                     for (j, ref_item) in outgoing_refs.iter().enumerate() {
@@ -678,9 +681,9 @@ pub fn dump_values(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address from layout
             let pointer = LinePointer { file_index, line_index };
-            let abs_addr = layout.get_line_address(&pointer);
+            let abs_addr = layout.get_line_address(pointer);
 
-            let line_layout = layout.get(&pointer);
+            let line_layout = layout.get(pointer);
             let segment = line_layout.segment;
 
             let (loc_str, padding) =
@@ -754,9 +757,9 @@ pub fn dump_code(
         for (line_index, line) in file.lines.iter().enumerate() {
             // Get absolute address and encoded bytes from layout
             let pointer = LinePointer { file_index, line_index };
-            let &LineLayout { segment, offset, size } = layout.get(&pointer);
+            let &LineLayout { segment, offset, size } = layout.get(pointer);
 
-            let abs_addr = layout.get_line_address(&pointer);
+            let abs_addr = layout.get_line_address(pointer);
             let encoded_bytes = get_encoded_bytes_with_layout(
                 size, segment, offset, text_bytes, data_bytes,
             );
@@ -933,7 +936,9 @@ pub fn dump_code(
 // ELF Dump
 // ============================================================================
 
-pub fn dump_elf<'a>(builder: &ElfBuilder<'a>, parts: &ElfDumpParts) {
+pub fn dump_elf<'a>(config: &Config, builder: &ElfBuilder<'a>) {
+    let parts = config.dump.dump_elf.as_ref().unwrap();
+
     println!("========== ELF DUMP ==========\n");
 
     if parts.headers {

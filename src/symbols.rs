@@ -99,7 +99,7 @@ pub struct SymbolLinks {
 
 impl SymbolLinks {
     /// Get the symbol references for a specific line
-    pub fn get_line_refs(&self, pointer: &LinePointer) -> &[SymbolReference] {
+    pub fn get_line_refs(&self, pointer: LinePointer) -> &[SymbolReference] {
         self.line_refs
             .get(pointer.file_index)
             .and_then(|file| file.get(pointer.line_index))
@@ -182,7 +182,7 @@ pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
                         global_def.symbol, old_location
                     ),
                     source,
-                    &global_def.declaration_pointer,
+                    global_def.declaration_pointer,
                 ));
             }
             globals.insert(global_def.symbol.clone(), global_def);
@@ -294,7 +294,7 @@ fn link_file(
         // Phase 1: Extract and resolve symbol references
         process_symbol_references(
             line,
-            &line_ptr,
+            line_ptr,
             &definitions,
             &mut unresolved,
             &mut line_outgoing_refs[line_index],
@@ -303,7 +303,7 @@ fn link_file(
         // Phase 2: Handle symbol definitions
         let new_definition = process_symbol_definitions(
             line,
-            &line_ptr,
+            line_ptr,
             &locations,
             &mut definitions,
             &mut unresolved,
@@ -315,7 +315,7 @@ fn link_file(
         if let Some(symbol) = new_definition {
             resolve_forward_references(
                 &symbol,
-                &line_ptr,
+                line_ptr,
                 &mut unresolved,
                 &mut patches,
             );
@@ -341,7 +341,7 @@ fn link_file(
         {
             process_global_declarations(
                 symbols,
-                &line_ptr,
+                line_ptr,
                 &line.location,
                 &definitions,
                 &mut unfinalized_globals,
@@ -379,7 +379,7 @@ fn link_file(
 /// - Regular symbols: Resolved if defined, otherwise added to unresolved list
 fn process_symbol_references(
     line: &Line,
-    line_ptr: &LinePointer,
+    line_ptr: LinePointer,
     definitions: &HashMap<String, LinePointer>,
     unresolved: &mut Vec<UnresolvedReference>,
     outgoing_refs: &mut Vec<SymbolReference>,
@@ -412,7 +412,7 @@ fn process_symbol_references(
             // Forward numeric reference to be resolved later
             unresolved.push(UnresolvedReference {
                 symbol,
-                referencing_pointer: *line_ptr,
+                referencing_pointer: line_ptr,
             });
         } else {
             // Regular symbol reference
@@ -428,7 +428,7 @@ fn process_symbol_references(
             } else {
                 unresolved.push(UnresolvedReference {
                     symbol,
-                    referencing_pointer: *line_ptr,
+                    referencing_pointer: line_ptr,
                 });
             }
         }
@@ -442,7 +442,7 @@ fn process_symbol_references(
 /// Returns the newly defined symbol name, if any.
 fn process_symbol_definitions(
     line: &Line,
-    line_ptr: &LinePointer,
+    line_ptr: LinePointer,
     locations: &[Location],
     definitions: &mut HashMap<String, LinePointer>,
     unresolved: &mut Vec<UnresolvedReference>,
@@ -489,7 +489,7 @@ fn process_symbol_definitions(
 /// Processes a numeric label definition (e.g., "1:").
 fn process_numeric_label(
     label: &str,
-    line_ptr: &LinePointer,
+    line_ptr: LinePointer,
     unresolved: &mut Vec<UnresolvedReference>,
     definitions: &mut HashMap<String, LinePointer>,
     patches: &mut Vec<(usize, SymbolReference)>,
@@ -502,7 +502,7 @@ fn process_numeric_label(
         if unref.symbol == forward_symbol {
             let definition = SymbolDefinition {
                 symbol: label.to_string(),
-                pointer: *line_ptr,
+                pointer: line_ptr,
             };
             patches.push((
                 unref.referencing_pointer.line_index,
@@ -518,14 +518,14 @@ fn process_numeric_label(
     });
 
     // Define the backward reference for future use
-    definitions.insert(backward_symbol.clone(), line_ptr.clone());
+    definitions.insert(backward_symbol.clone(), line_ptr);
     Ok(Some(backward_symbol))
 }
 
 /// Processes a regular (non-numeric) label definition.
 fn process_regular_label(
     label: &str,
-    line_ptr: &LinePointer,
+    line_ptr: LinePointer,
     line_location: &Location,
     locations: &[Location],
     definitions: &mut HashMap<String, LinePointer>,
@@ -544,11 +544,11 @@ fn process_regular_label(
     }
 
     // Define the label
-    definitions.insert(label.to_string(), line_ptr.clone());
+    definitions.insert(label.to_string(), line_ptr);
 
     // Update global definition pointer if this symbol was declared global
     if let Some(global) = unfinalized_globals.get_mut(label) {
-        global.definition = Some(line_ptr.clone());
+        global.definition = Some(line_ptr);
     }
 
     Ok(Some(label.to_string()))
@@ -557,7 +557,7 @@ fn process_regular_label(
 /// Processes an .equ directive definition.
 fn process_equ_definition(
     name: &str,
-    line_ptr: &LinePointer,
+    line_ptr: LinePointer,
     line_location: &Location,
     definitions: &mut HashMap<String, LinePointer>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
@@ -571,11 +571,11 @@ fn process_equ_definition(
     }
 
     // .equ can redefine existing symbols (including previous .equ definitions)
-    definitions.insert(name.to_string(), line_ptr.clone());
+    definitions.insert(name.to_string(), line_ptr);
 
     // Update global definition pointer if this symbol was declared global
     if let Some(global) = unfinalized_globals.get_mut(name) {
-        global.definition = Some(line_ptr.clone());
+        global.definition = Some(line_ptr);
     }
 
     Ok(Some(name.to_string()))
@@ -584,7 +584,7 @@ fn process_equ_definition(
 /// Resolves forward references to a newly defined symbol.
 fn resolve_forward_references(
     symbol: &str,
-    definition_ptr: &LinePointer,
+    definition_ptr: LinePointer,
     unresolved: &mut Vec<UnresolvedReference>,
     patches: &mut Vec<(usize, SymbolReference)>,
 ) {
@@ -592,7 +592,7 @@ fn resolve_forward_references(
         if unref.symbol == symbol {
             let definition = SymbolDefinition {
                 symbol: symbol.to_string(),
-                pointer: *definition_ptr,
+                pointer: definition_ptr,
             };
             patches.push((
                 unref.referencing_pointer.line_index,
@@ -611,7 +611,7 @@ fn resolve_forward_references(
 /// Processes .global declarations.
 fn process_global_declarations(
     symbols: &[String],
-    line_ptr: &LinePointer,
+    line_ptr: LinePointer,
     line_location: &Location,
     definitions: &HashMap<String, LinePointer>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
@@ -638,7 +638,7 @@ fn process_global_declarations(
             symbol.clone(),
             UnfinalizedGlobal {
                 definition: definitions.get(symbol).copied(),
-                declaration_pointer: *line_ptr,
+                declaration_pointer: line_ptr,
             },
         );
     }
@@ -894,7 +894,7 @@ fn link_cross_file(
 ///
 /// This file is excluded from normal processing in several places:
 /// - compute_offsets: skipped to preserve hardcoded offset
-/// - convergence loop: skipped as it generates no code
+/// - relaxation loop: handled normally (it generates no code)
 /// - ELF symbol table: filtered out, symbols emitted specially
 /// - dump output: hidden from user
 pub fn create_builtin_symbols_file() -> SourceFile {

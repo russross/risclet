@@ -24,7 +24,7 @@ impl AssemblerError {
     pub fn from_source_pointer(
         message: String,
         source: &Source,
-        pointer: &LinePointer,
+        pointer: LinePointer,
     ) -> Self {
         let location = source.files[pointer.file_index].lines
             [pointer.line_index]
