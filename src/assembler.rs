@@ -4,66 +4,12 @@
 
 use crate::ast::Source;
 use crate::config::Config;
+use crate::dump;
 use crate::encoder::encode_source;
 use crate::error::{AssemblerError, Result};
-use crate::expressions::{SymbolValues, eval_symbol_values};
+use crate::expressions::eval_symbol_values;
 use crate::layout::{Layout, compute_offsets};
 use crate::symbols::SymbolLinks;
-
-/// Callback trait for per-iteration convergence dumps
-///
-/// Allows main.rs to inject debug dump logic into the convergence loop
-/// without coupling this module to dump implementation details.
-#[allow(clippy::too_many_arguments)]
-pub trait ConvergenceCallback {
-    /// Called after symbol evaluation, before encoding
-    fn on_values_computed(
-        &self,
-        pass: usize,
-        is_final: bool,
-        source: &Source,
-        symbol_values: &SymbolValues,
-        layout: &Layout,
-    );
-
-    /// Called after encoding
-    fn on_code_generated(
-        &self,
-        pass: usize,
-        is_final: bool,
-        source: &Source,
-        symbol_values: &SymbolValues,
-        layout: &Layout,
-        text_bytes: &[u8],
-        data_bytes: &[u8],
-    );
-}
-
-/// No-op callback for production use (no debug dumps)
-pub struct NoOpCallback;
-
-impl ConvergenceCallback for NoOpCallback {
-    fn on_values_computed(
-        &self,
-        _: usize,
-        _: bool,
-        _: &Source,
-        _: &SymbolValues,
-        _: &Layout,
-    ) {
-    }
-    fn on_code_generated(
-        &self,
-        _: usize,
-        _: bool,
-        _: &Source,
-        _: &SymbolValues,
-        _: &Layout,
-        _: &[u8],
-        _: &[u8],
-    ) {
-    }
-}
 
 /// Converge line sizes and offsets by iterating until stable
 ///
@@ -76,15 +22,11 @@ impl ConvergenceCallback for NoOpCallback {
 ///
 /// Loops until convergence (no size changes) or max iterations reached.
 /// Returns Ok((text, data, bss_size)) on convergence with the final encoding.
-///
-/// The optional `callback` parameter allows injection of debug dump logic
-/// at specific points in the convergence loop.
-pub fn converge_and_encode<C: ConvergenceCallback>(
+pub fn converge_and_encode(
     source: &mut Source,
     symbol_links: &SymbolLinks,
     layout: &mut Layout,
     config: &Config,
-    callback: &C,
 ) -> Result<(Vec<u8>, Vec<u8>, u32)> {
     const MAX_ITERATIONS: usize = 10;
 
@@ -114,14 +56,17 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
         layout.set_segment_addresses(config.text_start);
         let symbol_values = eval_symbol_values(source, symbol_links, layout)?;
 
-        // Callback: after symbol values computed
-        callback.on_values_computed(
-            pass_number,
-            false,
-            source,
-            &symbol_values,
-            layout,
-        );
+        // Dump symbol values if requested
+        if let Some(ref spec) = config.dump.dump_values {
+            dump::dump_values(
+                pass_number,
+                false,
+                source,
+                &symbol_values,
+                layout,
+                spec,
+            );
+        }
 
         // Step 3: Encode everything and update line sizes
         // Track if any size changed
@@ -139,27 +84,33 @@ pub fn converge_and_encode<C: ConvergenceCallback>(
 
         let (text_bytes, data_bytes, bss_size) = encode_result?;
 
-        // Callback: after code generated
-        callback.on_code_generated(
-            pass_number,
-            !any_changed, // is_final if no changes
-            source,
-            &symbol_values,
-            layout,
-            &text_bytes,
-            &data_bytes,
-        );
-
-        // Step 4: Check convergence
-        if !any_changed {
-            // Converged! Call final value callback
-            callback.on_values_computed(
+        // Dump generated code if requested
+        if let Some(ref spec) = config.dump.dump_code {
+            dump::dump_code(
                 pass_number,
-                true,
+                !any_changed, // is_final if no changes
                 source,
                 &symbol_values,
                 layout,
+                &text_bytes,
+                &data_bytes,
+                spec,
             );
+        }
+
+        // Step 4: Check convergence
+        if !any_changed {
+            // Converged! Dump final symbol values if requested
+            if let Some(ref spec) = config.dump.dump_values {
+                dump::dump_values(
+                    pass_number,
+                    true,
+                    source,
+                    &symbol_values,
+                    layout,
+                    spec,
+                );
+            }
             if config.verbose {
                 eprintln!(
                     "  Converged after {} pass{}",
