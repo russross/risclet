@@ -71,7 +71,7 @@ impl Source {
 }
 
 /// A struct representing a pointer to a specific line in a source file.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LinePointer {
     pub file_index: usize,
     pub line_index: usize,

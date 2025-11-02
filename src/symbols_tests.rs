@@ -399,7 +399,7 @@ mod tests {
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "1f" {
                     ref_positions
-                        .push((line_idx, sym_ref.definition.pointer.clone()));
+                        .push((line_idx, sym_ref.definition.pointer));
                 }
             }
         }
@@ -476,7 +476,7 @@ mod tests {
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "1b" {
                     ref_positions
-                        .push((line_idx, sym_ref.definition.pointer.clone()));
+                        .push((line_idx, sym_ref.definition.pointer));
                 }
             }
         }
