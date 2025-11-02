@@ -93,7 +93,8 @@ mod tests {
     ) {
         let refs = symbol_links.get_line_refs(line_ptr);
         let matching_ref = refs.iter().find(|r| {
-            r.outgoing_name == expected_symbol && r.definition.pointer == *expected_def_ptr
+            r.outgoing_name == expected_symbol
+                && r.definition.pointer == *expected_def_ptr
         });
 
         assert!(
@@ -118,8 +119,8 @@ mod tests {
             addi a1, a1, 2
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -145,8 +146,8 @@ mod tests {
                 addi a0, a0, 1
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed");
 
@@ -168,8 +169,8 @@ mod tests {
                 beq a0, a1, loop
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed");
 
@@ -192,8 +193,8 @@ mod tests {
                 addi a1, a1, 1
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -221,8 +222,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed");
 
@@ -264,8 +265,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed");
 
@@ -281,8 +282,12 @@ mod tests {
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 match sym_ref.outgoing_name.as_str() {
-                    "start" => assert_eq!(sym_ref.definition.pointer, start_ptr),
-                    "middle" => assert_eq!(sym_ref.definition.pointer, middle_ptr),
+                    "start" => {
+                        assert_eq!(sym_ref.definition.pointer, start_ptr)
+                    }
+                    "middle" => {
+                        assert_eq!(sym_ref.definition.pointer, middle_ptr)
+                    }
                     "end" => assert_eq!(sym_ref.definition.pointer, end_ptr),
                     _ => panic!(
                         "Unexpected symbol reference: {}",
@@ -302,8 +307,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -329,8 +334,8 @@ mod tests {
                 beq a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -359,8 +364,8 @@ mod tests {
                  ret
          ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -393,7 +398,8 @@ mod tests {
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "1f" {
-                    ref_positions.push((line_idx, sym_ref.definition.pointer.clone()));
+                    ref_positions
+                        .push((line_idx, sym_ref.definition.pointer.clone()));
                 }
             }
         }
@@ -435,8 +441,8 @@ mod tests {
                 bne a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -469,7 +475,8 @@ mod tests {
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "1b" {
-                    ref_positions.push((line_idx, sym_ref.definition.pointer.clone()));
+                    ref_positions
+                        .push((line_idx, sym_ref.definition.pointer.clone()));
                 }
             }
         }
@@ -509,8 +516,8 @@ mod tests {
                 beq a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         // Should fail because numeric label reference crosses a non-numeric label
         assert!(
@@ -534,8 +541,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         // Should fail because numeric forward reference crosses a non-numeric label
         assert!(
@@ -560,8 +567,8 @@ mod tests {
                 beq a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         // Should fail because segment changes flush numeric labels
         assert!(
@@ -580,8 +587,8 @@ mod tests {
                 li a2, end - start
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -598,11 +605,12 @@ mod tests {
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(&line_ptr);
-            let has_start = refs
-                .iter()
-                .any(|r| r.outgoing_name == "start" && r.definition.pointer == start_ptr);
-            let has_end =
-                refs.iter().any(|r| r.outgoing_name == "end" && r.definition.pointer == end_ptr);
+            let has_start = refs.iter().any(|r| {
+                r.outgoing_name == "start" && r.definition.pointer == start_ptr
+            });
+            let has_end = refs.iter().any(|r| {
+                r.outgoing_name == "end" && r.definition.pointer == end_ptr
+            });
             if has_start && has_end {
                 found_both = true;
                 break;
@@ -620,8 +628,8 @@ mod tests {
             start: li a0, 5
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed");
 
@@ -653,8 +661,8 @@ mod tests {
             loop: beq a0, a1, loop
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed");
 
@@ -671,8 +679,9 @@ mod tests {
 
         let instr_ptr = LinePointer { file_index: 0, line_index: 1 };
         let refs = symbols.get_line_refs(&instr_ptr);
-        let has_ref =
-            refs.iter().any(|r| r.outgoing_name == "loop" && r.definition.pointer == label_ptr);
+        let has_ref = refs.iter().any(|r| {
+            r.outgoing_name == "loop" && r.definition.pointer == label_ptr
+        });
         assert!(
             has_ref,
             "Instruction should have reference back to its own label"
@@ -686,8 +695,8 @@ mod tests {
             li a0, CONST
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Symbol linking should succeed with .equ");
 
@@ -722,8 +731,8 @@ mod tests {
             li a0, counter
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -769,8 +778,8 @@ mod tests {
             beq a0, a1, undefined_label
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -793,8 +802,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -822,8 +831,8 @@ mod tests {
                 beq a0, a1, 3b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -839,7 +848,8 @@ mod tests {
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
                 // Each reference should point to a valid label
-                let target_line = &file.lines[sym_ref.definition.pointer.line_index];
+                let target_line =
+                    &file.lines[sym_ref.definition.pointer.line_index];
                 assert!(
                     matches!(target_line.content, LineContent::Label(_)),
                     "Reference should point to a label"
@@ -855,8 +865,8 @@ mod tests {
                 li a0, . - start
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -884,8 +894,8 @@ mod tests {
             li a0, value
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), ".equ should be allowed to redefine .equ");
 
@@ -911,8 +921,8 @@ mod tests {
             .equ value, 5
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         // This should be allowed in the current implementation since .equ just creates
         // a new definition. Let's verify both exist in the definitions
@@ -934,8 +944,8 @@ mod tests {
                 nop
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         // Should fail with duplicate label error
         assert!(result.is_err(), "Should fail with duplicate label error");
@@ -956,8 +966,8 @@ mod tests {
             li a0, counter
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -984,7 +994,8 @@ mod tests {
             LinePointer { file_index: 0, line_index: equ_line_indices[1] };
         let second_refs = symbols.get_line_refs(&second_line_ptr);
         let has_ref_to_first = second_refs.iter().any(|r| {
-            r.outgoing_name == "counter" && r.definition.pointer.line_index == equ_line_indices[0]
+            r.outgoing_name == "counter"
+                && r.definition.pointer.line_index == equ_line_indices[0]
         });
         assert!(has_ref_to_first, "Second .equ should reference first");
 
@@ -993,7 +1004,8 @@ mod tests {
             LinePointer { file_index: 0, line_index: equ_line_indices[2] };
         let third_refs = symbols.get_line_refs(&third_line_ptr);
         let has_ref_to_second = third_refs.iter().any(|r| {
-            r.outgoing_name == "counter" && r.definition.pointer.line_index == equ_line_indices[1]
+            r.outgoing_name == "counter"
+                && r.definition.pointer.line_index == equ_line_indices[1]
         });
         assert!(has_ref_to_second, "Third .equ should reference second");
     }
@@ -1005,8 +1017,8 @@ mod tests {
             .equ CONST, 42
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Forward reference to .equ should work");
 
@@ -1041,8 +1053,8 @@ mod tests {
             .equ value, 30
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -1067,7 +1079,8 @@ mod tests {
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
         let refs = symbols.get_line_refs(&ref_ptr);
-        let ref_to_value = refs.iter().find(|r| r.outgoing_name == "value").unwrap();
+        let ref_to_value =
+            refs.iter().find(|r| r.outgoing_name == "value").unwrap();
         assert_eq!(
             ref_to_value.definition.pointer.line_index, equ_indices[0],
             "Forward reference should resolve to first .equ definition"
@@ -1085,8 +1098,8 @@ mod tests {
             li a2, value
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -1117,7 +1130,10 @@ mod tests {
                 let refs = symbols.get_line_refs(&line_ptr);
                 for sym_ref in refs {
                     if sym_ref.outgoing_name == "value" {
-                        li_refs.push((line_idx, sym_ref.definition.pointer.line_index));
+                        li_refs.push((
+                            line_idx,
+                            sym_ref.definition.pointer.line_index,
+                        ));
                     }
                 }
             }
@@ -1157,8 +1173,8 @@ mod tests {
             j never_defined
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_err(), "Should fail with undefined symbol");
         let err = result.unwrap_err().to_string();
@@ -1175,8 +1191,8 @@ mod tests {
             li a0, undefined_constant
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_err(), "Should fail with undefined symbol");
         let err = result.unwrap_err().to_string();
@@ -1194,8 +1210,8 @@ mod tests {
             beq a0, a1, 2f
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1221,8 +1237,8 @@ mod tests {
                 .4byte 0
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1248,8 +1264,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1271,8 +1287,8 @@ mod tests {
             beq a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1298,8 +1314,8 @@ mod tests {
             beq a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1323,8 +1339,8 @@ mod tests {
                 beq a0, a1, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1354,8 +1370,8 @@ mod tests {
             beq a0, a1, 3b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1399,8 +1415,8 @@ mod tests {
                 beq a0, a1, 4b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -1465,8 +1481,8 @@ mod tests {
             li a0, size
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), ".equ can use complex expressions");
 
@@ -1491,10 +1507,12 @@ mod tests {
         let equ_ptr =
             LinePointer { file_index: 0, line_index: equ_line.unwrap() };
         let refs = symbols.get_line_refs(&equ_ptr);
-        let has_start =
-            refs.iter().any(|r| r.outgoing_name == "start" && r.definition.pointer == start_ptr);
-        let has_end =
-            refs.iter().any(|r| r.outgoing_name == "end" && r.definition.pointer == end_ptr);
+        let has_start = refs.iter().any(|r| {
+            r.outgoing_name == "start" && r.definition.pointer == start_ptr
+        });
+        let has_end = refs.iter().any(|r| {
+            r.outgoing_name == "end" && r.definition.pointer == end_ptr
+        });
         assert!(
             has_start && has_end,
             ".equ should reference both start and end"
@@ -1523,10 +1541,10 @@ mod tests {
                 ret
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -1566,10 +1584,10 @@ mod tests {
             li a0, counter
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -1616,8 +1634,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("file1.s", file1)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1641,8 +1659,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("file1.s", file1)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -1673,8 +1691,8 @@ mod tests {
             .global main
         ";
 
-        let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("file1.s", file1)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Global declared after definition should work");
 
@@ -1725,8 +1743,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("file1.s", file1)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1756,10 +1774,10 @@ mod tests {
                 nop
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1786,10 +1804,10 @@ mod tests {
                 ret
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -1815,8 +1833,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("file1.s", file1)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("file1.s", file1)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Unreferenced global should be OK");
         let symbols = result.unwrap();
@@ -1852,10 +1870,10 @@ mod tests {
                 ret
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Both .equ and label globals should work");
         let symbols = result.unwrap();
@@ -1907,10 +1925,10 @@ mod tests {
                 ret
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Multiple cross-file references should work");
 
@@ -1979,10 +1997,10 @@ mod tests {
             ret
         ";
 
-        let mut source =
+        let source =
             create_source(vec![("file1.s", file1), ("file2.s", file2)])
                 .unwrap();
-        let result = link_symbols(&mut source);
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -2019,13 +2037,19 @@ mod tests {
             let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
             let refs = symbols.get_line_refs(&line_ptr);
             for sym_ref in refs {
-                if sym_ref.outgoing_name == "_start" && sym_ref.definition.pointer == start_ptr {
+                if sym_ref.outgoing_name == "_start"
+                    && sym_ref.definition.pointer == start_ptr
+                {
                     found_start = true;
                 }
-                if sym_ref.outgoing_name == "exit" && sym_ref.definition.pointer == exit_ptr {
+                if sym_ref.outgoing_name == "exit"
+                    && sym_ref.definition.pointer == exit_ptr
+                {
                     found_exit = true;
                 }
-                if sym_ref.outgoing_name == "helper" && sym_ref.definition.pointer == helper_ptr {
+                if sym_ref.outgoing_name == "helper"
+                    && sym_ref.definition.pointer == helper_ptr
+                {
                     found_helper = true;
                 }
             }
@@ -2048,8 +2072,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -2071,8 +2095,8 @@ mod tests {
             .equ __global_pointer$, 0x1000
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_err(),
@@ -2097,8 +2121,8 @@ mod tests {
             li a0, label_offset
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&mut source);
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let result = link_symbols(&source);
 
         assert!(
             result.is_ok(),
@@ -2142,11 +2166,10 @@ mod tests {
                   beq x1, x2, loop
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
 
         // Resolve symbols and get the Symbols struct
-        let symbols =
-            link_symbols(&mut source).expect("Resolution should succeed");
+        let symbols = link_symbols(&source).expect("Resolution should succeed");
 
         // Verify Symbols struct is populated
         assert_eq!(
@@ -2154,7 +2177,10 @@ mod tests {
             2,
             "Should have two files (test.s + builtin)"
         );
-        assert!(symbols.line_refs[0].len() > 0, "First file should have lines");
+        assert!(
+            !symbols.line_refs[0].is_empty(),
+            "First file should have lines"
+        );
 
         // Verify the local_symbols_by_file
         assert_eq!(
@@ -2163,7 +2189,7 @@ mod tests {
             "Should have symbols for two files (test.s + builtin)"
         );
         assert!(
-            symbols.local_symbols_by_file[0].len() > 0,
+            !symbols.local_symbols_by_file[0].is_empty(),
             "First file should have local symbols"
         );
 
@@ -2192,8 +2218,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let symbols = link_symbols(&mut source).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&source).unwrap();
 
         // Find the line with the "1f" reference
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
@@ -2204,10 +2230,7 @@ mod tests {
 
         let sym_ref = &refs[0];
         // The outgoing name should be "1f" (as written in source)
-        assert_eq!(
-            sym_ref.outgoing_name, "1f",
-            "Outgoing name should be '1f'"
-        );
+        assert_eq!(sym_ref.outgoing_name, "1f", "Outgoing name should be '1f'");
         // The definition symbol should be "1" (the actual label)
         assert_eq!(
             sym_ref.definition.symbol, "1",
@@ -2224,8 +2247,8 @@ mod tests {
                 li a0, 1b
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let symbols = link_symbols(&mut source).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&source).unwrap();
 
         let ref_ptr = find_referencing_line(&source, "1b").unwrap();
         let refs = symbols.get_line_refs(&ref_ptr);
@@ -2233,10 +2256,7 @@ mod tests {
         assert_eq!(refs.len(), 1, "Should have one reference to '1b'");
 
         let sym_ref = &refs[0];
-        assert_eq!(
-            sym_ref.outgoing_name, "1b",
-            "Outgoing name should be '1b'"
-        );
+        assert_eq!(sym_ref.outgoing_name, "1b", "Outgoing name should be '1b'");
         assert_eq!(
             sym_ref.definition.symbol, "1",
             "Definition symbol should be '1'"
@@ -2258,8 +2278,8 @@ mod tests {
                 li a4, 13
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let symbols = link_symbols(&mut source).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&source).unwrap();
 
         // Find the line with "1f - 1b"
         let ref_ptr = find_referencing_line(&source, "1f").unwrap();
@@ -2309,8 +2329,8 @@ mod tests {
                 li a0, my_label
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let symbols = link_symbols(&mut source).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&source).unwrap();
 
         let ref_ptr = find_referencing_line(&source, "my_label").unwrap();
         let refs = symbols.get_line_refs(&ref_ptr);
@@ -2345,22 +2365,24 @@ mod tests {
                 nop
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let symbols = link_symbols(&mut source).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&source).unwrap();
 
         // Find the line with multiple references
         let mut found_line = false;
         for (line_idx, line) in source.files[0].lines.iter().enumerate() {
             if let LineContent::Instruction(_) = &line.content {
-                let line_ptr = LinePointer {
-                    file_index: 0,
-                    line_index: line_idx,
-                };
+                let line_ptr =
+                    LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(&line_ptr);
 
                 // Check if this is the line with "li a0, 1b"
                 if refs.iter().any(|r| r.outgoing_name == "1b") {
-                    assert_eq!(refs.len(), 1, "First li should have 1 reference");
+                    assert_eq!(
+                        refs.len(),
+                        1,
+                        "First li should have 1 reference"
+                    );
                     let ref_1b = &refs[0];
                     assert_eq!(ref_1b.outgoing_name, "1b");
                     assert_eq!(ref_1b.definition.symbol, "1");
@@ -2368,7 +2390,11 @@ mod tests {
 
                 // Check if this is the line with "li a1, 2b"
                 if refs.iter().any(|r| r.outgoing_name == "2b") {
-                    assert_eq!(refs.len(), 1, "Second li should have 1 reference");
+                    assert_eq!(
+                        refs.len(),
+                        1,
+                        "Second li should have 1 reference"
+                    );
                     let ref_2b = &refs[0];
                     assert_eq!(ref_2b.outgoing_name, "2b");
                     assert_eq!(ref_2b.definition.symbol, "2");
@@ -2376,7 +2402,11 @@ mod tests {
 
                 // Check if this is the line with "li a2, 3f"
                 if refs.iter().any(|r| r.outgoing_name == "3f") {
-                    assert_eq!(refs.len(), 1, "Third li should have 1 reference");
+                    assert_eq!(
+                        refs.len(),
+                        1,
+                        "Third li should have 1 reference"
+                    );
                     let ref_3f = &refs[0];
                     assert_eq!(ref_3f.outgoing_name, "3f");
                     assert_eq!(ref_3f.definition.symbol, "3");
@@ -2399,8 +2429,8 @@ mod tests {
                 ret
         ";
 
-        let mut source = create_source(vec![("test.s", source_text)]).unwrap();
-        let symbols = link_symbols(&mut source).unwrap();
+        let source = create_source(vec![("test.s", source_text)]).unwrap();
+        let symbols = link_symbols(&source).unwrap();
 
         let label_ptr = find_line_by_label(&source, "1").unwrap();
 
@@ -2408,10 +2438,8 @@ mod tests {
         let mut ref_count = 0;
         for (line_idx, line) in source.files[0].lines.iter().enumerate() {
             if let LineContent::Instruction(_) = &line.content {
-                let line_ptr = LinePointer {
-                    file_index: 0,
-                    line_index: line_idx,
-                };
+                let line_ptr =
+                    LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(&line_ptr);
 
                 if !refs.is_empty() && refs[0].outgoing_name == "1f" {

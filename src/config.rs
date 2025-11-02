@@ -72,14 +72,16 @@ pub fn process_cli_args() -> Result<Config, String> {
                 } else {
                     ""
                 };
-                dump_config.dump_symbols = Some(dump::parse_dump_spec(spec_str)?);
+                dump_config.dump_symbols =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-values") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                dump_config.dump_values = Some(dump::parse_dump_spec(spec_str)?);
+                dump_config.dump_values =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-code") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
@@ -102,14 +104,18 @@ pub fn process_cli_args() -> Result<Config, String> {
                 "-o" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -o requires an argument".to_string());
+                        return Err(
+                            "Error: -o requires an argument".to_string()
+                        );
                     }
                     output_file = args[i].clone();
                 }
                 "-t" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -t requires an argument".to_string());
+                        return Err(
+                            "Error: -t requires an argument".to_string()
+                        );
                     }
                     text_start = parse_address(&args[i])?;
                 }
@@ -155,7 +161,14 @@ pub fn process_cli_args() -> Result<Config, String> {
         return Err("Error: no input files specified".to_string());
     }
 
-    Ok(Config { input_files, output_file, text_start, verbose, dump: dump_config, relax })
+    Ok(Config {
+        input_files,
+        output_file,
+        text_start,
+        verbose,
+        dump: dump_config,
+        relax,
+    })
 }
 
 /// Print help message

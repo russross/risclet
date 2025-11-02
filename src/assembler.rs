@@ -70,13 +70,8 @@ pub fn converge_and_encode(
 
         // Step 3: Encode everything and update line sizes
         // Encode and collect results
-        let (any_changed, text_bytes, data_bytes, bss_size) = encode(
-            source,
-            &symbol_values,
-            symbol_links,
-            layout,
-            config,
-        )?;
+        let (any_changed, text_bytes, data_bytes, bss_size) =
+            encode(source, &symbol_values, symbol_links, layout, config)?;
 
         // Dump generated code if requested
         if let Some(ref spec) = config.dump.dump_code {
