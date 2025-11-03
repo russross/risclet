@@ -57,7 +57,9 @@ impl Effects {
         use crate::riscv::R;
 
         let mut parts = Vec::new();
-        if let Some((_, RegisterValue { register: rd, value: val })) = self.reg_write {
+        if let Some((_, RegisterValue { register: rd, value: val })) =
+            self.reg_write
+        {
             if hex_mode {
                 parts.push(format!("{} <- 0x{:x}", R[rd], val));
             } else {
@@ -109,10 +111,14 @@ impl ExecutionTrace {
     }
 
     pub fn set_most_recent_memory(&self) -> (u32, (u32, usize), (u32, usize)) {
-        let mut most_recent_memory =
-            if self.layout.data_start > 0 { self.layout.data_start } else { self.layout.stack_end.saturating_sub(8) };
+        let mut most_recent_memory = if self.layout.data_start > 0 {
+            self.layout.data_start
+        } else {
+            self.layout.stack_end.saturating_sub(8)
+        };
         let mut most_recent_data = (self.layout.data_start, 0);
-        let mut most_recent_stack = (self.layout.stack_end.saturating_sub(8), 0);
+        let mut most_recent_stack =
+            (self.layout.stack_end.saturating_sub(8), 0);
 
         let mut stack = false;
         let mut data = false;

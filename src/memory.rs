@@ -10,7 +10,13 @@ pub struct Segment {
 }
 
 impl Segment {
-    pub fn new(start: u32, end: u32, writeable: bool, executable: bool, init: Vec<u8>) -> Self {
+    pub fn new(
+        start: u32,
+        end: u32,
+        writeable: bool,
+        executable: bool,
+        init: Vec<u8>,
+    ) -> Self {
         assert!(start > 0 && end > start);
         assert!(init.len() <= (end - start) as usize);
         Self { start, end, mem: Vec::new(), init, writeable, executable }
@@ -62,7 +68,11 @@ impl MemoryLayout {
         let mut stack_start = 0x100000 - STACK_SIZE;
         for segment in segments {
             if segment.end.saturating_add(STACK_SIZE) >= stack_start {
-                stack_start = (segment.end.saturating_add(STACK_SIZE * 2).saturating_sub(1)) & (STACK_SIZE - 1);
+                stack_start = (segment
+                    .end
+                    .saturating_add(STACK_SIZE * 2)
+                    .saturating_sub(1))
+                    & (STACK_SIZE - 1);
             }
         }
 
@@ -86,7 +96,14 @@ impl MemoryLayout {
             data_start = 0;
         }
 
-        Self { stack_start, stack_end, data_start, data_end, text_start, text_end }
+        Self {
+            stack_start,
+            stack_end,
+            data_start,
+            data_end,
+            text_start,
+            text_end,
+        }
     }
 }
 
@@ -98,7 +115,13 @@ pub struct MemoryManager {
 impl MemoryManager {
     pub fn new(mut segments: Vec<Segment>) -> Self {
         let layout = MemoryLayout::new(&segments);
-        segments.push(Segment::new(layout.stack_start, layout.stack_end, true, false, Vec::new()));
+        segments.push(Segment::new(
+            layout.stack_start,
+            layout.stack_end,
+            true,
+            false,
+            Vec::new(),
+        ));
         Self { segments, layout }
     }
 
@@ -152,7 +175,10 @@ impl MemoryManager {
                 let raw = segment.load(addr, 4);
                 return Ok((i32::from_le_bytes(raw.try_into().unwrap()), 4));
             } else {
-                return Err(format!("partial instruction at end of segment addr=0x{:x}", addr));
+                return Err(format!(
+                    "partial instruction at end of segment addr=0x{:x}",
+                    addr
+                ));
             }
         }
         Err(format!("segfault: instruction fetch addr=0x{:x}", addr))

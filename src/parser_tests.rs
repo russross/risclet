@@ -8,8 +8,12 @@ fn test_parse_simple_instruction() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::RType(RTypeOp::Add, Register::X10, Register::X11, Register::X12)) =
-        ast[0].content
+    if let LineContent::Instruction(Instruction::RType(
+        RTypeOp::Add,
+        Register::X10,
+        Register::X11,
+        Register::X12,
+    )) = ast[0].content
     {
         // ok
     } else {
@@ -24,8 +28,12 @@ fn test_parse_label() {
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 2);
     assert_eq!(ast[0].content, LineContent::Label("loop".to_string()));
-    if let LineContent::Instruction(Instruction::RType(RTypeOp::Add, Register::X10, Register::X11, Register::X12)) =
-        ast[1].content
+    if let LineContent::Instruction(Instruction::RType(
+        RTypeOp::Add,
+        Register::X10,
+        Register::X11,
+        Register::X12,
+    )) = ast[1].content
     {
         // ok
     } else {
@@ -52,7 +60,11 @@ fn test_parse_expression() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(Register::X10, expr))) = &ast[0].content {
+    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+        Register::X10,
+        expr,
+    ))) = &ast[0].content
+    {
         if let Expression::PlusOp { lhs, rhs } = &**expr {
             if let Expression::Literal(1) = **lhs {
                 if let Expression::Literal(2) = **rhs {
@@ -77,8 +89,12 @@ fn test_parse_numeric_label() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::BType(BTypeOp::Bne, Register::X10, Register::X0, expr)) =
-        &ast[0].content
+    if let LineContent::Instruction(Instruction::BType(
+        BTypeOp::Bne,
+        Register::X10,
+        Register::X0,
+        expr,
+    )) = &ast[0].content
     {
         if let Expression::NumericLabelRef(nlr) = &**expr {
             assert_eq!(nlr.num, 1);
@@ -97,8 +113,12 @@ fn test_parse_load_with_expression() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::LoadStore(LoadStoreOp::Lb, Register::X10, expr, Register::X11)) =
-        &ast[0].content
+    if let LineContent::Instruction(Instruction::LoadStore(
+        LoadStoreOp::Lb,
+        Register::X10,
+        expr,
+        Register::X11,
+    )) = &ast[0].content
     {
         if let Expression::PlusOp { lhs, rhs } = &**expr {
             if let Expression::Literal(1) = **lhs {
@@ -124,8 +144,12 @@ fn test_parse_branch_with_expression() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::BType(BTypeOp::Beq, Register::X10, Register::X11, expr)) =
-        &ast[0].content
+    if let LineContent::Instruction(Instruction::BType(
+        BTypeOp::Beq,
+        Register::X10,
+        Register::X11,
+        expr,
+    )) = &ast[0].content
     {
         if let Expression::PlusOp { lhs, rhs } = &**expr {
             if let Expression::Literal(1) = **lhs {
@@ -151,7 +175,11 @@ fn test_parse_pseudo_li() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(Register::X10, expr))) = &ast[0].content {
+    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+        Register::X10,
+        expr,
+    ))) = &ast[0].content
+    {
         if let Expression::Literal(0x13579BDF) = **expr {
             // ok
         } else {
@@ -241,7 +269,11 @@ fn test_parse_current_address() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(Register::X10, expr))) = &ast[0].content {
+    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+        Register::X10,
+        expr,
+    ))) = &ast[0].content
+    {
         if let Expression::CurrentAddress = **expr {
             // ok
         } else {
@@ -258,7 +290,11 @@ fn test_parse_complex_expression() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(Register::X10, expr))) = &ast[0].content {
+    if let LineContent::Instruction(Instruction::Pseudo(PseudoOp::Li(
+        Register::X10,
+        expr,
+    ))) = &ast[0].content
+    {
         if let Expression::LeftShiftOp { lhs, rhs } = &**expr {
             if let Expression::Parenthesized(plus_expr) = &**lhs {
                 if let Expression::PlusOp { lhs: l, rhs: r } = &**plus_expr {
@@ -296,5 +332,9 @@ fn test_parse_error_leftover_tokens() {
     let result = parse(&tokens, "test".to_string(), 1);
     assert!(result.is_err(), "Should fail with leftover tokens");
     let err = result.unwrap_err();
-    assert!(err.message.contains("Unexpected tokens"), "Error should mention unexpected tokens: {}", err);
+    assert!(
+        err.message.contains("Unexpected tokens"),
+        "Error should mention unexpected tokens: {}",
+        err
+    );
 }

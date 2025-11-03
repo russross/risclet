@@ -169,8 +169,9 @@ define_immediate_decoders! {
 }
 
 pub const R: [&str; 32] = [
-    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2",
-    "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
+    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1",
+    "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7",
+    "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6",
 ];
 
 pub const ZERO: usize = 0;
@@ -289,7 +290,10 @@ impl Op {
             5 => Op::Bge { rs1, rs2, offset },
             6 => Op::Bltu { rs1, rs2, offset },
             7 => Op::Bgeu { rs1, rs2, offset },
-            _ => Op::Unimplemented { inst, note: format!("branch instruction of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("branch instruction of unknown type {}", funct3),
+            },
         }
     }
 
@@ -305,7 +309,10 @@ impl Op {
             2 => Op::Lw { rd, rs1, offset },
             4 => Op::Lbu { rd, rs1, offset },
             5 => Op::Lhu { rd, rs1, offset },
-            _ => Op::Unimplemented { inst, note: format!("load instruction of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("load instruction of unknown type {}", funct3),
+            },
         }
     }
 
@@ -319,7 +326,10 @@ impl Op {
             0 => Op::Sb { rs1, rs2, offset },
             1 => Op::Sh { rs1, rs2, offset },
             2 => Op::Sw { rs1, rs2, offset },
-            _ => Op::Unimplemented { inst, note: format!("store instruction of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("store instruction of unknown type {}", funct3),
+            },
         }
     }
 
@@ -362,7 +372,10 @@ impl Op {
             },
             6 => Op::Ori { rd, rs1, imm },
             7 => Op::Andi { rd, rs1, imm },
-            _ => Op::Unimplemented { inst, note: format!("alu immediate of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("alu immediate of unknown type {}", funct3),
+            },
         }
     }
 
@@ -396,7 +409,10 @@ impl Op {
 
             _ => Op::Unimplemented {
                 inst,
-                note: format!("alu instruction of unknown type {} subtype {}", funct3, funct7),
+                note: format!(
+                    "alu instruction of unknown type {} subtype {}",
+                    funct3, funct7
+                ),
             },
         }
     }
@@ -412,16 +428,27 @@ impl Op {
                 let rd = get_c_rs2_prime(inst);
                 let imm = get_c_addi4spn_imm(inst);
                 if rd == 0 && imm == 0 {
-                    Op::Unimplemented { inst, note: String::from("Illegal compressed instruction at (0, 0)") }
+                    Op::Unimplemented {
+                        inst,
+                        note: String::from(
+                            "Illegal compressed instruction at (0, 0)",
+                        ),
+                    }
                 } else if imm == 0 {
-                    Op::Unimplemented { inst, note: String::from("C.ADDI4SPN with imm=0 is reserved") }
+                    Op::Unimplemented {
+                        inst,
+                        note: String::from("C.ADDI4SPN with imm=0 is reserved"),
+                    }
                 } else {
                     Op::Addi { rd, rs1: SP, imm }
                 }
             }
             (0, 1) => {
                 // C.FLD (not supported)
-                Op::Unimplemented { inst, note: String::from("C.FLD is not supported") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.FLD is not supported"),
+                }
             }
             (0, 2) => {
                 // C.LW
@@ -432,15 +459,26 @@ impl Op {
             }
             (0, 3) => {
                 // C.LD (RV64, not supported in RV32)
-                Op::Unimplemented { inst, note: String::from("C.LD is not supported in RV32") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.LD is not supported in RV32"),
+                }
             }
             (0, 4) => {
                 // Reserved
-                Op::Unimplemented { inst, note: String::from("Reserved compressed instruction at (0, 4)") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from(
+                        "Reserved compressed instruction at (0, 4)",
+                    ),
+                }
             }
             (0, 5) => {
                 // C.FSD (not supported)
-                Op::Unimplemented { inst, note: String::from("C.FSD is not supported") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.FSD is not supported"),
+                }
             }
             (0, 6) => {
                 // C.SW
@@ -451,7 +489,10 @@ impl Op {
             }
             (0, 7) => {
                 // C.SD (RV64, not supported in RV32)
-                Op::Unimplemented { inst, note: String::from("C.SD is not supported in RV32") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.SD is not supported in RV32"),
+                }
             }
 
             // C1 quadrant
@@ -464,7 +505,10 @@ impl Op {
             }
             (1, 1) => {
                 // C.ADDIW - RV64 specific, not supported in RV32
-                Op::Unimplemented { inst, note: String::from("C.ADDIW is not supported in RV32") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.ADDIW is not supported in RV32"),
+                }
             }
             (1, 2) => {
                 // C.LI
@@ -479,7 +523,12 @@ impl Op {
                     // C.ADDI16SP
                     let imm = get_c_addi16sp_imm(inst);
                     if imm == 0 {
-                        Op::Unimplemented { inst, note: String::from("C.ADDI16SP with imm=0 is reserved") }
+                        Op::Unimplemented {
+                            inst,
+                            note: String::from(
+                                "C.ADDI16SP with imm=0 is reserved",
+                            ),
+                        }
                     } else {
                         Op::Addi { rd: SP, rs1: SP, imm }
                     }
@@ -487,7 +536,10 @@ impl Op {
                     // C.LUI
                     let imm = get_c_lui_imm(inst);
                     if imm == 0 {
-                        Op::Unimplemented { inst, note: String::from("C.LUI with imm=0 is reserved") }
+                        Op::Unimplemented {
+                            inst,
+                            note: String::from("C.LUI with imm=0 is reserved"),
+                        }
                     } else {
                         // note: rd == 0 => hint
                         Op::Lui { rd, imm }
@@ -524,12 +576,16 @@ impl Op {
                             (0, 1) => Op::Xor { rd, rs1: rd, rs2 },
                             (0, 2) => Op::Or { rd, rs1: rd, rs2 },
                             (0, 3) => Op::And { rd, rs1: rd, rs2 },
-                            (1, 0) | (1, 1) => {
-                                Op::Unimplemented { inst, note: "C.SUBW/C.ADDW are not supported in RV32".to_string() }
-                            }
+                            (1, 0) | (1, 1) => Op::Unimplemented {
+                                inst,
+                                note: "C.SUBW/C.ADDW are not supported in RV32"
+                                    .to_string(),
+                            },
                             _ => Op::Unimplemented {
                                 inst,
-                                note: "Reserved compressed instruction at (1, 4)".to_string(),
+                                note:
+                                    "Reserved compressed instruction at (1, 4)"
+                                        .to_string(),
                             },
                         }
                     }
@@ -564,21 +620,30 @@ impl Op {
             }
             (2, 1) => {
                 // C.FLDSP (not supported)
-                Op::Unimplemented { inst, note: String::from("C.FLDSP is not supported") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.FLDSP is not supported"),
+                }
             }
             (2, 2) => {
                 // C.LWSP
                 let rd = get_c_rd_rs1(inst);
                 let imm = get_c_lwsp_imm(inst);
                 if rd == 0 {
-                    Op::Unimplemented { inst, note: String::from("C.LWSP with rd=0 is reserved") }
+                    Op::Unimplemented {
+                        inst,
+                        note: String::from("C.LWSP with rd=0 is reserved"),
+                    }
                 } else {
                     Op::Lw { rd, rs1: SP, offset: imm }
                 }
             }
             (2, 3) => {
                 // C.LDSP (RV64, not supported in RV32)
-                Op::Unimplemented { inst, note: String::from("C.LDSP is not supported in RV32") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.LDSP is not supported in RV32"),
+                }
             }
             (2, 4) => {
                 let rd = get_c_rd_rs1(inst);
@@ -586,7 +651,10 @@ impl Op {
                 let bit12 = (inst >> 12) & 0x1;
 
                 match (bit12, rd, rs2) {
-                    (0, 0, 0) => Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") },
+                    (0, 0, 0) => Op::Unimplemented {
+                        inst,
+                        note: String::from("C.JR with rd=0 is reserved"),
+                    },
 
                     // C.JR
                     (0, _, 0) => Op::Jalr { rd: ZERO, rs1: rd, offset: 0 },
@@ -608,7 +676,10 @@ impl Op {
             }
             (2, 5) => {
                 // C.FSDSP (not supported)
-                Op::Unimplemented { inst, note: String::from("C.FSDSP is not supported") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.FSDSP is not supported"),
+                }
             }
             (2, 6) => {
                 // C.SWSP
@@ -618,7 +689,10 @@ impl Op {
             }
             (2, 7) => {
                 // C.SDSP (RV64, not supported in RV32)
-                Op::Unimplemented { inst, note: String::from("C.SDSP is not supported in RV32") }
+                Op::Unimplemented {
+                    inst,
+                    note: String::from("C.SDSP is not supported in RV32"),
+                }
             }
 
             // uncompressed instructions take a different decoding path
@@ -647,7 +721,11 @@ impl Op {
                 m.set(*rd, val);
             }
             Op::Sltu { rd, rs1, rs2 } => {
-                let val = if (m.get(*rs1) as u32) < (m.get(*rs2) as u32) { 1 } else { 0 };
+                let val = if (m.get(*rs1) as u32) < (m.get(*rs2) as u32) {
+                    1
+                } else {
+                    0
+                };
                 m.set(*rd, val);
             }
             Op::Xor { rd, rs1, rs2 } => {
@@ -683,7 +761,8 @@ impl Op {
                 m.set(*rd, val);
             }
             Op::Sltiu { rd, rs1, imm } => {
-                let val = if (m.get(*rs1) as u32) < (*imm as u32) { 1 } else { 0 };
+                let val =
+                    if (m.get(*rs1) as u32) < (*imm as u32) { 1 } else { 0 };
                 m.set(*rd, val);
             }
             Op::Xori { rd, rs1, imm } => {
@@ -758,44 +837,52 @@ impl Op {
 
             // load
             Op::Lb { rd, rs1, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let val = m.load_i8(effective_address)?;
                 m.set(*rd, val);
             }
             Op::Lh { rd, rs1, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let val = m.load_i16(effective_address)?;
                 m.set(*rd, val);
             }
             Op::Lw { rd, rs1, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let val = m.load_i32(effective_address)?;
                 m.set(*rd, val);
             }
             Op::Lbu { rd, rs1, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let val = m.load_u8(effective_address)?;
                 m.set(*rd, val);
             }
             Op::Lhu { rd, rs1, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let val = m.load_u16(effective_address)?;
                 m.set(*rd, val);
             }
 
             // store
             Op::Sb { rs1, rs2, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let raw = (m.get(*rs2) as u8).to_le_bytes();
                 m.store(effective_address, &raw)?;
             }
             Op::Sh { rs1, rs2, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let raw = (m.get(*rs2) as u16).to_le_bytes();
                 m.store(effective_address, &raw)?;
             }
             Op::Sw { rs1, rs2, offset } => {
-                let effective_address = (m.get(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address =
+                    (m.get(*rs1) as u32).wrapping_add(*offset as u32);
                 let raw = (m.get(*rs2) as u32).to_le_bytes();
                 m.store(effective_address, &raw)?;
             }
@@ -818,55 +905,78 @@ impl Op {
                     63 => {
                         // read system call
                         m.current_effect_mut().unwrap().other_message =
-                            Some(format!("read({}, 0x{:x}, {})", m.get(10), m.get(11), m.get(12)));
+                            Some(format!(
+                                "read({}, 0x{:x}, {})",
+                                m.get(10),
+                                m.get(11),
+                                m.get(12)
+                            ));
                         let fd = m.get(A0);
                         let buf_addr = m.get(A1) as u32;
                         let count = m.get(A2);
 
                         if fd != 0 {
-                            return Err(format!("read syscall: only stdin (fd 0) supported, not {fd}"));
+                            return Err(format!(
+                                "read syscall: only stdin (fd 0) supported, not {fd}"
+                            ));
                         }
                         if count < 0 {
-                            return Err(format!("read syscall: invalid buffer size: {count}"));
+                            return Err(format!(
+                                "read syscall: invalid buffer size: {count}"
+                            ));
                         }
 
                         // make a buffer and read from stdin
                         let mut read_buffer = vec![0; count as usize];
-                        let n = m.io_provider_mut().read_stdin(&mut read_buffer)?;
+                        let n =
+                            m.io_provider_mut().read_stdin(&mut read_buffer)?;
                         read_buffer.truncate(n);
 
                         m.store(buf_addr, &read_buffer)?;
                         m.set(A0, read_buffer.len() as i32);
                         m.stdin_mut().extend_from_slice(&read_buffer);
-                        m.current_effect_mut().unwrap().stdin = Some(read_buffer);
+                        m.current_effect_mut().unwrap().stdin =
+                            Some(read_buffer);
                     }
                     64 => {
                         // write system call
                         m.current_effect_mut().unwrap().other_message =
-                            Some(format!("write({}, 0x{:x}, {})", m.get(A0), m.get(A1), m.get(A2)));
+                            Some(format!(
+                                "write({}, 0x{:x}, {})",
+                                m.get(A0),
+                                m.get(A1),
+                                m.get(A2)
+                            ));
                         let fd = m.get(A0);
                         let buf_addr = m.get(11) as u32;
                         let count = m.get(12);
 
                         if fd != 1 {
-                            return Err(format!("write syscall: only stdout (fd 1) supported, not {fd}"));
+                            return Err(format!(
+                                "write syscall: only stdout (fd 1) supported, not {fd}"
+                            ));
                         }
                         if count < 0 {
-                            return Err(format!("write syscall: invalid buffer size: {count}"));
+                            return Err(format!(
+                                "write syscall: invalid buffer size: {count}"
+                            ));
                         }
 
                         let write_buffer = m.load(buf_addr, count as u32)?;
                         m.io_provider_mut().write_stdout(&write_buffer)?;
                         m.set(A0, write_buffer.len() as i32);
                         m.stdout_mut().extend_from_slice(&write_buffer);
-                        m.current_effect_mut().unwrap().stdout = Some(write_buffer);
+                        m.current_effect_mut().unwrap().stdout =
+                            Some(write_buffer);
                     }
                     93 => {
                         // exit system call
                         let status = m.get(A0) & 0xff;
                         return Err(format!("exit({})", status));
                     }
-                    syscall => return Err(format!("unsupported syscall {syscall}")),
+                    syscall => {
+                        return Err(format!("unsupported syscall {syscall}"));
+                    }
                 }
             }
             Op::Ebreak => {
@@ -879,35 +989,55 @@ impl Op {
                 m.set(*rd, val);
             }
             Op::Mulh { rd, rs1, rs2 } => {
-                let val = ((m.get(*rs1) as i64 * m.get(*rs2) as i64) >> 32) as i32;
+                let val =
+                    ((m.get(*rs1) as i64 * m.get(*rs2) as i64) >> 32) as i32;
                 m.set(*rd, val);
             }
             Op::Mulhsu { rd, rs1, rs2 } => {
-                let val = ((m.get(*rs1) as i64 * (m.get(*rs2) as u32 as i64)) >> 32) as i32;
+                let val = ((m.get(*rs1) as i64 * (m.get(*rs2) as u32 as i64))
+                    >> 32) as i32;
                 m.set(*rd, val);
             }
             Op::Mulhu { rd, rs1, rs2 } => {
-                let val = (((m.get(*rs1) as u32 as u64) * (m.get(*rs2) as u32 as u64)) >> 32) as i32;
+                let val = (((m.get(*rs1) as u32 as u64)
+                    * (m.get(*rs2) as u32 as u64))
+                    >> 32) as i32;
                 m.set(*rd, val);
             }
             Op::Div { rd, rs1, rs2 } => {
                 let rs2_val = m.get(*rs2);
-                let val = if rs2_val == 0 { -1 } else { m.get(*rs1).wrapping_div(rs2_val) };
+                let val = if rs2_val == 0 {
+                    -1
+                } else {
+                    m.get(*rs1).wrapping_div(rs2_val)
+                };
                 m.set(*rd, val);
             }
             Op::Divu { rd, rs1, rs2 } => {
                 let rs2_val = m.get(*rs2) as u32;
-                let val = if rs2_val == 0 { -1 } else { ((m.get(*rs1) as u32).wrapping_div(rs2_val)) as i32 };
+                let val = if rs2_val == 0 {
+                    -1
+                } else {
+                    ((m.get(*rs1) as u32).wrapping_div(rs2_val)) as i32
+                };
                 m.set(*rd, val);
             }
             Op::Rem { rd, rs1, rs2 } => {
                 let rs2_val = m.get(*rs2);
-                let val = if rs2_val == 0 { m.get(*rs1) } else { m.get(*rs1).wrapping_rem(rs2_val) };
+                let val = if rs2_val == 0 {
+                    m.get(*rs1)
+                } else {
+                    m.get(*rs1).wrapping_rem(rs2_val)
+                };
                 m.set(*rd, val);
             }
             Op::Remu { rd, rs1, rs2 } => {
                 let rs2_val = m.get(*rs2) as u32;
-                let val = if rs2_val == 0 { m.get(*rs1) } else { ((m.get(*rs1) as u32).wrapping_rem(rs2_val)) as i32 };
+                let val = if rs2_val == 0 {
+                    m.get(*rs1)
+                } else {
+                    ((m.get(*rs1) as u32).wrapping_rem(rs2_val)) as i32
+                };
                 m.set(*rd, val);
             }
 
@@ -1023,15 +1153,23 @@ impl Op {
         Ok(())
     }
 
-    pub fn execute_with_context(&self, ctx: &mut dyn ExecutionContext, length: u32) -> Result<(), String> {
+    pub fn execute_with_context(
+        &self,
+        ctx: &mut dyn ExecutionContext,
+        length: u32,
+    ) -> Result<(), String> {
         match self {
             // r-type
             Op::Add { rd, rs1, rs2 } => {
-                let val = ctx.read_register(*rs1).wrapping_add(ctx.read_register(*rs2));
+                let val = ctx
+                    .read_register(*rs1)
+                    .wrapping_add(ctx.read_register(*rs2));
                 ctx.write_register(*rd, val);
             }
             Op::Sub { rd, rs1, rs2 } => {
-                let val = ctx.read_register(*rs1).wrapping_sub(ctx.read_register(*rs2));
+                let val = ctx
+                    .read_register(*rs1)
+                    .wrapping_sub(ctx.read_register(*rs2));
                 ctx.write_register(*rd, val);
             }
             Op::Sll { rd, rs1, rs2 } => {
@@ -1040,11 +1178,21 @@ impl Op {
                 ctx.write_register(*rd, val);
             }
             Op::Slt { rd, rs1, rs2 } => {
-                let val = if ctx.read_register(*rs1) < ctx.read_register(*rs2) { 1 } else { 0 };
+                let val = if ctx.read_register(*rs1) < ctx.read_register(*rs2) {
+                    1
+                } else {
+                    0
+                };
                 ctx.write_register(*rd, val);
             }
             Op::Sltu { rd, rs1, rs2 } => {
-                let val = if (ctx.read_register(*rs1) as u32) < (ctx.read_register(*rs2) as u32) { 1 } else { 0 };
+                let val = if (ctx.read_register(*rs1) as u32)
+                    < (ctx.read_register(*rs2) as u32)
+                {
+                    1
+                } else {
+                    0
+                };
                 ctx.write_register(*rd, val);
             }
             Op::Xor { rd, rs1, rs2 } => {
@@ -1080,7 +1228,11 @@ impl Op {
                 ctx.write_register(*rd, val);
             }
             Op::Sltiu { rd, rs1, imm } => {
-                let val = if (ctx.read_register(*rs1) as u32) < (*imm as u32) { 1 } else { 0 };
+                let val = if (ctx.read_register(*rs1) as u32) < (*imm as u32) {
+                    1
+                } else {
+                    0
+                };
                 ctx.write_register(*rd, val);
             }
             Op::Xori { rd, rs1, imm } => {
@@ -1111,32 +1263,48 @@ impl Op {
             // branch
             Op::Beq { rs1, rs2, offset } => {
                 if ctx.read_register(*rs1) == ctx.read_register(*rs2) {
-                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                    ctx.write_pc(
+                        (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                    )?;
                 }
             }
             Op::Bne { rs1, rs2, offset } => {
                 if ctx.read_register(*rs1) != ctx.read_register(*rs2) {
-                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                    ctx.write_pc(
+                        (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                    )?;
                 }
             }
             Op::Blt { rs1, rs2, offset } => {
                 if ctx.read_register(*rs1) < ctx.read_register(*rs2) {
-                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                    ctx.write_pc(
+                        (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                    )?;
                 }
             }
             Op::Bge { rs1, rs2, offset } => {
                 if ctx.read_register(*rs1) >= ctx.read_register(*rs2) {
-                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                    ctx.write_pc(
+                        (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                    )?;
                 }
             }
             Op::Bltu { rs1, rs2, offset } => {
-                if (ctx.read_register(*rs1) as u32) < (ctx.read_register(*rs2) as u32) {
-                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                if (ctx.read_register(*rs1) as u32)
+                    < (ctx.read_register(*rs2) as u32)
+                {
+                    ctx.write_pc(
+                        (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                    )?;
                 }
             }
             Op::Bgeu { rs1, rs2, offset } => {
-                if (ctx.read_register(*rs1) as u32) >= (ctx.read_register(*rs2) as u32) {
-                    ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                if (ctx.read_register(*rs1) as u32)
+                    >= (ctx.read_register(*rs2) as u32)
+                {
+                    ctx.write_pc(
+                        (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                    )?;
                 }
             }
 
@@ -1144,60 +1312,76 @@ impl Op {
             Op::Jal { rd, offset } => {
                 let return_addr = ctx.read_pc().wrapping_add(length);
                 ctx.write_register(*rd, return_addr as i32);
-                ctx.write_pc((ctx.read_pc() as i32).wrapping_add(*offset) as u32)?;
+                ctx.write_pc(
+                    (ctx.read_pc() as i32).wrapping_add(*offset) as u32
+                )?;
             }
             Op::Jalr { rd, rs1, offset } => {
                 let rs1_val = ctx.read_register(*rs1);
                 let return_addr = ctx.read_pc().wrapping_add(length);
                 ctx.write_register(*rd, return_addr as i32);
-                ctx.write_pc(((rs1_val as u32).wrapping_add(*offset as u32)) & !1)?;
+                ctx.write_pc(
+                    ((rs1_val as u32).wrapping_add(*offset as u32)) & !1,
+                )?;
             }
 
             // load
             Op::Lb { rd, rs1, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let bytes = ctx.read_memory(effective_address, 1)?;
-                let val = i8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32;
+                let val =
+                    i8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Lh { rd, rs1, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let bytes = ctx.read_memory(effective_address, 2)?;
-                let val = i16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32;
+                let val =
+                    i16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Lw { rd, rs1, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let bytes = ctx.read_memory(effective_address, 4)?;
                 let val = i32::from_le_bytes(bytes[..4].try_into().unwrap());
                 ctx.write_register(*rd, val);
             }
             Op::Lbu { rd, rs1, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let bytes = ctx.read_memory(effective_address, 1)?;
-                let val = u8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32;
+                let val =
+                    u8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Lhu { rd, rs1, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let bytes = ctx.read_memory(effective_address, 2)?;
-                let val = u16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32;
+                let val =
+                    u16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32;
                 ctx.write_register(*rd, val);
             }
 
             // store
             Op::Sb { rs1, rs2, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let raw = (ctx.read_register(*rs2) as u8).to_le_bytes();
                 ctx.write_memory(effective_address, &raw)?;
             }
             Op::Sh { rs1, rs2, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let raw = (ctx.read_register(*rs2) as u16).to_le_bytes();
                 ctx.write_memory(effective_address, &raw)?;
             }
             Op::Sw { rs1, rs2, offset } => {
-                let effective_address = (ctx.read_register(*rs1) as u32).wrapping_add(*offset as u32);
+                let effective_address = (ctx.read_register(*rs1) as u32)
+                    .wrapping_add(*offset as u32);
                 let raw = (ctx.read_register(*rs2) as u32).to_le_bytes();
                 ctx.write_memory(effective_address, &raw)?;
             }
@@ -1214,7 +1398,10 @@ impl Op {
             // misc
             Op::Fence => {}
             Op::Ecall => {
-                return Err("ecall execution via ExecutionContext not yet implemented".to_string());
+                return Err(
+                    "ecall execution via ExecutionContext not yet implemented"
+                        .to_string(),
+                );
             }
             Op::Ebreak => {
                 return Err(String::from("ebreak"));
@@ -1222,37 +1409,55 @@ impl Op {
 
             // m extension
             Op::Mul { rd, rs1, rs2 } => {
-                let val = ctx.read_register(*rs1).wrapping_mul(ctx.read_register(*rs2));
+                let val = ctx
+                    .read_register(*rs1)
+                    .wrapping_mul(ctx.read_register(*rs2));
                 ctx.write_register(*rd, val);
             }
             Op::Mulh { rd, rs1, rs2 } => {
-                let val = ((ctx.read_register(*rs1) as i64 * ctx.read_register(*rs2) as i64) >> 32) as i32;
+                let val = ((ctx.read_register(*rs1) as i64
+                    * ctx.read_register(*rs2) as i64)
+                    >> 32) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Mulhsu { rd, rs1, rs2 } => {
-                let val = ((ctx.read_register(*rs1) as i64 * (ctx.read_register(*rs2) as u32 as i64)) >> 32) as i32;
+                let val = ((ctx.read_register(*rs1) as i64
+                    * (ctx.read_register(*rs2) as u32 as i64))
+                    >> 32) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Mulhu { rd, rs1, rs2 } => {
-                let val =
-                    (((ctx.read_register(*rs1) as u32 as u64) * (ctx.read_register(*rs2) as u32 as u64)) >> 32) as i32;
+                let val = (((ctx.read_register(*rs1) as u32 as u64)
+                    * (ctx.read_register(*rs2) as u32 as u64))
+                    >> 32) as i32;
                 ctx.write_register(*rd, val);
             }
             Op::Div { rd, rs1, rs2 } => {
                 let rs2_val = ctx.read_register(*rs2);
-                let val = if rs2_val == 0 { -1 } else { ctx.read_register(*rs1).wrapping_div(rs2_val) };
+                let val = if rs2_val == 0 {
+                    -1
+                } else {
+                    ctx.read_register(*rs1).wrapping_div(rs2_val)
+                };
                 ctx.write_register(*rd, val);
             }
             Op::Divu { rd, rs1, rs2 } => {
                 let rs2_val = ctx.read_register(*rs2) as u32;
-                let val =
-                    if rs2_val == 0 { -1 } else { ((ctx.read_register(*rs1) as u32).wrapping_div(rs2_val)) as i32 };
+                let val = if rs2_val == 0 {
+                    -1
+                } else {
+                    ((ctx.read_register(*rs1) as u32).wrapping_div(rs2_val))
+                        as i32
+                };
                 ctx.write_register(*rd, val);
             }
             Op::Rem { rd, rs1, rs2 } => {
                 let rs2_val = ctx.read_register(*rs2);
-                let val =
-                    if rs2_val == 0 { ctx.read_register(*rs1) } else { ctx.read_register(*rs1).wrapping_rem(rs2_val) };
+                let val = if rs2_val == 0 {
+                    ctx.read_register(*rs1)
+                } else {
+                    ctx.read_register(*rs1).wrapping_rem(rs2_val)
+                };
                 ctx.write_register(*rd, val);
             }
             Op::Remu { rd, rs1, rs2 } => {
@@ -1260,7 +1465,8 @@ impl Op {
                 let val = if rs2_val == 0 {
                     ctx.read_register(*rs1)
                 } else {
-                    ((ctx.read_register(*rs1) as u32).wrapping_rem(rs2_val)) as i32
+                    ((ctx.read_register(*rs1) as u32).wrapping_rem(rs2_val))
+                        as i32
                 };
                 ctx.write_register(*rd, val);
             }
@@ -1277,7 +1483,10 @@ impl Op {
             | Op::AmomaxW { .. }
             | Op::AmominuW { .. }
             | Op::AmomaxuW { .. } => {
-                return Err("atomic operations not implemented for ExecutionContext".to_string());
+                return Err(
+                    "atomic operations not implemented for ExecutionContext"
+                        .to_string(),
+                );
             }
 
             Op::Unimplemented { inst, note } => {
@@ -1290,75 +1499,244 @@ impl Op {
     pub fn to_fields(&self) -> Vec<Field> {
         match *self {
             // r-type
-            Op::Add { rd, rs1, rs2 } => vec![Field::Opcode("add"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Sub { rd, rs1, rs2 } => vec![Field::Opcode("sub"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Sll { rd, rs1, rs2 } => vec![Field::Opcode("sll"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Slt { rd, rs1, rs2 } => vec![Field::Opcode("slt"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Sltu { rd, rs1, rs2 } => vec![Field::Opcode("sltu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Xor { rd, rs1, rs2 } => vec![Field::Opcode("xor"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Srl { rd, rs1, rs2 } => vec![Field::Opcode("srl"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Sra { rd, rs1, rs2 } => vec![Field::Opcode("sra"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Or { rd, rs1, rs2 } => vec![Field::Opcode("or"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::And { rd, rs1, rs2 } => vec![Field::Opcode("and"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
+            Op::Add { rd, rs1, rs2 } => vec![
+                Field::Opcode("add"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Sub { rd, rs1, rs2 } => vec![
+                Field::Opcode("sub"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Sll { rd, rs1, rs2 } => vec![
+                Field::Opcode("sll"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Slt { rd, rs1, rs2 } => vec![
+                Field::Opcode("slt"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Sltu { rd, rs1, rs2 } => vec![
+                Field::Opcode("sltu"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Xor { rd, rs1, rs2 } => vec![
+                Field::Opcode("xor"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Srl { rd, rs1, rs2 } => vec![
+                Field::Opcode("srl"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Sra { rd, rs1, rs2 } => vec![
+                Field::Opcode("sra"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Or { rd, rs1, rs2 } => vec![
+                Field::Opcode("or"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::And { rd, rs1, rs2 } => vec![
+                Field::Opcode("and"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
 
             // i-type instructions
-            Op::Addi { rd, rs1, imm } => vec![Field::Opcode("addi"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(imm)],
-            Op::Slti { rd, rs1, imm } => vec![Field::Opcode("slti"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(imm)],
+            Op::Addi { rd, rs1, imm } => vec![
+                Field::Opcode("addi"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(imm),
+            ],
+            Op::Slti { rd, rs1, imm } => vec![
+                Field::Opcode("slti"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(imm),
+            ],
             Op::Sltiu { rd, rs1, imm } => {
-                vec![Field::Opcode("sltiu"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(imm)]
+                vec![
+                    Field::Opcode("sltiu"),
+                    Field::Reg(rd),
+                    Field::Reg(rs1),
+                    Field::Imm(imm),
+                ]
             }
-            Op::Xori { rd, rs1, imm } => vec![Field::Opcode("xori"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(imm)],
-            Op::Ori { rd, rs1, imm } => vec![Field::Opcode("ori"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(imm)],
-            Op::Andi { rd, rs1, imm } => vec![Field::Opcode("andi"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(imm)],
+            Op::Xori { rd, rs1, imm } => vec![
+                Field::Opcode("xori"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(imm),
+            ],
+            Op::Ori { rd, rs1, imm } => vec![
+                Field::Opcode("ori"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(imm),
+            ],
+            Op::Andi { rd, rs1, imm } => vec![
+                Field::Opcode("andi"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(imm),
+            ],
             Op::Slli { rd, rs1, shamt } => {
-                vec![Field::Opcode("slli"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(shamt)]
+                vec![
+                    Field::Opcode("slli"),
+                    Field::Reg(rd),
+                    Field::Reg(rs1),
+                    Field::Imm(shamt),
+                ]
             }
             Op::Srli { rd, rs1, shamt } => {
-                vec![Field::Opcode("srli"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(shamt)]
+                vec![
+                    Field::Opcode("srli"),
+                    Field::Reg(rd),
+                    Field::Reg(rs1),
+                    Field::Imm(shamt),
+                ]
             }
             Op::Srai { rd, rs1, shamt } => {
-                vec![Field::Opcode("srai"), Field::Reg(rd), Field::Reg(rs1), Field::Imm(shamt)]
+                vec![
+                    Field::Opcode("srai"),
+                    Field::Reg(rd),
+                    Field::Reg(rs1),
+                    Field::Imm(shamt),
+                ]
             }
 
             // branch
             Op::Beq { rs1, rs2, offset } => {
-                vec![Field::Opcode("beq"), Field::Reg(rs1), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("beq"),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bne { rs1, rs2, offset } => {
-                vec![Field::Opcode("bne"), Field::Reg(rs1), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bne"),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Blt { rs1, rs2, offset } => {
-                vec![Field::Opcode("blt"), Field::Reg(rs1), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("blt"),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bge { rs1, rs2, offset } => {
-                vec![Field::Opcode("bge"), Field::Reg(rs1), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bge"),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bltu { rs1, rs2, offset } => {
-                vec![Field::Opcode("bltu"), Field::Reg(rs1), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bltu"),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bgeu { rs1, rs2, offset } => {
-                vec![Field::Opcode("bgeu"), Field::Reg(rs1), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bgeu"),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
 
             // jump
-            Op::Jal { rd, offset } => vec![Field::Opcode("jal"), Field::Reg(rd), Field::PCRelAddr(offset)],
-            Op::Jalr { rd, rs1, offset } => vec![Field::Opcode("jalr"), Field::Reg(rd), Field::Indirect(offset, rs1)],
+            Op::Jal { rd, offset } => vec![
+                Field::Opcode("jal"),
+                Field::Reg(rd),
+                Field::PCRelAddr(offset),
+            ],
+            Op::Jalr { rd, rs1, offset } => vec![
+                Field::Opcode("jalr"),
+                Field::Reg(rd),
+                Field::Indirect(offset, rs1),
+            ],
 
             // load
-            Op::Lb { rd, rs1, offset } => vec![Field::Opcode("lb"), Field::Reg(rd), Field::Indirect(offset, rs1)],
-            Op::Lh { rd, rs1, offset } => vec![Field::Opcode("lh"), Field::Reg(rd), Field::Indirect(offset, rs1)],
-            Op::Lw { rd, rs1, offset } => vec![Field::Opcode("lw"), Field::Reg(rd), Field::Indirect(offset, rs1)],
-            Op::Lbu { rd, rs1, offset } => vec![Field::Opcode("lbu"), Field::Reg(rd), Field::Indirect(offset, rs1)],
-            Op::Lhu { rd, rs1, offset } => vec![Field::Opcode("lhu"), Field::Reg(rd), Field::Indirect(offset, rs1)],
+            Op::Lb { rd, rs1, offset } => vec![
+                Field::Opcode("lb"),
+                Field::Reg(rd),
+                Field::Indirect(offset, rs1),
+            ],
+            Op::Lh { rd, rs1, offset } => vec![
+                Field::Opcode("lh"),
+                Field::Reg(rd),
+                Field::Indirect(offset, rs1),
+            ],
+            Op::Lw { rd, rs1, offset } => vec![
+                Field::Opcode("lw"),
+                Field::Reg(rd),
+                Field::Indirect(offset, rs1),
+            ],
+            Op::Lbu { rd, rs1, offset } => vec![
+                Field::Opcode("lbu"),
+                Field::Reg(rd),
+                Field::Indirect(offset, rs1),
+            ],
+            Op::Lhu { rd, rs1, offset } => vec![
+                Field::Opcode("lhu"),
+                Field::Reg(rd),
+                Field::Indirect(offset, rs1),
+            ],
 
             // store
-            Op::Sb { rs1, rs2, offset } => vec![Field::Opcode("sb"), Field::Reg(rs2), Field::Indirect(offset, rs1)],
-            Op::Sh { rs1, rs2, offset } => vec![Field::Opcode("sh"), Field::Reg(rs2), Field::Indirect(offset, rs1)],
-            Op::Sw { rs1, rs2, offset } => vec![Field::Opcode("sw"), Field::Reg(rs2), Field::Indirect(offset, rs1)],
+            Op::Sb { rs1, rs2, offset } => vec![
+                Field::Opcode("sb"),
+                Field::Reg(rs2),
+                Field::Indirect(offset, rs1),
+            ],
+            Op::Sh { rs1, rs2, offset } => vec![
+                Field::Opcode("sh"),
+                Field::Reg(rs2),
+                Field::Indirect(offset, rs1),
+            ],
+            Op::Sw { rs1, rs2, offset } => vec![
+                Field::Opcode("sw"),
+                Field::Reg(rs2),
+                Field::Indirect(offset, rs1),
+            ],
 
             // u-type
-            Op::Lui { rd, imm } => vec![Field::Opcode("lui"), Field::Reg(rd), Field::Imm(imm)],
-            Op::Auipc { rd, imm } => vec![Field::Opcode("auipc"), Field::Reg(rd), Field::Imm(imm)],
+            Op::Lui { rd, imm } => {
+                vec![Field::Opcode("lui"), Field::Reg(rd), Field::Imm(imm)]
+            }
+            Op::Auipc { rd, imm } => {
+                vec![Field::Opcode("auipc"), Field::Reg(rd), Field::Imm(imm)]
+            }
 
             // misc
             Op::Fence => vec![Field::Opcode("fence")],
@@ -1366,52 +1744,146 @@ impl Op {
             Op::Ebreak => vec![Field::Opcode("ebreak")],
 
             // m extension
-            Op::Mul { rd, rs1, rs2 } => vec![Field::Opcode("mul"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Mulh { rd, rs1, rs2 } => vec![Field::Opcode("mulh"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
+            Op::Mul { rd, rs1, rs2 } => vec![
+                Field::Opcode("mul"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Mulh { rd, rs1, rs2 } => vec![
+                Field::Opcode("mulh"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
             Op::Mulhsu { rd, rs1, rs2 } => {
-                vec![Field::Opcode("mulhsu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)]
+                vec![
+                    Field::Opcode("mulhsu"),
+                    Field::Reg(rd),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                ]
             }
             Op::Mulhu { rd, rs1, rs2 } => {
-                vec![Field::Opcode("mulhu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)]
+                vec![
+                    Field::Opcode("mulhu"),
+                    Field::Reg(rd),
+                    Field::Reg(rs1),
+                    Field::Reg(rs2),
+                ]
             }
-            Op::Div { rd, rs1, rs2 } => vec![Field::Opcode("div"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Divu { rd, rs1, rs2 } => vec![Field::Opcode("divu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Rem { rd, rs1, rs2 } => vec![Field::Opcode("rem"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
-            Op::Remu { rd, rs1, rs2 } => vec![Field::Opcode("remu"), Field::Reg(rd), Field::Reg(rs1), Field::Reg(rs2)],
+            Op::Div { rd, rs1, rs2 } => vec![
+                Field::Opcode("div"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Divu { rd, rs1, rs2 } => vec![
+                Field::Opcode("divu"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Rem { rd, rs1, rs2 } => vec![
+                Field::Opcode("rem"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Remu { rd, rs1, rs2 } => vec![
+                Field::Opcode("remu"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
 
             // a extension - load reserved / store conditional
-            Op::LrW { rd, rs1, .. } => vec![Field::Opcode("lr.w"), Field::Reg(rd), Field::Indirect(0, rs1)],
+            Op::LrW { rd, rs1, .. } => vec![
+                Field::Opcode("lr.w"),
+                Field::Reg(rd),
+                Field::Indirect(0, rs1),
+            ],
             Op::ScW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("sc.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("sc.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
 
             // a extension - atomic memory operations
             Op::AmoswapW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amoswap.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amoswap.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmoaddW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amoadd.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amoadd.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmoxorW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amoxor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amoxor.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmoandW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amoand.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amoand.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmoorW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amoor.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amoor.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmominW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amomin.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amomin.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmomaxW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amomax.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amomax.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmominuW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amominu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amominu.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
             Op::AmomaxuW { rd, rs1, rs2, .. } => {
-                vec![Field::Opcode("amomaxu.w"), Field::Reg(rd), Field::Reg(rs2), Field::Indirect(0, rs1)]
+                vec![
+                    Field::Opcode("amomaxu.w"),
+                    Field::Reg(rd),
+                    Field::Reg(rs2),
+                    Field::Indirect(0, rs1),
+                ]
             }
 
             // unknown instructions
@@ -1421,45 +1893,107 @@ impl Op {
 
     pub fn to_pseudo_fields(&self) -> Vec<Field> {
         match *self {
-            Op::Addi { rd: ZERO, rs1: ZERO, imm: 0 } => vec![Field::Opcode("nop")],
-            Op::Addi { rd, rs1: ZERO, imm } => vec![Field::Opcode("li"), Field::Reg(rd), Field::Imm(imm)],
-            Op::Addi { rd, rs1, imm: 0 } => vec![Field::Opcode("mv"), Field::Reg(rd), Field::Reg(rs1)],
-            Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } => vec![Field::Opcode("ret")],
-            Op::Jalr { rd: ZERO, rs1, offset: 0 } => vec![Field::Opcode("jr"), Field::Reg(rs1)],
-            Op::Jalr { rd: RA, rs1, offset: 0 } => vec![Field::Opcode("jalr"), Field::Reg(rs1)],
-            Op::Jal { rd: ZERO, offset } => vec![Field::Opcode("j"), Field::PCRelAddr(offset)],
-            Op::Jal { rd: RA, offset } => vec![Field::Opcode("jal"), Field::PCRelAddr(offset)],
-            Op::Addi { rd, rs1: GP, imm } => vec![Field::Opcode("la"), Field::Reg(rd), Field::GPRelAddr(imm)],
-            Op::Xori { rd, rs1, imm: -1 } => vec![Field::Opcode("not"), Field::Reg(rd), Field::Reg(rs1)],
-            Op::Sltiu { rd, rs1, imm: 1 } => vec![Field::Opcode("seqz"), Field::Reg(rd), Field::Reg(rs1)],
-            Op::Sltu { rd, rs1: ZERO, rs2 } => vec![Field::Opcode("snez"), Field::Reg(rd), Field::Reg(rs2)],
+            Op::Addi { rd: ZERO, rs1: ZERO, imm: 0 } => {
+                vec![Field::Opcode("nop")]
+            }
+            Op::Addi { rd, rs1: ZERO, imm } => {
+                vec![Field::Opcode("li"), Field::Reg(rd), Field::Imm(imm)]
+            }
+            Op::Addi { rd, rs1, imm: 0 } => {
+                vec![Field::Opcode("mv"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } => {
+                vec![Field::Opcode("ret")]
+            }
+            Op::Jalr { rd: ZERO, rs1, offset: 0 } => {
+                vec![Field::Opcode("jr"), Field::Reg(rs1)]
+            }
+            Op::Jalr { rd: RA, rs1, offset: 0 } => {
+                vec![Field::Opcode("jalr"), Field::Reg(rs1)]
+            }
+            Op::Jal { rd: ZERO, offset } => {
+                vec![Field::Opcode("j"), Field::PCRelAddr(offset)]
+            }
+            Op::Jal { rd: RA, offset } => {
+                vec![Field::Opcode("jal"), Field::PCRelAddr(offset)]
+            }
+            Op::Addi { rd, rs1: GP, imm } => {
+                vec![Field::Opcode("la"), Field::Reg(rd), Field::GPRelAddr(imm)]
+            }
+            Op::Xori { rd, rs1, imm: -1 } => {
+                vec![Field::Opcode("not"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Sltiu { rd, rs1, imm: 1 } => {
+                vec![Field::Opcode("seqz"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Sltu { rd, rs1: ZERO, rs2 } => {
+                vec![Field::Opcode("snez"), Field::Reg(rd), Field::Reg(rs2)]
+            }
             Op::Beq { rs1: ZERO, rs2, offset } => {
-                vec![Field::Opcode("beqz"), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("beqz"),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Beq { rs1, rs2: ZERO, offset } => {
-                vec![Field::Opcode("beqz"), Field::Reg(rs1), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("beqz"),
+                    Field::Reg(rs1),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bne { rs1: ZERO, rs2, offset } => {
-                vec![Field::Opcode("bnez"), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bnez"),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bne { rs1, rs2: ZERO, offset } => {
-                vec![Field::Opcode("bnez"), Field::Reg(rs1), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bnez"),
+                    Field::Reg(rs1),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Blt { rs1, rs2: ZERO, offset } => {
-                vec![Field::Opcode("bltz"), Field::Reg(rs1), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bltz"),
+                    Field::Reg(rs1),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bge { rs1, rs2: ZERO, offset } => {
-                vec![Field::Opcode("bgez"), Field::Reg(rs1), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bgez"),
+                    Field::Reg(rs1),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Bge { rs1: ZERO, rs2, offset } => {
-                vec![Field::Opcode("blez"), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("blez"),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
             Op::Blt { rs1: ZERO, rs2, offset } => {
-                vec![Field::Opcode("bgtz"), Field::Reg(rs2), Field::PCRelAddr(offset)]
+                vec![
+                    Field::Opcode("bgtz"),
+                    Field::Reg(rs2),
+                    Field::PCRelAddr(offset),
+                ]
             }
-            Op::Sub { rd, rs1: ZERO, rs2 } => vec![Field::Opcode("neg"), Field::Reg(rd), Field::Reg(rs2)],
-            Op::Slt { rd, rs1: ZERO, rs2 } => vec![Field::Opcode("sgtz"), Field::Reg(rd), Field::Reg(rs2)],
-            Op::Slt { rd, rs1, rs2: ZERO } => vec![Field::Opcode("sltz"), Field::Reg(rd), Field::Reg(rs1)],
+            Op::Sub { rd, rs1: ZERO, rs2 } => {
+                vec![Field::Opcode("neg"), Field::Reg(rd), Field::Reg(rs2)]
+            }
+            Op::Slt { rd, rs1: ZERO, rs2 } => {
+                vec![Field::Opcode("sgtz"), Field::Reg(rd), Field::Reg(rs2)]
+            }
+            Op::Slt { rd, rs1, rs2: ZERO } => {
+                vec![Field::Opcode("sltz"), Field::Reg(rd), Field::Reg(rs1)]
+            }
 
             // no matching pseudo-instruction
             _ => self.to_fields(),
@@ -1478,19 +2012,44 @@ impl Op {
         arrow: Option<&str>,
         symbols: &HashMap<u32, String>,
     ) -> String {
-        let fields = if verbose { self.to_fields() } else { self.to_pseudo_fields() };
-        fields_to_string(&fields, pc, gp, is_compressed, hex, verbose, show_addresses, arrow, symbols)
+        let fields =
+            if verbose { self.to_fields() } else { self.to_pseudo_fields() };
+        fields_to_string(
+            &fields,
+            pc,
+            gp,
+            is_compressed,
+            hex,
+            verbose,
+            show_addresses,
+            arrow,
+            symbols,
+        )
     }
 
     pub fn branch_target(&self, pc: u32) -> Option<u32> {
         match self {
-            Self::Beq { offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
-            Self::Bne { offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
-            Self::Blt { offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
-            Self::Bge { offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
-            Self::Bltu { offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
-            Self::Bgeu { offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
-            Self::Jal { rd: ZERO, offset, .. } => Some((pc as i32).wrapping_add(*offset) as u32),
+            Self::Beq { offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
+            Self::Bne { offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
+            Self::Blt { offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
+            Self::Bge { offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
+            Self::Bltu { offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
+            Self::Bgeu { offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
+            Self::Jal { rd: ZERO, offset, .. } => {
+                Some((pc as i32).wrapping_add(*offset) as u32)
+            }
             _ => None,
         }
     }
@@ -1511,12 +2070,23 @@ pub fn get_pseudo_sequence(
     }
 
     match (&inst1.op, &inst2.op) {
-        (Op::Auipc { rd: rd1, imm: imm1 }, Op::Addi { rd: rd2, rs1: rs2, imm: imm2 }) if rd1 == rd2 && rd2 == rs2 => {
-            Some((2, vec![Field::Opcode("la"), Field::Reg(*rd1), Field::PCRelAddr(imm1 + imm2)]))
-        }
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Addi { rd: rd2, rs1: rs2, imm: imm2 },
+        ) if rd1 == rd2 && rd2 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("la"),
+                Field::Reg(*rd1),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
 
         (Op::Auipc { rd: RA, imm }, Op::Jalr { rd: RA, rs1: RA, offset }) => {
-            Some((2, vec![Field::Opcode("call"), Field::PCRelAddr(imm + offset)]))
+            Some((
+                2,
+                vec![Field::Opcode("call"), Field::PCRelAddr(imm + offset)],
+            ))
         }
 
         _ => None,
@@ -1543,7 +2113,11 @@ pub fn fields_to_string(
         format!("{:>7} ", pc)
     };
 
-    let mut label = if let Some(label) = symbols.get(&pc) { label.chars().collect() } else { Vec::new() };
+    let mut label = if let Some(label) = symbols.get(&pc) {
+        label.chars().collect()
+    } else {
+        Vec::new()
+    };
     if label.len() > 14 {
         label.truncate(14);
         label.push('…');
@@ -1566,8 +2140,11 @@ pub fn fields_to_string(
     if verbose && is_compressed {
         inst.insert_str(0, "c.");
     }
-    let operands =
-        fields[1..].iter().map(|elt| elt.to_string(pc, gp, hex, verbose, symbols)).collect::<Vec<_>>().join(", ");
+    let operands = fields[1..]
+        .iter()
+        .map(|elt| elt.to_string(pc, gp, hex, verbose, symbols))
+        .collect::<Vec<_>>()
+        .join(", ");
     let disasm = format!("{:<8}{}", inst, operands);
 
     format!("{addr_part}{label:<16}{disasm:<48}")
@@ -1583,14 +2160,23 @@ pub enum Field {
 }
 
 impl Field {
-    pub fn to_string(&self, pc: u32, gp: u32, hex: bool, verbose: bool, symbols: &HashMap<u32, String>) -> String {
+    pub fn to_string(
+        &self,
+        pc: u32,
+        gp: u32,
+        hex: bool,
+        verbose: bool,
+        symbols: &HashMap<u32, String>,
+    ) -> String {
         match self {
             Field::Opcode(inst) => String::from(*inst),
             Field::Reg(reg) => String::from(R[*reg]),
             Field::Imm(i) if !hex || (0..=9).contains(i) => format!("{}", i),
             Field::Imm(i) => format!("0x{:x}", i),
             Field::Indirect(0, reg) if !verbose => format!("({})", R[*reg]),
-            Field::Indirect(imm, reg) if hex => format!("0x{:x}({})", imm, R[*reg]),
+            Field::Indirect(imm, reg) if hex => {
+                format!("0x{:x}({})", imm, R[*reg])
+            }
             Field::Indirect(imm, reg) => format!("{}({})", imm, R[*reg]),
             Field::PCRelAddr(offset) => {
                 let addr = (pc as i32).wrapping_add(*offset) as u32;

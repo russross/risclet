@@ -51,12 +51,18 @@ pub fn process_cli_args() -> Result<Config, String> {
 }
 
 /// Parse command-line arguments from a vector
-pub fn process_cli_args_from_vec(program_name: &str, args: &[String]) -> Result<Config, String> {
+pub fn process_cli_args_from_vec(
+    program_name: &str,
+    args: &[String],
+) -> Result<Config, String> {
     process_cli_args_impl(program_name, args)
 }
 
 /// Internal implementation of CLI argument parsing
-fn process_cli_args_impl(program_name: &str, args: &[String]) -> Result<Config, String> {
+fn process_cli_args_impl(
+    program_name: &str,
+    args: &[String],
+) -> Result<Config, String> {
     if args.is_empty() {
         return Err(print_help(program_name));
     }
@@ -75,19 +81,41 @@ fn process_cli_args_impl(program_name: &str, args: &[String]) -> Result<Config, 
         // Handle --dump-* options
         if arg.starts_with("--dump-") {
             if arg.starts_with("--dump-ast") {
-                let spec_str = if arg.contains('=') { arg.split('=').nth(1).unwrap_or("") } else { "" };
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
                 dump_config.dump_ast = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-symbols") {
-                let spec_str = if arg.contains('=') { arg.split('=').nth(1).unwrap_or("") } else { "" };
-                dump_config.dump_symbols = Some(dump::parse_dump_spec(spec_str)?);
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_symbols =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-values") {
-                let spec_str = if arg.contains('=') { arg.split('=').nth(1).unwrap_or("") } else { "" };
-                dump_config.dump_values = Some(dump::parse_dump_spec(spec_str)?);
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                dump_config.dump_values =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-code") {
-                let spec_str = if arg.contains('=') { arg.split('=').nth(1).unwrap_or("") } else { "" };
+                let spec_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
                 dump_config.dump_code = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-elf") {
-                let parts_str = if arg.contains('=') { arg.split('=').nth(1).unwrap_or("") } else { "" };
+                let parts_str = if arg.contains('=') {
+                    arg.split('=').nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
                 dump_config.dump_elf = Some(dump::parse_elf_parts(parts_str)?);
             } else {
                 return Err(format!("Error: unknown option: {}", arg));
@@ -97,14 +125,18 @@ fn process_cli_args_impl(program_name: &str, args: &[String]) -> Result<Config, 
                 "-o" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -o requires an argument".to_string());
+                        return Err(
+                            "Error: -o requires an argument".to_string()
+                        );
                     }
                     output_file = args[i].clone();
                 }
                 "-t" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -t requires an argument".to_string());
+                        return Err(
+                            "Error: -t requires an argument".to_string()
+                        );
                     }
                     text_start = parse_address(&args[i])?;
                 }
@@ -150,7 +182,14 @@ fn process_cli_args_impl(program_name: &str, args: &[String]) -> Result<Config, 
         return Err("Error: no input files specified".to_string());
     }
 
-    Ok(Config { input_files, output_file, text_start, verbose, dump: dump_config, relax })
+    Ok(Config {
+        input_files,
+        output_file,
+        text_start,
+        verbose,
+        dump: dump_config,
+        relax,
+    })
 }
 
 /// Print help message
@@ -218,7 +257,8 @@ Note: When any --dump-* option is used, no output file is generated.",
 /// Parse an address string (decimal or hex with 0x prefix)
 fn parse_address(s: &str) -> Result<u32, String> {
     if let Some(hex) = s.strip_prefix("0x") {
-        u32::from_str_radix(hex, 16).map_err(|_| format!("Error: invalid hex address: {}", s))
+        u32::from_str_radix(hex, 16)
+            .map_err(|_| format!("Error: invalid hex address: {}", s))
     } else {
         s.parse::<u32>().map_err(|_| format!("Error: invalid address: {}", s))
     }

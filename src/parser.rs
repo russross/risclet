@@ -1,7 +1,8 @@
 use crate::ast::{
-    AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive, DirectiveOp, Expression, ITypeOp, Instruction,
-    JTypeOp, Line, LineContent, LoadStoreOp, Location, MemoryOrdering, NumericLabelRef, OperatorOp, PseudoOp, RTypeOp,
-    Register, SpecialOp, Token, UTypeOp,
+    AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive,
+    DirectiveOp, Expression, ITypeOp, Instruction, JTypeOp, Line, LineContent,
+    LoadStoreOp, Location, MemoryOrdering, NumericLabelRef, OperatorOp,
+    PseudoOp, RTypeOp, Register, SpecialOp, Token, UTypeOp,
 };
 use crate::error::{AssemblerError, Result};
 
@@ -41,10 +42,16 @@ impl<'a> Parser<'a> {
                 self.next();
                 Ok(())
             } else {
-                Err(AssemblerError::from_context(format!("Expected {:?}, found {:?}", expected, t), self.location()))
+                Err(AssemblerError::from_context(
+                    format!("Expected {:?}, found {:?}", expected, t),
+                    self.location(),
+                ))
             }
         } else {
-            Err(AssemblerError::from_context(format!("Expected {:?}, found EOF", expected), self.location()))
+            Err(AssemblerError::from_context(
+                format!("Expected {:?}, found EOF", expected),
+                self.location(),
+            ))
         }
     }
 
@@ -54,7 +61,10 @@ impl<'a> Parser<'a> {
         if let Some(Token::Identifier(s)) = self.next() {
             Ok(s)
         } else {
-            Err(AssemblerError::from_context("Expected identifier".to_string(), self.location()))
+            Err(AssemblerError::from_context(
+                "Expected identifier".to_string(),
+                self.location(),
+            ))
         }
     }
 
@@ -64,7 +74,10 @@ impl<'a> Parser<'a> {
         if let Some(Token::Register(r)) = self.next() {
             Ok(r)
         } else {
-            Err(AssemblerError::from_context("Expected register".to_string(), self.location()))
+            Err(AssemblerError::from_context(
+                "Expected register".to_string(),
+                self.location(),
+            ))
         }
     }
 
@@ -83,7 +96,10 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::BitwiseOr) => {
                     self.next();
                     let right = self.parse_bitwise_xor()?;
-                    left = Expression::BitwiseOrOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::BitwiseOrOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -100,7 +116,10 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::BitwiseXor) => {
                     self.next();
                     let right = self.parse_bitwise_and()?;
-                    left = Expression::BitwiseXorOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::BitwiseXorOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -117,7 +136,10 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::BitwiseAnd) => {
                     self.next();
                     let right = self.parse_shift()?;
-                    left = Expression::BitwiseAndOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::BitwiseAndOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -134,12 +156,18 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::LeftShift) => {
                     self.next();
                     let right = self.parse_additive()?;
-                    left = Expression::LeftShiftOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::LeftShiftOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::RightShift) => {
                     self.next();
                     let right = self.parse_additive()?;
-                    left = Expression::RightShiftOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::RightShiftOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -156,12 +184,18 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::Plus) => {
                     self.next();
                     let right = self.parse_multiplicative()?;
-                    left = Expression::PlusOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::PlusOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::Minus) => {
                     self.next();
                     let right = self.parse_multiplicative()?;
-                    left = Expression::MinusOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::MinusOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -178,17 +212,26 @@ impl<'a> Parser<'a> {
                 Token::Operator(OperatorOp::Multiply) => {
                     self.next();
                     let right = self.parse_unary()?;
-                    left = Expression::MultiplyOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::MultiplyOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::Divide) => {
                     self.next();
                     let right = self.parse_unary()?;
-                    left = Expression::DivideOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::DivideOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 Token::Operator(OperatorOp::Modulo) => {
                     self.next();
                     let right = self.parse_unary()?;
-                    left = Expression::ModuloOp { lhs: Box::new(left), rhs: Box::new(right) };
+                    left = Expression::ModuloOp {
+                        lhs: Box::new(left),
+                        rhs: Box::new(right),
+                    };
                 }
                 _ => break,
             }
@@ -203,7 +246,9 @@ impl<'a> Parser<'a> {
             self.next();
             let expr = self.parse_unary()?;
             Ok(Expression::NegateOp { expr: Box::new(expr) })
-        } else if let Some(Token::Operator(OperatorOp::BitwiseNot)) = self.peek() {
+        } else if let Some(Token::Operator(OperatorOp::BitwiseNot)) =
+            self.peek()
+        {
             self.next();
             let expr = self.parse_unary()?;
             Ok(Expression::BitwiseNotOp { expr: Box::new(expr) })
@@ -224,10 +269,16 @@ impl<'a> Parser<'a> {
                     if let Some(Token::Identifier(s)) = self.peek() {
                         if s == "f" {
                             self.next();
-                            Ok(Expression::NumericLabelRef(NumericLabelRef { num, is_forward: true }))
+                            Ok(Expression::NumericLabelRef(NumericLabelRef {
+                                num,
+                                is_forward: true,
+                            }))
                         } else if s == "b" {
                             self.next();
-                            Ok(Expression::NumericLabelRef(NumericLabelRef { num, is_forward: false }))
+                            Ok(Expression::NumericLabelRef(NumericLabelRef {
+                                num,
+                                is_forward: false,
+                            }))
                         } else {
                             Ok(Expression::Literal(i)) // plain int
                         }
@@ -250,10 +301,16 @@ impl<'a> Parser<'a> {
                     self.next();
                     Ok(Expression::CurrentAddress) // .
                 }
-                _ => Err(AssemblerError::from_context("Expected operand".to_string(), self.location())),
+                _ => Err(AssemblerError::from_context(
+                    "Expected operand".to_string(),
+                    self.location(),
+                )),
             }
         } else {
-            Err(AssemblerError::from_context("Expected operand".to_string(), self.location()))
+            Err(AssemblerError::from_context(
+                "Expected operand".to_string(),
+                self.location(),
+            ))
         }
     }
 
@@ -297,13 +354,19 @@ impl<'a> Parser<'a> {
         };
         // Emit lines
         if let Some(l) = label {
-            lines.push(Line { location: location.clone(), content: LineContent::Label(l) });
+            lines.push(Line {
+                location: location.clone(),
+                content: LineContent::Label(l),
+            });
         }
         if let Some(c) = content {
             lines.push(Line { location, content: c });
         }
         if lines.is_empty() {
-            return Err(AssemblerError::from_context("Empty line".to_string(), self.location()));
+            return Err(AssemblerError::from_context(
+                "Empty line".to_string(),
+                self.location(),
+            ));
         }
         Ok(lines)
     }
@@ -394,7 +457,10 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            Err(AssemblerError::from_context("Expected directive".to_string(), self.location()))
+            Err(AssemblerError::from_context(
+                "Expected directive".to_string(),
+                self.location(),
+            ))
         }
     }
 
@@ -449,13 +515,23 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let expr = self.parse_expression()?;
-                Ok(Instruction::BType(BTypeOp::Bge, rs1, Register::X0, Box::new(expr))) // Special: rs2 is x0
+                Ok(Instruction::BType(
+                    BTypeOp::Bge,
+                    rs1,
+                    Register::X0,
+                    Box::new(expr),
+                )) // Special: rs2 is x0
             }
             "bnez" => {
                 let rs1 = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let expr = self.parse_expression()?;
-                Ok(Instruction::BType(BTypeOp::Bne, rs1, Register::X0, Box::new(expr))) // Special: rs2 is x0
+                Ok(Instruction::BType(
+                    BTypeOp::Bne,
+                    rs1,
+                    Register::X0,
+                    Box::new(expr),
+                )) // Special: rs2 is x0
             }
             // U-type
             "lui" => {
@@ -521,14 +597,25 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Addi, rd, rs, Box::new(Expression::Literal(0))))
+                Ok(Instruction::IType(
+                    ITypeOp::Addi,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(0)),
+                ))
             }
-            "ret" => {
-                Ok(Instruction::IType(ITypeOp::Jalr, Register::X0, Register::X1, Box::new(Expression::Literal(0))))
-            }
-            "nop" => {
-                Ok(Instruction::IType(ITypeOp::Addi, Register::X0, Register::X0, Box::new(Expression::Literal(0))))
-            }
+            "ret" => Ok(Instruction::IType(
+                ITypeOp::Jalr,
+                Register::X0,
+                Register::X1,
+                Box::new(Expression::Literal(0)),
+            )),
+            "nop" => Ok(Instruction::IType(
+                ITypeOp::Addi,
+                Register::X0,
+                Register::X0,
+                Box::new(Expression::Literal(0)),
+            )),
             "neg" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
@@ -539,7 +626,12 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Sltiu, rd, rs, Box::new(Expression::Literal(1))))
+                Ok(Instruction::IType(
+                    ITypeOp::Sltiu,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(1)),
+                ))
             }
             "snez" => {
                 let rd = self.parse_register()?;
@@ -563,25 +655,45 @@ impl<'a> Parser<'a> {
                 let rs = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let expr = self.parse_expression()?;
-                Ok(Instruction::BType(BTypeOp::Beq, rs, Register::X0, Box::new(expr)))
+                Ok(Instruction::BType(
+                    BTypeOp::Beq,
+                    rs,
+                    Register::X0,
+                    Box::new(expr),
+                ))
             }
             "blez" => {
                 let rs = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let expr = self.parse_expression()?;
-                Ok(Instruction::BType(BTypeOp::Bge, Register::X0, rs, Box::new(expr)))
+                Ok(Instruction::BType(
+                    BTypeOp::Bge,
+                    Register::X0,
+                    rs,
+                    Box::new(expr),
+                ))
             }
             "bltz" => {
                 let rs = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let expr = self.parse_expression()?;
-                Ok(Instruction::BType(BTypeOp::Blt, rs, Register::X0, Box::new(expr)))
+                Ok(Instruction::BType(
+                    BTypeOp::Blt,
+                    rs,
+                    Register::X0,
+                    Box::new(expr),
+                ))
             }
             "bgtz" => {
                 let rs = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let expr = self.parse_expression()?;
-                Ok(Instruction::BType(BTypeOp::Blt, Register::X0, rs, Box::new(expr)))
+                Ok(Instruction::BType(
+                    BTypeOp::Blt,
+                    Register::X0,
+                    rs,
+                    Box::new(expr),
+                ))
             }
             "bgt" => {
                 let rs1 = self.parse_register()?;
@@ -601,17 +713,31 @@ impl<'a> Parser<'a> {
             }
             "j" => {
                 let expr = self.parse_expression()?;
-                Ok(Instruction::JType(JTypeOp::Jal, Register::X0, Box::new(expr)))
+                Ok(Instruction::JType(
+                    JTypeOp::Jal,
+                    Register::X0,
+                    Box::new(expr),
+                ))
             }
             "jr" => {
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Jalr, Register::X0, rs, Box::new(Expression::Literal(0))))
+                Ok(Instruction::IType(
+                    ITypeOp::Jalr,
+                    Register::X0,
+                    rs,
+                    Box::new(Expression::Literal(0)),
+                ))
             }
             "not" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let rs = self.parse_register()?;
-                Ok(Instruction::IType(ITypeOp::Xori, rd, rs, Box::new(Expression::Literal(-1))))
+                Ok(Instruction::IType(
+                    ITypeOp::Xori,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(-1)),
+                ))
             }
             _ => {
                 // Try to parse as atomic instruction (A extension)
@@ -619,7 +745,10 @@ impl<'a> Parser<'a> {
                     return self.parse_atomic(op, ordering);
                 }
 
-                Err(AssemblerError::from_context(format!("Unknown instruction {}", opcode), self.location()))
+                Err(AssemblerError::from_context(
+                    format!("Unknown instruction {}", opcode),
+                    self.location(),
+                ))
             }
         }
     }
@@ -669,7 +798,12 @@ impl<'a> Parser<'a> {
             if let Ok(rs) = self.parse_register()
                 && self.expect(&Token::CloseParen).is_ok()
             {
-                return Ok(Instruction::LoadStore(op, reg, Box::new(Expression::Literal(0)), rs));
+                return Ok(Instruction::LoadStore(
+                    op,
+                    reg,
+                    Box::new(Expression::Literal(0)),
+                    rs,
+                ));
             }
             self.pos = pos_backup;
         }
@@ -681,7 +815,11 @@ impl<'a> Parser<'a> {
             self.expect(&Token::CloseParen)?;
             Ok(Instruction::LoadStore(op, reg, Box::new(expr), rs))
         } else {
-            Ok(Instruction::Pseudo(PseudoOp::LoadGlobal(op, reg, Box::new(expr))))
+            Ok(Instruction::Pseudo(PseudoOp::LoadGlobal(
+                op,
+                reg,
+                Box::new(expr),
+            )))
         }
     }
 
@@ -697,7 +835,12 @@ impl<'a> Parser<'a> {
             if let Ok(rs) = self.parse_register()
                 && self.expect(&Token::CloseParen).is_ok()
             {
-                return Ok(Instruction::LoadStore(op, reg, Box::new(Expression::Literal(0)), rs));
+                return Ok(Instruction::LoadStore(
+                    op,
+                    reg,
+                    Box::new(Expression::Literal(0)),
+                    rs,
+                ));
             }
             self.pos = pos_backup;
         }
@@ -711,7 +854,12 @@ impl<'a> Parser<'a> {
         } else {
             self.expect(&Token::Comma)?;
             let temp = self.parse_register()?;
-            Ok(Instruction::Pseudo(PseudoOp::StoreGlobal(op, reg, Box::new(expr), temp)))
+            Ok(Instruction::Pseudo(PseudoOp::StoreGlobal(
+                op,
+                reg,
+                Box::new(expr),
+                temp,
+            )))
         }
     }
 
@@ -721,7 +869,11 @@ impl<'a> Parser<'a> {
     //   lr.w.aq a0, (a1)
     //   sc.w a0, a2, (a1)
     //   amoswap.w.aqrl a0, a2, (a1)
-    fn parse_atomic(&mut self, op: AtomicOp, ordering: MemoryOrdering) -> Result<Instruction> {
+    fn parse_atomic(
+        &mut self,
+        op: AtomicOp,
+        ordering: MemoryOrdering,
+    ) -> Result<Instruction> {
         let rd = self.parse_register()?;
         self.expect(&Token::Comma)?;
 
@@ -730,7 +882,13 @@ impl<'a> Parser<'a> {
             self.expect(&Token::OpenParen)?;
             let rs1 = self.parse_register()?;
             self.expect(&Token::CloseParen)?;
-            return Ok(Instruction::Atomic(op, rd, rs1, Register::X0, ordering));
+            return Ok(Instruction::Atomic(
+                op,
+                rd,
+                rs1,
+                Register::X0,
+                ordering,
+            ));
         }
 
         // SC/AMO format: rd, rs2, (rs1)
@@ -754,7 +912,8 @@ impl<'a> Parser<'a> {
         }
 
         // Parse ordering suffix (.aq, .rel, .aqrl)
-        let has_ordering = matches!(parts.last(), Some(&"aqrl") | Some(&"aq") | Some(&"rel"));
+        let has_ordering =
+            matches!(parts.last(), Some(&"aqrl") | Some(&"aq") | Some(&"rel"));
         let ordering = if has_ordering {
             match parts.last() {
                 Some(&"aqrl") => MemoryOrdering::AqRl,
@@ -767,7 +926,8 @@ impl<'a> Parser<'a> {
         };
 
         // Determine base instruction (before ordering suffix)
-        let base_parts = if has_ordering { &parts[..parts.len() - 1] } else { &parts[..] };
+        let base_parts =
+            if has_ordering { &parts[..parts.len() - 1] } else { &parts[..] };
 
         // Match instruction: base + width
         let op = match base_parts {
@@ -790,7 +950,10 @@ impl<'a> Parser<'a> {
 
     /// Parse compressed instruction (called with opcode after "c." prefix stripped)
     /// Examples: "add" in "c.add", "li" in "c.li"
-    fn parse_compressed_instruction(&mut self, op: &str) -> Result<Instruction> {
+    fn parse_compressed_instruction(
+        &mut self,
+        op: &str,
+    ) -> Result<Instruction> {
         let (c_op, operands) = match op {
             // CR format (rd, rs2)
             "add" => {
@@ -823,21 +986,30 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CLi, CompressedOperands::CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CLi,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "lui" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CLui, CompressedOperands::CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CLui,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "addi" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CAddi, CompressedOperands::CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAddi,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "addi16sp" => {
@@ -850,14 +1022,20 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CAddi16sp, CompressedOperands::CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAddi16sp,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             "addi4spn" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.addi4spn requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.addi4spn requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -865,20 +1043,30 @@ impl<'a> Parser<'a> {
                 let base = self.parse_register()?;
                 if base != Register::X2 {
                     return Err(AssemblerError::from_context(
-                        "c.addi4spn requires sp (x2) as base register".to_string(),
+                        "c.addi4spn requires sp (x2) as base register"
+                            .to_string(),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CAddi4spn, CompressedOperands::CIW { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAddi4spn,
+                    CompressedOperands::CIW {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             "slli" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CSlli, CompressedOperands::CI { rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CSlli,
+                    CompressedOperands::CI { rd, imm: Box::new(imm) },
+                )
             }
 
             // CI format stack-relative load: c.lwsp rd, offset(sp)
@@ -895,7 +1083,13 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CompressedOp::CLwsp, CompressedOperands::CIStackLoad { rd, offset: Box::new(offset) })
+                (
+                    CompressedOp::CLwsp,
+                    CompressedOperands::CIStackLoad {
+                        rd,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CSS format stack-relative store: c.swsp rs2, offset(sp)
@@ -912,7 +1106,13 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CompressedOp::CSwsp, CompressedOperands::CSSStackStore { rs2, offset: Box::new(offset) })
+                (
+                    CompressedOp::CSwsp,
+                    CompressedOperands::CSSStackStore {
+                        rs2,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CL format: c.lw rd', offset(rs1')
@@ -920,7 +1120,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}", rd),
+                        format!(
+                            "c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -930,12 +1133,22 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}", rs1),
+                        format!(
+                            "c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CompressedOp::CLw, CompressedOperands::CL { rd_prime: rd, rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CompressedOp::CLw,
+                    CompressedOperands::CL {
+                        rd_prime: rd,
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CS format: c.sw rs2', offset(rs1')
@@ -943,7 +1156,10 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}", rs2),
+                        format!(
+                            "c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
@@ -953,12 +1169,22 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}", rs1),
+                        format!(
+                            "c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::CloseParen)?;
-                (CompressedOp::CSw, CompressedOperands::CS { rs2_prime: rs2, rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CompressedOp::CSw,
+                    CompressedOperands::CS {
+                        rs2_prime: rs2,
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CA format: c.and, c.or, c.xor, c.sub
@@ -966,7 +1192,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.and requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.and requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -974,18 +1203,27 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.and requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.and requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
-                (CompressedOp::CAnd, CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::CAnd,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             "or" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.or requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.or requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -993,18 +1231,27 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.or requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.or requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
-                (CompressedOp::COr, CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::COr,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             "xor" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.xor requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.xor requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1012,18 +1259,27 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.xor requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.xor requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
-                (CompressedOp::CXor, CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::CXor,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             "sub" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sub requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.sub requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1031,11 +1287,17 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.sub requires rs2 in compressed register set, got {}", rs2),
+                        format!(
+                            "c.sub requires rs2 in compressed register set, got {}",
+                            rs2
+                        ),
                         self.location(),
                     ));
                 }
-                (CompressedOp::CSub, CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 })
+                (
+                    CompressedOp::CSub,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
             }
 
             // CB format shift/immediate: c.srli, c.srai, c.andi
@@ -1043,39 +1305,66 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.srli requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.srli requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CSrli, CompressedOperands::CBImm { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CSrli,
+                    CompressedOperands::CBImm {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             "srai" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.srai requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.srai requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CSrai, CompressedOperands::CBImm { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CSrai,
+                    CompressedOperands::CBImm {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             "andi" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.andi requires rd in compressed register set, got {}", rd),
+                        format!(
+                            "c.andi requires rd in compressed register set, got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
-                (CompressedOp::CAndi, CompressedOperands::CBImm { rd_prime: rd, imm: Box::new(imm) })
+                (
+                    CompressedOp::CAndi,
+                    CompressedOperands::CBImm {
+                        rd_prime: rd,
+                        imm: Box::new(imm),
+                    },
+                )
             }
 
             // CB format branch: c.beqz, c.bnez
@@ -1083,37 +1372,61 @@ impl<'a> Parser<'a> {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.beqz requires rs1 in compressed register set, got {}", rs1),
+                        format!(
+                            "c.beqz requires rs1 in compressed register set, got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
-                (CompressedOp::CBeqz, CompressedOperands::CBBranch { rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CompressedOp::CBeqz,
+                    CompressedOperands::CBBranch {
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             "bnez" => {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
                     return Err(AssemblerError::from_context(
-                        format!("c.bnez requires rs1 in compressed register set, got {}", rs1),
+                        format!(
+                            "c.bnez requires rs1 in compressed register set, got {}",
+                            rs1
+                        ),
                         self.location(),
                     ));
                 }
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
-                (CompressedOp::CBnez, CompressedOperands::CBBranch { rs1_prime: rs1, offset: Box::new(offset) })
+                (
+                    CompressedOp::CBnez,
+                    CompressedOperands::CBBranch {
+                        rs1_prime: rs1,
+                        offset: Box::new(offset),
+                    },
+                )
             }
 
             // CJ format: c.j, c.jal
             "j" => {
                 let offset = self.parse_expression()?;
-                (CompressedOp::CJComp, CompressedOperands::CJOpnd { offset: Box::new(offset) })
+                (
+                    CompressedOp::CJComp,
+                    CompressedOperands::CJOpnd { offset: Box::new(offset) },
+                )
             }
 
             "jal" => {
                 let offset = self.parse_expression()?;
-                (CompressedOp::CJalComp, CompressedOperands::CJOpnd { offset: Box::new(offset) })
+                (
+                    CompressedOp::CJalComp,
+                    CompressedOperands::CJOpnd { offset: Box::new(offset) },
+                )
             }
 
             // Special
@@ -1138,7 +1451,10 @@ pub fn parse(tokens: &[Token], file: String, line: usize) -> Result<Vec<Line>> {
 
     // Check for leftover tokens
     if parser.pos < parser.tokens.len() {
-        let remaining: Vec<String> = parser.tokens[parser.pos..].iter().map(|t| format!("{:?}", t)).collect();
+        let remaining: Vec<String> = parser.tokens[parser.pos..]
+            .iter()
+            .map(|t| format!("{:?}", t))
+            .collect();
         return Err(AssemblerError::from_context(
             format!("Unexpected tokens after parsing: {}", remaining.join(" ")),
             Location { file: file.clone(), line },

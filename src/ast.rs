@@ -58,12 +58,15 @@ pub struct Source {
 impl Source {
     /// Get a line from the source by pointer
     pub fn get_line(&self, pointer: LinePointer) -> Result<&Line> {
-        self.files.get(pointer.file_index).and_then(|file| file.lines.get(pointer.line_index)).ok_or_else(|| {
-            AssemblerError::no_context(format!(
-                "Internal error: invalid line pointer [{}:{}]",
-                pointer.file_index, pointer.line_index
-            ))
-        })
+        self.files
+            .get(pointer.file_index)
+            .and_then(|file| file.lines.get(pointer.line_index))
+            .ok_or_else(|| {
+                AssemblerError::no_context(format!(
+                    "Internal error: invalid line pointer [{}:{}]",
+                    pointer.file_index, pointer.line_index
+                ))
+            })
     }
 }
 
@@ -980,7 +983,10 @@ impl fmt::Display for Instruction {
 }
 
 /// Helper function to format compressed instructions
-fn format_compressed_instruction(op: &CompressedOp, operands: &CompressedOperands) -> String {
+fn format_compressed_instruction(
+    op: &CompressedOp,
+    operands: &CompressedOperands,
+) -> String {
     match (op, operands) {
         (CompressedOp::CAdd, CompressedOperands::CR { rd, rs2 }) => {
             format!("c.add       {}, {}", rd, rs2)
@@ -1009,28 +1015,49 @@ fn format_compressed_instruction(op: &CompressedOp, operands: &CompressedOperand
         (CompressedOp::CSlli, CompressedOperands::CI { rd, imm }) => {
             format!("c.slli      {}, {}", rd, imm)
         }
-        (CompressedOp::CLwsp, CompressedOperands::CIStackLoad { rd, offset }) => {
+        (
+            CompressedOp::CLwsp,
+            CompressedOperands::CIStackLoad { rd, offset },
+        ) => {
             format!("c.lwsp      {}, {}(sp)", rd, offset)
         }
-        (CompressedOp::CSwsp, CompressedOperands::CSSStackStore { rs2, offset }) => {
+        (
+            CompressedOp::CSwsp,
+            CompressedOperands::CSSStackStore { rs2, offset },
+        ) => {
             format!("c.swsp      {}, {}(sp)", rs2, offset)
         }
-        (CompressedOp::CLw, CompressedOperands::CL { rd_prime, rs1_prime, offset }) => {
+        (
+            CompressedOp::CLw,
+            CompressedOperands::CL { rd_prime, rs1_prime, offset },
+        ) => {
             format!("c.lw        {}, {}({})", rd_prime, offset, rs1_prime)
         }
-        (CompressedOp::CSw, CompressedOperands::CS { rs2_prime, rs1_prime, offset }) => {
+        (
+            CompressedOp::CSw,
+            CompressedOperands::CS { rs2_prime, rs1_prime, offset },
+        ) => {
             format!("c.sw        {}, {}({})", rs2_prime, offset, rs1_prime)
         }
-        (CompressedOp::CAnd, CompressedOperands::CA { rd_prime, rs2_prime }) => {
+        (
+            CompressedOp::CAnd,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => {
             format!("c.and       {}, {}", rd_prime, rs2_prime)
         }
         (CompressedOp::COr, CompressedOperands::CA { rd_prime, rs2_prime }) => {
             format!("c.or        {}, {}", rd_prime, rs2_prime)
         }
-        (CompressedOp::CXor, CompressedOperands::CA { rd_prime, rs2_prime }) => {
+        (
+            CompressedOp::CXor,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => {
             format!("c.xor       {}, {}", rd_prime, rs2_prime)
         }
-        (CompressedOp::CSub, CompressedOperands::CA { rd_prime, rs2_prime }) => {
+        (
+            CompressedOp::CSub,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => {
             format!("c.sub       {}, {}", rd_prime, rs2_prime)
         }
         (CompressedOp::CSrli, CompressedOperands::CBImm { rd_prime, imm }) => {
@@ -1042,10 +1069,16 @@ fn format_compressed_instruction(op: &CompressedOp, operands: &CompressedOperand
         (CompressedOp::CAndi, CompressedOperands::CBImm { rd_prime, imm }) => {
             format!("c.andi      {}, {}", rd_prime, imm)
         }
-        (CompressedOp::CBeqz, CompressedOperands::CBBranch { rs1_prime, offset }) => {
+        (
+            CompressedOp::CBeqz,
+            CompressedOperands::CBBranch { rs1_prime, offset },
+        ) => {
             format!("c.beqz      {}, {}", rs1_prime, offset)
         }
-        (CompressedOp::CBnez, CompressedOperands::CBBranch { rs1_prime, offset }) => {
+        (
+            CompressedOp::CBnez,
+            CompressedOperands::CBBranch { rs1_prime, offset },
+        ) => {
             format!("c.bnez      {}, {}", rs1_prime, offset)
         }
         (CompressedOp::CJComp, CompressedOperands::CJOpnd { offset }) => {
@@ -1055,7 +1088,9 @@ fn format_compressed_instruction(op: &CompressedOp, operands: &CompressedOperand
             format!("c.jal       {}", offset)
         }
         (CompressedOp::CNop, CompressedOperands::None) => "c.nop".to_string(),
-        (CompressedOp::CEbreak, CompressedOperands::None) => "c.ebreak".to_string(),
+        (CompressedOp::CEbreak, CompressedOperands::None) => {
+            "c.ebreak".to_string()
+        }
         _ => format!("c.<unknown> {:?} {:?}", op, operands),
     }
 }
@@ -1075,23 +1110,43 @@ impl fmt::Display for Directive {
             Directive::Space(expr) => write!(f, "{:<7} {}", ".space", expr),
             Directive::Balign(expr) => write!(f, "{:<7} {}", ".balign", expr),
             Directive::String(items) => {
-                let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|s| format!("{:?}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<7} {}", ".string", formatted)
             }
             Directive::Asciz(items) => {
-                let formatted = items.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|s| format!("{:?}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<7} {}", ".asciz", formatted)
             }
             Directive::Byte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<7} {}", ".byte", formatted)
             }
             Directive::TwoByte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<7} {}", ".2byte", formatted)
             }
             Directive::FourByte(items) => {
-                let formatted = items.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ");
+                let formatted = items
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 write!(f, "{:<7} {}", ".4byte", formatted)
             }
         }
