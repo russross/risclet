@@ -561,6 +561,7 @@ impl<'a> Parser<'a> {
                 Ok(Instruction::JType(JTypeOp::Jal, rd, Box::new(expr)))
             }
             // Special
+            "fence" => self.parse_fence(),
             "ecall" => Ok(Instruction::Special(SpecialOp::Ecall)),
             "ebreak" => Ok(Instruction::Special(SpecialOp::Ebreak)),
             // Load/store
@@ -784,6 +785,53 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Comma)?;
         let expr = self.parse_expression()?;
         Ok(Instruction::BType(op, rs1, rs2, Box::new(expr)))
+    }
+
+    // Grammar: fence | fence pred, succ
+    // Examples: fence, fence iorw,iorw, fence r,w, fence i,o
+    fn parse_fence(&mut self) -> Result<Instruction> {
+        // Parse optional pred, succ parameters
+        let (pred, succ) = if let Some(Token::Identifier(_)) = self.peek() {
+            let pred_str = self.parse_identifier()?;
+            self.expect(&Token::Comma)?;
+            let succ_str = self.parse_identifier()?;
+            (
+                self.parse_fence_bits(&pred_str)?,
+                self.parse_fence_bits(&succ_str)?,
+            )
+        } else {
+            // Default: iorw, iorw (0xF, 0xF)
+            (0xF, 0xF)
+        };
+        Ok(Instruction::Special(SpecialOp::Fence { pred, succ }))
+    }
+
+    // Helper: parse fence ordering bits from string or numeric literal
+    // Valid: "i" (input), "o" (output), "r" (read), "w" (write), or combinations "iorw", "rw", etc.
+    // Also accepts numeric values like "15" or "0xf"
+    fn parse_fence_bits(&self, s: &str) -> Result<u8> {
+        // Try parsing as integer first (for numeric values in identifier form)
+        if let Ok(val) = s.parse::<u8>() {
+            return Ok(val & 0x0F); // Mask to 4 bits
+        }
+
+        // Parse letter combinations
+        let mut bits = 0u8;
+        for ch in s.chars() {
+            match ch {
+                'i' => bits |= 0x08, // input (bit 3)
+                'o' => bits |= 0x04, // output (bit 2)
+                'r' => bits |= 0x02, // read (bit 1)
+                'w' => bits |= 0x01, // write (bit 0)
+                _ => {
+                    return Err(AssemblerError::from_context(
+                        format!("Invalid fence ordering bit: {}", ch),
+                        self.location(),
+                    ))
+                }
+            }
+        }
+        Ok(bits)
     }
 
     // Grammar: reg , [exp] ( reg ) | reg , exp (global load, exp not followed by '(')

@@ -1,6 +1,6 @@
 use crate::riscv::{
-    Op, RA, SP, ZERO, get_funct3, get_funct7, get_imm_b, get_imm_i, get_imm_j,
-    get_imm_s, get_imm_u, get_rd, get_rs1, get_rs2,
+    Op, RA, SP, ZERO, get_funct3, get_funct7, get_fence_pred, get_fence_succ,
+    get_imm_b, get_imm_i, get_imm_j, get_imm_s, get_imm_u, get_rd, get_rs1, get_rs2,
 };
 
 pub struct InstructionDecoder;
@@ -41,7 +41,10 @@ impl InstructionDecoder {
             0x2f => Self::decode_atomic(inst),
             0x37 => Op::Lui { rd: get_rd(inst), imm: get_imm_u(inst) },
             0x17 => Op::Auipc { rd: get_rd(inst), imm: get_imm_u(inst) },
-            0x0f => Op::Fence,
+            0x0f => Op::Fence {
+                pred: get_fence_pred(inst),
+                succ: get_fence_succ(inst),
+            },
             0x73 if inst == 0x00000073 => Op::Ecall,
             0x73 if inst == 0x00100073 => Op::Ebreak,
             _ => Op::Unimplemented {
