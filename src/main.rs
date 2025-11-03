@@ -7,7 +7,6 @@ mod decoder;
 mod elf_loader;
 mod execution;
 mod execution_context;
-mod io_abstraction;
 mod isa_tests;
 mod linter;
 mod memory;

@@ -929,7 +929,7 @@ impl Op {
                         // make a buffer and read from stdin
                         let mut read_buffer = vec![0; count as usize];
                         let n =
-                            m.io_provider_mut().read_stdin(&mut read_buffer)?;
+                            m.read_stdin(&mut read_buffer)?;
                         read_buffer.truncate(n);
 
                         m.store(buf_addr, &read_buffer)?;
@@ -963,7 +963,7 @@ impl Op {
                         }
 
                         let write_buffer = m.load(buf_addr, count as u32)?;
-                        m.io_provider_mut().write_stdout(&write_buffer)?;
+                        m.write_stdout(&write_buffer)?;
                         m.set(A0, write_buffer.len() as i32);
                         m.stdout_mut().extend_from_slice(&write_buffer);
                         m.current_effect_mut().unwrap().stdout =

@@ -1,14 +1,11 @@
 #[cfg(test)]
 mod riscv_isa_tests {
-    use crate::io_abstraction::TestIo;
     use crate::riscv::Op;
 
     const MAX_STEPS: usize = 100000;
 
     fn run_test_binary(binary: &[u8]) -> Result<i32, String> {
-        let io = TestIo::new();
-        let mut machine =
-            crate::elf_loader::load_elf_from_bytes(binary, Box::new(io))?;
+        let mut machine = crate::elf_loader::load_elf_from_bytes(binary)?;
 
         for _step in 0..MAX_STEPS {
             let pc = machine.pc();

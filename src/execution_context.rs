@@ -1,4 +1,3 @@
-use crate::io_abstraction::IoProvider;
 use crate::trace::Effects;
 
 pub trait ExecutionContext {
@@ -8,6 +7,5 @@ pub trait ExecutionContext {
     fn write_memory(&mut self, addr: u32, data: &[u8]) -> Result<(), String>;
     fn read_pc(&self) -> u32;
     fn write_pc(&mut self, pc: u32) -> Result<(), String>;
-    fn io_provider(&mut self) -> &mut dyn IoProvider;
     fn current_effects(&mut self) -> Option<&mut Effects>;
 }
