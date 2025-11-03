@@ -59,11 +59,14 @@ pub fn run_simulator(config: SimulatorConfig) -> Result<(), String> {
         let mut i = 0;
         let mut j = 0;
         while i < instructions.len() {
-            let n = if let Some((n, fields)) = get_pseudo_sequence(&instructions[i..], &m.address_symbols) {
+            let n = if let Some((n, fields)) =
+                get_pseudo_sequence(&instructions[i..], &m.address_symbols)
+            {
                 instructions[i].pseudo_fields = fields;
                 n
             } else {
-                instructions[i].pseudo_fields = instructions[i].op.to_pseudo_fields();
+                instructions[i].pseudo_fields =
+                    instructions[i].op.to_pseudo_fields();
                 1
             };
             for inst in &mut instructions[i..i + n] {
@@ -102,20 +105,30 @@ pub fn run_simulator(config: SimulatorConfig) -> Result<(), String> {
         return Ok(());
     }
 
-    let instructions: Vec<Rc<Instruction>> = instructions.into_iter().map(Rc::new).collect();
+    let instructions: Vec<Rc<Instruction>> =
+        instructions.into_iter().map(Rc::new).collect();
 
-    let sequence = trace(&mut m, &instructions, &addresses, config.lint, config.max_steps, &config.mode);
+    let sequence = trace(
+        &mut m,
+        &instructions,
+        &addresses,
+        config.lint,
+        config.max_steps,
+        &config.mode,
+    );
 
     if config.mode == "debug" {
         m.reset();
         m.set_most_recent_memory(&sequence, 0);
-        let mut tui = Tui::new(m, instructions, addresses, pseudo_addresses, sequence)?;
+        let mut tui =
+            Tui::new(m, instructions, addresses, pseudo_addresses, sequence)?;
         tui.main_loop()?;
         return Ok(());
     }
 
     if let Some(effects) = sequence.last() {
-        if let (Op::Ecall, Some(msg)) = (&effects.instruction.op, &effects.other_message)
+        if let (Op::Ecall, Some(msg)) =
+            (&effects.instruction.op, &effects.other_message)
             && msg.starts_with("exit(")
             && msg.ends_with(")")
         {

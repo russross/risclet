@@ -57,7 +57,8 @@ impl Tui {
     ) -> Result<Self, String> {
         // make sure stdout is connected to a tty
         if !io::stdout().is_tty() {
-            return Err("debug mode only works in an interactive terminal/tty".to_string());
+            return Err("debug mode only works in an interactive terminal/tty"
+                .to_string());
         }
 
         // colors:
@@ -90,7 +91,8 @@ impl Tui {
 
         // create cycling color pairs for address symbols
         let mut data_colors = Vec::new();
-        let mut address_symbols: Vec<u32> = machine.address_symbols.keys().copied().collect();
+        let mut address_symbols: Vec<u32> =
+            machine.address_symbols.keys().copied().collect();
         address_symbols.sort_unstable();
         for (i, &address) in address_symbols.iter().enumerate() {
             let color = pastels[i % pastels.len()];
@@ -104,7 +106,11 @@ impl Tui {
 
         // setup over terminal
         serr!(crossterm::terminal::enable_raw_mode())?;
-        serr!(queue!(io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide))?;
+        serr!(queue!(
+            io::stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::cursor::Hide
+        ))?;
 
         Ok(Tui {
             machine,
@@ -146,7 +152,11 @@ impl Tui {
         Ok(())
     }
 
-    fn handle_key(&mut self, key_event: KeyEvent, source_height: u16) -> Result<bool, String> {
+    fn handle_key(
+        &mut self,
+        key_event: KeyEvent,
+        source_height: u16,
+    ) -> Result<bool, String> {
         match key_event.code {
             _ if self.show_help => {
                 self.show_help = false;
@@ -157,33 +167,46 @@ impl Tui {
                 if self.verbose {
                     self.cursor_index = self.cursor_index.saturating_sub(1);
                 } else {
-                    let pseudo = self.instructions[self.cursor_index].pseudo_index.saturating_sub(1);
+                    let pseudo = self.instructions[self.cursor_index]
+                        .pseudo_index
+                        .saturating_sub(1);
                     self.cursor_index = self.pseudo_addresses[&pseudo];
                 }
             }
             KeyCode::Down => {
                 if self.verbose {
-                    self.cursor_index = (self.cursor_index + 1).min(self.instructions.len() - 1);
+                    self.cursor_index = (self.cursor_index + 1)
+                        .min(self.instructions.len() - 1);
                 } else {
-                    let pseudo = (self.instructions[self.cursor_index].pseudo_index + 1)
-                        .min(self.instructions.last().unwrap().pseudo_index);
+                    let pseudo = (self.instructions[self.cursor_index]
+                        .pseudo_index
+                        + 1)
+                    .min(self.instructions.last().unwrap().pseudo_index);
                     self.cursor_index = self.pseudo_addresses[&pseudo];
                 }
             }
             KeyCode::PageUp => {
                 if self.verbose {
-                    self.cursor_index = self.cursor_index.saturating_sub(source_height as usize);
+                    self.cursor_index = self
+                        .cursor_index
+                        .saturating_sub(source_height as usize);
                 } else {
-                    let pseudo =
-                        self.instructions[self.cursor_index].pseudo_index.saturating_sub(source_height as usize);
+                    let pseudo = self.instructions[self.cursor_index]
+                        .pseudo_index
+                        .saturating_sub(source_height as usize);
                     self.cursor_index = self.pseudo_addresses[&pseudo];
                 }
             }
             KeyCode::PageDown => {
                 if self.verbose {
-                    self.cursor_index = min(self.cursor_index + source_height as usize, self.instructions.len() - 1);
+                    self.cursor_index = min(
+                        self.cursor_index + source_height as usize,
+                        self.instructions.len() - 1,
+                    );
                 } else {
-                    let pseudo = (self.instructions[self.cursor_index].pseudo_index + source_height as usize)
+                    let pseudo = (self.instructions[self.cursor_index]
+                        .pseudo_index
+                        + source_height as usize)
                         .min(self.instructions.last().unwrap().pseudo_index);
                     self.cursor_index = self.pseudo_addresses[&pseudo];
                 }
@@ -193,24 +216,35 @@ impl Tui {
             KeyCode::Left => {
                 if self.sequence_index > 0 {
                     self.sequence_index -= 1;
-                    self.machine.apply(&self.sequence[self.sequence_index], false);
-                    self.machine.set_most_recent_memory(&self.sequence, self.sequence_index);
+                    self.machine
+                        .apply(&self.sequence[self.sequence_index], false);
+                    self.machine.set_most_recent_memory(
+                        &self.sequence,
+                        self.sequence_index,
+                    );
                     self.set_cursor_to_current();
                 }
             }
             KeyCode::Right => {
                 if self.sequence_index + 1 < self.sequence.len() {
-                    self.machine.apply(&self.sequence[self.sequence_index], true);
+                    self.machine
+                        .apply(&self.sequence[self.sequence_index], true);
                     self.sequence_index += 1;
-                    self.machine.set_most_recent_memory(&self.sequence, self.sequence_index);
+                    self.machine.set_most_recent_memory(
+                        &self.sequence,
+                        self.sequence_index,
+                    );
                     self.set_cursor_to_current();
                 }
             }
             KeyCode::Home => {
                 // jump back to where the current function was entered
                 self.set_cursor_to_current();
-                let (func_start_pc, func_end_pc) =
-                    find_function_bounds(&self.machine.address_symbols, &self.instructions, self.cursor_index);
+                let (func_start_pc, func_end_pc) = find_function_bounds(
+                    &self.machine.address_symbols,
+                    &self.instructions,
+                    self.cursor_index,
+                );
                 let mut first = true;
                 while self.sequence_index > 0 {
                     let effects = &self.sequence[self.sequence_index];
@@ -221,30 +255,45 @@ impl Tui {
                     }
 
                     let pc = effects.instruction.address;
-                    if func_start_pc <= pc && pc < func_end_pc && self.sequence_index > 0 {
-                        let prev_effects = &self.sequence[self.sequence_index - 1];
+                    if func_start_pc <= pc
+                        && pc < func_end_pc
+                        && self.sequence_index > 0
+                    {
+                        let prev_effects =
+                            &self.sequence[self.sequence_index - 1];
                         let (prev_pc, _) = prev_effects.pc;
                         if prev_pc < func_start_pc || prev_pc > func_end_pc {
                             match prev_effects.instruction.op {
-                                Op::Jal { rd, .. } | Op::Jalr { rd, .. } if rd != ZERO => break,
+                                Op::Jal { rd, .. } | Op::Jalr { rd, .. }
+                                    if rd != ZERO =>
+                                {
+                                    break;
+                                }
                                 _ => {}
                             }
                         }
                     }
                     self.sequence_index -= 1;
                 }
-                self.machine.set_most_recent_memory(&self.sequence, self.sequence_index);
+                self.machine.set_most_recent_memory(
+                    &self.sequence,
+                    self.sequence_index,
+                );
                 self.set_cursor_to_current();
             }
             KeyCode::End => {
                 // jump forward to where the current function is about to exit
                 self.set_cursor_to_current();
-                let (func_start_pc, func_end_pc) =
-                    find_function_bounds(&self.machine.address_symbols, &self.instructions, self.cursor_index);
+                let (func_start_pc, func_end_pc) = find_function_bounds(
+                    &self.machine.address_symbols,
+                    &self.instructions,
+                    self.cursor_index,
+                );
                 while self.sequence_index < self.sequence.len() - 1 {
                     let effects = &self.sequence[self.sequence_index];
                     let pc = effects.instruction.address;
-                    if let Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } = effects.instruction.op
+                    if let Op::Jalr { rd: ZERO, rs1: RA, offset: 0 } =
+                        effects.instruction.op
                         && func_start_pc <= pc
                         && pc < func_end_pc
                     {
@@ -253,7 +302,10 @@ impl Tui {
                     self.machine.apply(effects, true);
                     self.sequence_index += 1;
                 }
-                self.machine.set_most_recent_memory(&self.sequence, self.sequence_index);
+                self.machine.set_most_recent_memory(
+                    &self.sequence,
+                    self.sequence_index,
+                );
                 self.set_cursor_to_current();
             }
             KeyCode::Enter => {
@@ -263,10 +315,16 @@ impl Tui {
                     if self.sequence[peek].instruction.address == target_pc {
                         // play the sequence forward to this point
                         while self.sequence_index < peek {
-                            self.machine.apply(&self.sequence[self.sequence_index], true);
+                            self.machine.apply(
+                                &self.sequence[self.sequence_index],
+                                true,
+                            );
                             self.sequence_index += 1;
                         }
-                        self.machine.set_most_recent_memory(&self.sequence, self.sequence_index);
+                        self.machine.set_most_recent_memory(
+                            &self.sequence,
+                            self.sequence_index,
+                        );
                         self.set_cursor_to_current();
                         break;
                     }
@@ -280,9 +338,15 @@ impl Tui {
                         // play the sequence backward to this point
                         while self.sequence_index > peek {
                             self.sequence_index -= 1;
-                            self.machine.apply(&self.sequence[self.sequence_index], false);
+                            self.machine.apply(
+                                &self.sequence[self.sequence_index],
+                                false,
+                            );
                         }
-                        self.machine.set_most_recent_memory(&self.sequence, self.sequence_index);
+                        self.machine.set_most_recent_memory(
+                            &self.sequence,
+                            self.sequence_index,
+                        );
                         self.set_cursor_to_current();
                         break;
                     }
@@ -332,7 +396,8 @@ impl Tui {
     }
 
     fn set_cursor_to_current(&mut self) {
-        self.cursor_index = self.addresses[&self.sequence[self.sequence_index].instruction.address];
+        self.cursor_index = self.addresses
+            [&self.sequence[self.sequence_index].instruction.address];
     }
 
     fn draw(&mut self) -> Result<u16, String> {
@@ -347,18 +412,28 @@ impl Tui {
             out.push(vec![(' ', self.normal_color); size_x as usize]);
         }
         let mut corners = Vec::new();
-        let mut source = Pane::new(out, self.normal_color, 0, 0, size_x, size_y, true);
+        let mut source =
+            Pane::new(out, self.normal_color, 0, 0, size_x, size_y, true);
 
         // an 80-column terminal gets source and memory views, narrower does not
-        let (stack, data, out) = if size_x >= 80 && (self.show_stack || self.show_data && self.machine.data_start() > 0)
+        let (stack, data, out) = if size_x >= 80
+            && (self.show_stack
+                || self.show_data && self.machine.data_start() > 0)
         {
             let mut mem = source.split_right(39, false, &mut corners);
-            if mem.height >= 22 && self.show_stack && self.show_data && self.machine.data_start() > 0 {
-                let mut data = mem.split_bottom(mem.height * 2 / 3, false, &mut corners);
+            if mem.height >= 22
+                && self.show_stack
+                && self.show_data
+                && self.machine.data_start() > 0
+            {
+                let mut data =
+                    mem.split_bottom(mem.height * 2 / 3, false, &mut corners);
                 let out = take(&mut data.out);
                 (Some(mem), Some(data), out)
             } else if self.show_stack
-                && (self.machine.most_recent_memory() >= self.machine.stack_start() || !self.show_data)
+                && (self.machine.most_recent_memory()
+                    >= self.machine.stack_start()
+                    || !self.show_data)
             {
                 let out = take(&mut mem.out);
                 (Some(mem), None, out)
@@ -370,60 +445,83 @@ impl Tui {
             (None, None, take(&mut source.out))
         };
 
-        let output_lines = if self.show_output && !self.machine.stdout().is_empty() {
-            // count the output lines (a single trailing newline is ignored)
-            self.machine.stdout().iter().rev().skip(1).fold(1, |a, &elt| if elt == b'\n' { a + 1 } else { a })
-        } else {
-            0
-        };
+        let output_lines =
+            if self.show_output && !self.machine.stdout().is_empty() {
+                // count the output lines (a single trailing newline is ignored)
+                self.machine
+                    .stdout()
+                    .iter()
+                    .rev()
+                    .skip(1)
+                    .fold(1, |a, &elt| if elt == b'\n' { a + 1 } else { a })
+            } else {
+                0
+            };
 
         // a 24-line terminal gets source, registers, and output, shorter does not
         source.out = out;
-        let (registers, output, mut out) =
-            if source.height >= 22 && self.show_registers && self.show_output && !self.machine.stdout().is_empty() {
-                // output gets at least 4 lines and registers gets exactly 4
-                // they sit at their minimums up to a 24-line terminal, then
-                // additional lines are split 2/3 source and 1/3 output pane
-                // with the output getting the first new line
-                // so min source height is 12 before allowing other panes
-                let surplus = source.height.saturating_sub(12).saturating_sub(10);
-                let output_min = 4;
-                let natural_size = output_min + surplus.div_ceil(3);
+        let (registers, output, mut out) = if source.height >= 22
+            && self.show_registers
+            && self.show_output
+            && !self.machine.stdout().is_empty()
+        {
+            // output gets at least 4 lines and registers gets exactly 4
+            // they sit at their minimums up to a 24-line terminal, then
+            // additional lines are split 2/3 source and 1/3 output pane
+            // with the output getting the first new line
+            // so min source height is 12 before allowing other panes
+            let surplus = source.height.saturating_sub(12).saturating_sub(10);
+            let output_min = 4;
+            let natural_size = output_min + surplus.div_ceil(3);
 
-                // keep at least 4 lines but otherwise don't grow beyond the amount of output
-                let lines = output_lines.max(output_min).min(natural_size);
-                let mut registers = source.split_bottom(5 + lines, true, &mut corners);
-                let mut output = registers.split_bottom(lines, true, &mut corners);
-                let out = take(&mut output.out);
-                (Some(registers), Some(output), out)
-            } else if source.height >= 17 && !self.show_registers && output_lines > 0 {
-                let surplus = source.height.saturating_sub(12).saturating_sub(5);
+            // keep at least 4 lines but otherwise don't grow beyond the amount of output
+            let lines = output_lines.max(output_min).min(natural_size);
+            let mut registers =
+                source.split_bottom(5 + lines, true, &mut corners);
+            let mut output = registers.split_bottom(lines, true, &mut corners);
+            let out = take(&mut output.out);
+            (Some(registers), Some(output), out)
+        } else if source.height >= 17
+            && !self.show_registers
+            && output_lines > 0
+        {
+            let surplus = source.height.saturating_sub(12).saturating_sub(5);
 
-                // output claims any extra lines that would have gone to registers
-                let output_min = 4 + surplus.min(5);
-                let surplus = surplus.saturating_sub(5);
-                let natural_size = output_min + surplus.div_ceil(3);
-                let lines = output_lines.max(4).min(natural_size);
-                let mut output = source.split_bottom(lines, true, &mut corners);
-                let out = take(&mut output.out);
-                (None, Some(output), out)
-            } else if source.height >= 17 && self.show_registers {
-                let mut registers = source.split_bottom(4, true, &mut corners);
-                let out = take(&mut registers.out);
-                (Some(registers), None, out)
-            } else {
-                (None, None, take(&mut source.out))
-            };
+            // output claims any extra lines that would have gone to registers
+            let output_min = 4 + surplus.min(5);
+            let surplus = surplus.saturating_sub(5);
+            let natural_size = output_min + surplus.div_ceil(3);
+            let lines = output_lines.max(4).min(natural_size);
+            let mut output = source.split_bottom(lines, true, &mut corners);
+            let out = take(&mut output.out);
+            (None, Some(output), out)
+        } else if source.height >= 17 && self.show_registers {
+            let mut registers = source.split_bottom(4, true, &mut corners);
+            let out = take(&mut registers.out);
+            (Some(registers), None, out)
+        } else {
+            (None, None, take(&mut source.out))
+        };
 
         // now render each pane
         source.out = out;
         let status_line = self.render_source(&mut source);
         if !status_line.is_empty() {
-            source.write_padded_str(&status_line, 2, size_y - 1, size_x.saturating_sub(4) as usize);
+            source.write_padded_str(
+                &status_line,
+                2,
+                size_y - 1,
+                size_x.saturating_sub(4) as usize,
+            );
         }
         let help_msg = "? for help, q to quit";
         if size_x >= status_line.len() as u16 + help_msg.len() as u16 + 9 {
-            source.write_padded_str(help_msg, size_x - 4 - help_msg.len() as u16, size_y - 1, help_msg.len() + 2);
+            source.write_padded_str(
+                help_msg,
+                size_x - 4 - help_msg.len() as u16,
+                size_y - 1,
+                help_msg.len() + 2,
+            );
         }
 
         out = take(&mut source.out);
@@ -462,7 +560,15 @@ impl Tui {
             } else {
                 (0, size_y)
             };
-            let mut help = Pane::new(out, self.normal_color, left, top, width, height, true);
+            let mut help = Pane::new(
+                out,
+                self.normal_color,
+                left,
+                top,
+                width,
+                height,
+                true,
+            );
             self.render_help(&mut help);
             out = take(&mut help.out);
         }
@@ -492,17 +598,31 @@ impl Tui {
 
         // set the top label/status line
         let label = if self.hex_mode {
-            format!("Step {}/{} PC:0x{:x}", self.sequence_index + 1, self.sequence.len(), pc)
+            format!(
+                "Step {}/{} PC:0x{:x}",
+                self.sequence_index + 1,
+                self.sequence.len(),
+                pc
+            )
         } else {
-            format!("Step {}/{} PC:{}", self.sequence_index + 1, self.sequence.len(), pc)
+            format!(
+                "Step {}/{} PC:{}",
+                self.sequence_index + 1,
+                self.sequence.len(),
+                pc
+            )
         };
 
         pane.label(&label);
 
         // are we drawing a branch arrow?
-        let arrow_range = if effects.instruction.op.branch_target(pc).is_some() {
+        let arrow_range = if effects.instruction.op.branch_target(pc).is_some()
+        {
             let (old, new) = effects.pc;
-            if new != old && (pc_i + 1 >= self.instructions.len() || new != self.instructions[pc_i + 1].address) {
+            if new != old
+                && (pc_i + 1 >= self.instructions.len()
+                    || new != self.instructions[pc_i + 1].address)
+            {
                 Some((old.min(new), old.max(new)))
             } else {
                 None
@@ -531,7 +651,11 @@ impl Tui {
                 break;
             }
 
-            let index = if self.verbose { i as usize } else { self.pseudo_addresses[&(i as usize)] };
+            let index = if self.verbose {
+                i as usize
+            } else {
+                self.pseudo_addresses[&(i as usize)]
+            };
 
             // render the line
             let inst = &self.instructions[index];
@@ -553,7 +677,11 @@ impl Tui {
             };
 
             let mut line: Vec<char> = fields_to_string(
-                if self.verbose { &inst.verbose_fields } else { &inst.pseudo_fields },
+                if self.verbose {
+                    &inst.verbose_fields
+                } else {
+                    &inst.pseudo_fields
+                },
                 addr,
                 self.machine.global_pointer,
                 inst.length == 2,
@@ -585,7 +713,8 @@ impl Tui {
         }
 
         // draw the side-effects label
-        let mut side_effects = self.sequence[self.sequence_index].report(self.hex_mode);
+        let mut side_effects =
+            self.sequence[self.sequence_index].report(self.hex_mode);
         side_effects.truncate(2);
         if side_effects[0].is_empty() {
             side_effects.remove(0);
@@ -600,11 +729,16 @@ impl Tui {
             vec!["ra", "sp", "gp", "tp"],
             vec!["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"],
             vec!["t0", "t1", "t2", "t3", "t4", "t5", "t6"],
-            vec!["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11"],
+            vec![
+                "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9",
+                "s10", "s11",
+            ],
         ];
         for line in lines {
             for reg in line {
-                let val = self.machine.get(R.iter().position(|&r_str| r_str == reg).unwrap());
+                let val = self
+                    .machine
+                    .get(R.iter().position(|&r_str| r_str == reg).unwrap());
                 if self.hex_mode && !(0..=9).contains(&val) {
                     write!(pane, "{}:0x{:x} ", reg, val).unwrap();
                 } else {
@@ -617,7 +751,14 @@ impl Tui {
 
     fn render_memory(&mut self, pane: &mut Pane, is_stack: bool) {
         let mut stack_colors = Vec::new();
-        let (colors, start, mem_start, mem_end, most_recent_start, most_recent_end) = if is_stack {
+        let (
+            colors,
+            start,
+            mem_start,
+            mem_end,
+            most_recent_start,
+            most_recent_end,
+        ) = if is_stack {
             pane.label("Stack");
 
             // make a color list for stack frame boundaries
@@ -630,7 +771,8 @@ impl Tui {
                 if frame == sp {
                     found_sp = true;
                 }
-                stack_colors.push((frame, self.pastels[i % self.pastels.len()]));
+                stack_colors
+                    .push((frame, self.pastels[i % self.pastels.len()]));
                 i += 1;
             }
             if !found_sp {
@@ -641,7 +783,8 @@ impl Tui {
 
             let (mr_start, mr_size) = self.machine.most_recent_stack();
             let (start, _end) = calc_range(
-                ((self.machine.stack_end() - self.machine.stack_start()) / 8) as usize,
+                ((self.machine.stack_end() - self.machine.stack_start()) / 8)
+                    as usize,
                 ((mr_start - self.machine.stack_start()) / 8) as usize,
                 pane.height,
             );
@@ -658,7 +801,8 @@ impl Tui {
 
             let (mr_start, mr_size) = self.machine.most_recent_data();
             let (start, _end) = calc_range(
-                ((self.machine.data_end() - self.machine.data_start()) / 8) as usize,
+                ((self.machine.data_end() - self.machine.data_start()) / 8)
+                    as usize,
                 ((mr_start - self.machine.data_start()) / 8) as usize,
                 pane.height,
             );
@@ -689,7 +833,9 @@ impl Tui {
                 addr_to_print = Some(addr);
 
                 // did we just hit a region label/stack frame boundary?
-                while current_region + 1 < colors.len() && colors[current_region + 1].0 <= j {
+                while current_region + 1 < colors.len()
+                    && colors[current_region + 1].0 <= j
+                {
                     current_region += 1;
                 }
 
@@ -766,7 +912,9 @@ impl Tui {
     fn render_output(&mut self, pane: &mut Pane) {
         pane.label("Output");
 
-        for line in get_last_n_lines(self.machine.stdout(), pane.height as usize) {
+        for line in
+            get_last_n_lines(self.machine.stdout(), pane.height as usize)
+        {
             writeln!(pane, "{}", line).unwrap();
         }
     }
@@ -774,23 +922,91 @@ impl Tui {
     fn render_help(&mut self, pane: &mut Pane) {
         pane.label("Help");
 
-        writeln!(pane, " To move the cursor without stepping:                          ").unwrap();
-        writeln!(pane, "   ↑/up arrow       : move cursor up one instruction           ").unwrap();
-        writeln!(pane, "   ↓/down arrow     : move cursor down one instruction         ").unwrap();
-        writeln!(pane, "   PgUp/Fn-↑        : move cursor up one page                  ").unwrap();
-        writeln!(pane, "   PgDown/Fn-↓      : move cursor down one page                ").unwrap();
-        writeln!(pane, "                                                               ").unwrap();
-        writeln!(pane, " To step forward/rewind through program:                       ").unwrap();
-        writeln!(pane, "   →/right arrow    : step forward one instruction             ").unwrap();
-        writeln!(pane, "   ←/left arrow     : rewind one instruction                   ").unwrap();
-        writeln!(pane, "   end key/Fn-→     : fast forward to end of current function  ").unwrap();
-        writeln!(pane, "   home key/Fn-←    : rewind to start of current function      ").unwrap();
-        writeln!(pane, "   enter/return     : fast forward to instruction under cursor ").unwrap();
-        writeln!(pane, "   backspace/delete : rewind to instruction under cursor       ").unwrap();
-        writeln!(pane, "                                                               ").unwrap();
-        writeln!(pane, " To toggle what is displayed:                                  ").unwrap();
-        writeln!(pane, "   (r)egister pane, (o)utput pane, (s)tack pane, (d)ata pane   ").unwrap();
-        writeln!(pane, "   (v)erbose mode, show (a)ddresses, use he(x)adecimal         ").unwrap();
+        writeln!(
+            pane,
+            " To move the cursor without stepping:                          "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   ↑/up arrow       : move cursor up one instruction           "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   ↓/down arrow     : move cursor down one instruction         "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   PgUp/Fn-↑        : move cursor up one page                  "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   PgDown/Fn-↓      : move cursor down one page                "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "                                                               "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            " To step forward/rewind through program:                       "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   →/right arrow    : step forward one instruction             "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   ←/left arrow     : rewind one instruction                   "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   end key/Fn-→     : fast forward to end of current function  "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   home key/Fn-←    : rewind to start of current function      "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   enter/return     : fast forward to instruction under cursor "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   backspace/delete : rewind to instruction under cursor       "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "                                                               "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            " To toggle what is displayed:                                  "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   (r)egister pane, (o)utput pane, (s)tack pane, (d)ata pane   "
+        )
+        .unwrap();
+        writeln!(
+            pane,
+            "   (v)erbose mode, show (a)ddresses, use he(x)adecimal         "
+        )
+        .unwrap();
     }
 }
 
@@ -798,7 +1014,11 @@ impl Drop for Tui {
     fn drop(&mut self) {
         if let Err(e) = (|| {
             crossterm::terminal::disable_raw_mode()?;
-            queue!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen, crossterm::cursor::Show)?;
+            queue!(
+                std::io::stdout(),
+                crossterm::terminal::LeaveAlternateScreen,
+                crossterm::cursor::Show
+            )?;
             std::io::stdout().flush()
         })() {
             eprintln!("{}", e);
@@ -842,19 +1062,28 @@ impl Pane {
 
         pane.out[origin_y as usize][origin_x as usize] = ('┌', color);
         pane.hline(origin_x + 1, origin_y, outer_width - 2);
-        pane.out[origin_y as usize][(origin_x + outer_width - 1) as usize] = ('┐', pane.color);
+        pane.out[origin_y as usize][(origin_x + outer_width - 1) as usize] =
+            ('┐', pane.color);
 
-        pane.out[(origin_y + outer_height - 1) as usize][origin_x as usize] = ('└', pane.color);
+        pane.out[(origin_y + outer_height - 1) as usize][origin_x as usize] =
+            ('└', pane.color);
         pane.hline(origin_x + 1, origin_y + outer_height - 1, outer_width - 2);
-        pane.out[(origin_y + outer_height - 1) as usize][(origin_x + outer_width - 1) as usize] = ('┘', pane.color);
+        pane.out[(origin_y + outer_height - 1) as usize]
+            [(origin_x + outer_width - 1) as usize] = ('┘', pane.color);
         pane.vline(origin_x, origin_y + 1, outer_height - 2);
         pane.vline(origin_x + outer_width - 1, origin_y + 1, outer_height - 2);
         pane
     }
 
-    fn split_right(&mut self, width: u16, flow_down: bool, corners: &mut Vec<(u16, u16)>) -> Self {
+    fn split_right(
+        &mut self,
+        width: u16,
+        flow_down: bool,
+        corners: &mut Vec<(u16, u16)>,
+    ) -> Self {
         self.width -= width + 1;
-        let (top_y, bot_y, x) = (self.top - 1, self.top + self.height, self.left + self.width);
+        let (top_y, bot_y, x) =
+            (self.top - 1, self.top + self.height, self.left + self.width);
 
         // draw the split line
         self.vline(x, top_y + 1, self.height);
@@ -887,9 +1116,15 @@ impl Pane {
         }
     }
 
-    fn split_bottom(&mut self, height: u16, flow_down: bool, corners: &mut Vec<(u16, u16)>) -> Self {
+    fn split_bottom(
+        &mut self,
+        height: u16,
+        flow_down: bool,
+        corners: &mut Vec<(u16, u16)>,
+    ) -> Self {
         self.height -= height + 1;
-        let (y, left_x, right_x) = (self.top + self.height, self.left - 1, self.left + self.width);
+        let (y, left_x, right_x) =
+            (self.top + self.height, self.left - 1, self.left + self.width);
 
         // draw the split line
         self.hline(left_x + 1, y, self.width);
@@ -939,10 +1174,21 @@ impl Pane {
     }
 
     fn label(&mut self, msg: &str) {
-        self.write_padded_str(msg, self.left + 1, self.top - 1, self.width as usize - 4);
+        self.write_padded_str(
+            msg,
+            self.left + 1,
+            self.top - 1,
+            self.width as usize - 4,
+        );
     }
 
-    fn write_padded_str(&mut self, msg: &str, x: u16, y: u16, max_width: usize) {
+    fn write_padded_str(
+        &mut self,
+        msg: &str,
+        x: u16,
+        y: u16,
+        max_width: usize,
+    ) {
         let mut msg: Vec<_> = msg.chars().collect();
         msg.truncate(max_width - 2);
         msg.insert(0, ' ');
@@ -965,8 +1211,10 @@ impl fmt::Write for Pane {
                 } else {
                     self.cursor_y = u16::MAX;
                 }
-            } else if self.cursor_x < self.width && self.cursor_y < self.height {
-                self.out[(self.top + self.cursor_y) as usize][(self.left + self.cursor_x) as usize] = (c, self.color);
+            } else if self.cursor_x < self.width && self.cursor_y < self.height
+            {
+                self.out[(self.top + self.cursor_y) as usize]
+                    [(self.left + self.cursor_x) as usize] = (c, self.color);
                 self.cursor_x += 1;
             }
         }
@@ -979,13 +1227,19 @@ fn get_last_n_lines(data: &[u8], n: usize) -> Vec<String> {
     let chunks: Vec<_> = data.split(|&b| b == b'\n').collect();
 
     // take last n chunks, skipping the last one if it's empty
-    let chunks =
-        if chunks.last().is_some_and(|chunk| chunk.is_empty()) { &chunks[..chunks.len() - 1] } else { &chunks[..] };
+    let chunks = if chunks.last().is_some_and(|chunk| chunk.is_empty()) {
+        &chunks[..chunks.len() - 1]
+    } else {
+        &chunks[..]
+    };
 
     let start_idx = chunks.len().saturating_sub(n);
 
     // convert chunks to strings
-    chunks[start_idx..].iter().map(|chunk| String::from_utf8_lossy(chunk).into_owned()).collect()
+    chunks[start_idx..]
+        .iter()
+        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
+        .collect()
 }
 
 fn calc_range(length: usize, cursor: usize, window_size: u16) -> (i64, i64) {
@@ -995,7 +1249,8 @@ fn calc_range(length: usize, cursor: usize, window_size: u16) -> (i64, i64) {
 
     // shift up or down if it will fit more info
     if start < 0 {
-        let shift = std::cmp::min(-start, std::cmp::max(0, length as i64 - end));
+        let shift =
+            std::cmp::min(-start, std::cmp::max(0, length as i64 - end));
         start += shift;
         end += shift;
     }
@@ -1014,7 +1269,8 @@ fn find_function_bounds(
     instructions: &[Rc<Instruction>],
     current: usize,
 ) -> (u32, u32) {
-    let (mut start_pc, mut end_pc) = (instructions[0].address, instructions.last().unwrap().address);
+    let (mut start_pc, mut end_pc) =
+        (instructions[0].address, instructions.last().unwrap().address);
     for instruction in instructions[0..=current].iter().rev() {
         if let Some(label) = symbols.get(&instruction.address)
             && label.parse::<usize>().is_err()

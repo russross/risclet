@@ -2,7 +2,8 @@ use crate::{Machine, memory::Segment};
 use std::collections::HashMap;
 
 pub fn load_elf(filename: &str) -> Result<Machine, String> {
-    let raw = std::fs::read(filename).map_err(|e| format!("loading {}: {}", filename, e))?;
+    let raw = std::fs::read(filename)
+        .map_err(|e| format!("loading {}: {}", filename, e))?;
     load_elf_from_bytes(&raw, Box::new(crate::io_abstraction::SystemIo))
 }
 
@@ -24,21 +25,31 @@ pub fn load_elf_from_bytes(
         || u16::from_le_bytes(raw[0x12..0x14].try_into().unwrap()) != 0xf3
         || u32::from_le_bytes(raw[0x14..0x18].try_into().unwrap()) != 1
     {
-        return Err("ELF data is not an executable, RISC-V, ELF version 1 file".to_string());
+        return Err(
+            "ELF data is not an executable, RISC-V, ELF version 1 file"
+                .to_string(),
+        );
     }
 
     // 32-bit ELF header offsets
     let e_entry = u32::from_le_bytes(raw[0x18..0x1c].try_into().unwrap());
-    let e_phoff = u32::from_le_bytes(raw[0x1c..0x20].try_into().unwrap()) as usize;
-    let e_shoff = u32::from_le_bytes(raw[0x20..0x24].try_into().unwrap()) as usize;
+    let e_phoff =
+        u32::from_le_bytes(raw[0x1c..0x20].try_into().unwrap()) as usize;
+    let e_shoff =
+        u32::from_le_bytes(raw[0x20..0x24].try_into().unwrap()) as usize;
 
     //let e_flags = u32::from_le_bytes(raw[0x24..0x28].try_into().unwrap());
     let e_ehsize = u16::from_le_bytes(raw[0x28..0x2a].try_into().unwrap());
-    let e_phentsize = u16::from_le_bytes(raw[0x2a..0x2c].try_into().unwrap()) as usize;
-    let e_phnum = u16::from_le_bytes(raw[0x2c..0x2e].try_into().unwrap()) as usize;
-    let e_shentsize = u16::from_le_bytes(raw[0x2e..0x30].try_into().unwrap()) as usize;
-    let e_shnum = u16::from_le_bytes(raw[0x30..0x32].try_into().unwrap()) as usize;
-    let e_shstrndx = u16::from_le_bytes(raw[0x32..0x34].try_into().unwrap()) as usize;
+    let e_phentsize =
+        u16::from_le_bytes(raw[0x2a..0x2c].try_into().unwrap()) as usize;
+    let e_phnum =
+        u16::from_le_bytes(raw[0x2c..0x2e].try_into().unwrap()) as usize;
+    let e_shentsize =
+        u16::from_le_bytes(raw[0x2e..0x30].try_into().unwrap()) as usize;
+    let e_shnum =
+        u16::from_le_bytes(raw[0x30..0x32].try_into().unwrap()) as usize;
+    let e_shstrndx =
+        u16::from_le_bytes(raw[0x32..0x34].try_into().unwrap()) as usize;
 
     if e_phoff == 0 || e_ehsize != 0x34 || e_phentsize != 0x20 || e_phnum < 1 {
         return Err("ELF data has unexpected RV32 header sizes".to_string());
@@ -50,15 +61,20 @@ pub fn load_elf_from_bytes(
         // unpack the program header
         let start = e_phoff + e_phentsize * i;
         if start + e_phentsize > raw.len() {
-            return Err("ELF data program header entry out of range".to_string());
+            return Err(
+                "ELF data program header entry out of range".to_string()
+            );
         }
         // 32-bit program header
         let header = &raw[start..start + e_phentsize];
         let p_type = u32::from_le_bytes(header[0x00..0x04].try_into().unwrap());
-        let p_offset = u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
-        let p_vaddr = u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
+        let p_offset =
+            u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
+        let p_vaddr =
+            u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
         //let p_paddr = u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
-        let p_filesz = u32::from_le_bytes(header[0x10..0x14].try_into().unwrap());
+        let p_filesz =
+            u32::from_le_bytes(header[0x10..0x14].try_into().unwrap());
         //let p_memsz = u32::from_le_bytes(header[0x14..0x18].try_into().unwrap());
         //let p_align = u32::from_le_bytes(header[0x18..0x1c].try_into().unwrap());
 
@@ -68,14 +84,19 @@ pub fn load_elf_from_bytes(
         if (p_offset as usize + p_filesz as usize) > raw.len() {
             return Err("ELF data program segment out of range".to_string());
         }
-        let chunk = (p_vaddr, raw[p_offset as usize..(p_offset as usize + p_filesz as usize)].to_vec());
+        let chunk = (
+            p_vaddr,
+            raw[p_offset as usize..(p_offset as usize + p_filesz as usize)]
+                .to_vec(),
+        );
         chunks.push(chunk);
     }
 
     // get the section header strings
     let start = e_shoff + e_shentsize * e_shstrndx;
     if start + e_shentsize > raw.len() {
-        return Err("ELF data section header string table entry out of range".to_string());
+        return Err("ELF data section header string table entry out of range"
+            .to_string());
     }
     // 32-bit section header offsets
     let header = &raw[start..start + e_shentsize];
@@ -83,15 +104,19 @@ pub fn load_elf_from_bytes(
     //let sh_type = u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
     //let sh_flags = u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
     //let sh_addr = u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
-    let sh_offset = u32::from_le_bytes(header[0x10..0x14].try_into().unwrap()) as usize;
-    let sh_size = u32::from_le_bytes(header[0x14..0x18].try_into().unwrap()) as usize;
+    let sh_offset =
+        u32::from_le_bytes(header[0x10..0x14].try_into().unwrap()) as usize;
+    let sh_size =
+        u32::from_le_bytes(header[0x14..0x18].try_into().unwrap()) as usize;
     //let sh_link = u32::from_le_bytes(header[0x18..0x1c].try_into().unwrap());
     //let sh_info = u32::from_le_bytes(header[0x1c..0x20].try_into().unwrap());
     //let sh_addralign = u32::from_le_bytes(header[0x20..0x24].try_into().unwrap());
     //let sh_entsize = u32::from_le_bytes(header[0x24..0x28].try_into().unwrap());
 
     if sh_offset + sh_size > raw.len() {
-        return Err("ELF data section header string table out of range".to_string());
+        return Err(
+            "ELF data section header string table out of range".to_string()
+        );
     }
 
     // unpack the strings, keyed by offset
@@ -100,7 +125,10 @@ pub fn load_elf_from_bytes(
     let mut start = 0;
     for (i, &b) in sh_str_raw.iter().enumerate() {
         if b == 0 {
-            sh_strs.insert(start, String::from_utf8_lossy(&sh_str_raw[start..i]).into_owned());
+            sh_strs.insert(
+                start,
+                String::from_utf8_lossy(&sh_str_raw[start..i]).into_owned(),
+            );
             start = i + 1;
         }
     }
@@ -117,12 +145,18 @@ pub fn load_elf_from_bytes(
 
         // 32-bit section header unpacking
         let header = &raw[start..start + e_shentsize];
-        let sh_name = u32::from_le_bytes(header[0x00..0x04].try_into().unwrap()) as usize;
-        let sh_type = u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
-        let sh_flags = u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
-        let sh_addr = u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
-        let sh_offset = u32::from_le_bytes(header[0x10..0x14].try_into().unwrap()) as usize;
-        let sh_size = u32::from_le_bytes(header[0x14..0x18].try_into().unwrap()) as usize;
+        let sh_name =
+            u32::from_le_bytes(header[0x00..0x04].try_into().unwrap()) as usize;
+        let sh_type =
+            u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
+        let sh_flags =
+            u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
+        let sh_addr =
+            u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
+        let sh_offset =
+            u32::from_le_bytes(header[0x10..0x14].try_into().unwrap()) as usize;
+        let sh_size =
+            u32::from_le_bytes(header[0x14..0x18].try_into().unwrap()) as usize;
         //let sh_link = u32::from_le_bytes(header[0x18..0x1c].try_into().unwrap());
         //let sh_info = u32::from_le_bytes(header[0x1c..0x20].try_into().unwrap());
         //let sh_addralign = u32::from_le_bytes(header[0x20..0x24].try_into().unwrap());
@@ -139,14 +173,18 @@ pub fn load_elf_from_bytes(
             || sh_type == 0x10
             || sh_type == 0x11
         {
-            return Err("ELF data contains unsupported section type".to_string());
+            return Err(
+                "ELF data contains unsupported section type".to_string()
+            );
         }
 
         if (sh_type == 1 || sh_type == 8) && (sh_flags & 0x2) != 0 {
             // in-memory section; see if we have loadable data
             let mut init = Vec::new();
             for &(p_vaddr, ref seg_raw) in &chunks {
-                if p_vaddr <= sh_addr && sh_addr < p_vaddr + seg_raw.len() as u32 {
+                if p_vaddr <= sh_addr
+                    && sh_addr < p_vaddr + seg_raw.len() as u32
+                {
                     let start_idx = (sh_addr - p_vaddr) as usize;
                     let end_idx = start_idx + sh_size;
                     init = seg_raw[start_idx..end_idx].to_vec();
@@ -159,12 +197,16 @@ pub fn load_elf_from_bytes(
                 (sh_flags & 0x4) != 0,
                 init,
             ));
-        } else if sh_strs.get(&sh_name) == Some(&String::from(".strtab")) && sh_type == 3 {
+        } else if sh_strs.get(&sh_name) == Some(&String::from(".strtab"))
+            && sh_type == 3
+        {
             if sh_offset + sh_size > raw.len() {
                 return Err("ELF data string table out of range".to_string());
             }
             strs_raw = raw[sh_offset..sh_offset + sh_size].to_vec();
-        } else if sh_strs.get(&sh_name) == Some(&String::from(".symtab")) && sh_type == 2 {
+        } else if sh_strs.get(&sh_name) == Some(&String::from(".symtab"))
+            && sh_type == 2
+        {
             if sh_offset + sh_size > raw.len() {
                 return Err("ELF data symbol table out of range".to_string());
             }
@@ -192,12 +234,16 @@ pub fn load_elf_from_bytes(
         }
         // 32-bit symbol entry format:
         let symbol = &syms_raw[start..start + SYMBOL_SIZE];
-        let st_name = u32::from_le_bytes(symbol[0x00..0x04].try_into().unwrap()) as usize;
-        let st_value = u32::from_le_bytes(symbol[0x04..0x08].try_into().unwrap());
-        let _st_size = u32::from_le_bytes(symbol[0x08..0x0c].try_into().unwrap());
+        let st_name =
+            u32::from_le_bytes(symbol[0x00..0x04].try_into().unwrap()) as usize;
+        let st_value =
+            u32::from_le_bytes(symbol[0x04..0x08].try_into().unwrap());
+        let _st_size =
+            u32::from_le_bytes(symbol[0x08..0x0c].try_into().unwrap());
         let st_info = symbol[0x0c];
         //let st_other = symbol[0x0d];
-        let st_shndx = u16::from_le_bytes(symbol[0x0e..0x10].try_into().unwrap());
+        let st_shndx =
+            u16::from_le_bytes(symbol[0x0e..0x10].try_into().unwrap());
 
         let mut end = st_name;
         while end < strs_raw.len() && strs_raw[end] != 0 {
@@ -206,7 +252,8 @@ pub fn load_elf_from_bytes(
         if end >= strs_raw.len() {
             return Err("ELF data symbol name out of range".to_string());
         }
-        let name = String::from_utf8_lossy(&strs_raw[st_name..end]).into_owned();
+        let name =
+            String::from_utf8_lossy(&strs_raw[st_name..end]).into_owned();
 
         if name.is_empty() || st_info == 4 {
             // skip section entries and object file names
@@ -230,5 +277,12 @@ pub fn load_elf_from_bytes(
     }
 
     // allocate address space
-    Ok(Machine::with_io_provider(segments, e_entry, global_pointer, address_symbols, other_symbols, io_provider))
+    Ok(Machine::with_io_provider(
+        segments,
+        e_entry,
+        global_pointer,
+        address_symbols,
+        other_symbols,
+        io_provider,
+    ))
 }

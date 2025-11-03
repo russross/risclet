@@ -4,7 +4,8 @@
 // Provides visibility into intermediate states at various stages of assembly.
 
 use crate::ast::{
-    Directive, Expression, Instruction, Line, LineContent, LinePointer, Location, PseudoOp, Segment, Source, SourceFile,
+    Directive, Expression, Instruction, Line, LineContent, LinePointer,
+    Location, PseudoOp, Segment, Source, SourceFile,
 };
 use crate::config::Config;
 use crate::elf_builder::ElfBuilder;
@@ -77,7 +78,13 @@ impl Default for DumpConfig {
 
 impl DumpConfig {
     pub fn new() -> Self {
-        Self { dump_ast: None, dump_symbols: None, dump_values: None, dump_code: None, dump_elf: None }
+        Self {
+            dump_ast: None,
+            dump_symbols: None,
+            dump_values: None,
+            dump_code: None,
+            dump_elf: None,
+        }
     }
 
     /// Returns true if any dump option is enabled
@@ -112,25 +119,38 @@ pub fn parse_pass_range(s: &str) -> Result<PassRange, String> {
 
         if before.is_empty() && !after.is_empty() {
             // "-N" format (up to N)
-            let n = after.parse::<usize>().map_err(|_| format!("Invalid pass number: {}", after))?;
+            let n = after
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid pass number: {}", after))?;
             return Ok(PassRange::UpTo(n));
         } else if !before.is_empty() && after.is_empty() {
             // "N-" format (from N)
-            let n = before.parse::<usize>().map_err(|_| format!("Invalid pass number: {}", before))?;
+            let n = before
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid pass number: {}", before))?;
             return Ok(PassRange::From(n));
         } else if !before.is_empty() && !after.is_empty() {
             // "N-M" format (range)
-            let start = before.parse::<usize>().map_err(|_| format!("Invalid pass number: {}", before))?;
-            let end = after.parse::<usize>().map_err(|_| format!("Invalid pass number: {}", after))?;
+            let start = before
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid pass number: {}", before))?;
+            let end = after
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid pass number: {}", after))?;
             if start > end {
-                return Err(format!("Invalid pass range: start {} > end {}", start, end));
+                return Err(format!(
+                    "Invalid pass range: start {} > end {}",
+                    start, end
+                ));
             }
             return Ok(PassRange::Range(start, end));
         }
     }
 
     // Try parsing as a single number
-    let n = s.parse::<usize>().map_err(|_| format!("Invalid pass specification: {}", s))?;
+    let n = s
+        .parse::<usize>()
+        .map_err(|_| format!("Invalid pass specification: {}", s))?;
     Ok(PassRange::Specific(n))
 }
 
@@ -141,16 +161,30 @@ pub fn parse_file_selection(s: &str) -> FileSelection {
         return FileSelection::All;
     }
 
-    let files: Vec<String> = s.split(',').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect();
+    let files: Vec<String> = s
+        .split(',')
+        .map(|f| f.trim().to_string())
+        .filter(|f| !f.is_empty())
+        .collect();
 
-    if files.is_empty() { FileSelection::All } else { FileSelection::Specific(files) }
+    if files.is_empty() {
+        FileSelection::All
+    } else {
+        FileSelection::Specific(files)
+    }
 }
 
 /// Check if a file matches the selection criteria
-fn matches_file_selection(selection: &FileSelection, filename: &str, index: usize) -> bool {
+fn matches_file_selection(
+    selection: &FileSelection,
+    filename: &str,
+    index: usize,
+) -> bool {
     match selection {
         FileSelection::All => true,
-        FileSelection::Specific(files) => files.iter().any(|f| f == filename || f == &format!("{}", index)),
+        FileSelection::Specific(files) => {
+            files.iter().any(|f| f == filename || f == &format!("{}", index))
+        }
     }
 }
 
@@ -158,13 +192,20 @@ fn matches_file_selection(selection: &FileSelection, filename: &str, index: usiz
 pub fn parse_dump_spec(s: &str) -> Result<DumpSpec, String> {
     if s.is_empty() {
         // Default: final pass, all files
-        return Ok(DumpSpec { passes: PassRange::Final, files: FileSelection::All });
+        return Ok(DumpSpec {
+            passes: PassRange::Final,
+            files: FileSelection::All,
+        });
     }
 
     let parts: Vec<&str> = s.split(':').collect();
 
     let passes = parse_pass_range(parts[0])?;
-    let files = if parts.len() > 1 { parse_file_selection(parts[1]) } else { FileSelection::All };
+    let files = if parts.len() > 1 {
+        parse_file_selection(parts[1])
+    } else {
+        FileSelection::All
+    };
 
     Ok(DumpSpec { passes, files })
 }
@@ -176,7 +217,8 @@ pub fn parse_elf_parts(s: &str) -> Result<ElfDumpParts, String> {
         return Ok(ElfDumpParts::default());
     }
 
-    let mut parts = ElfDumpParts { headers: false, symbols: false, sections: false };
+    let mut parts =
+        ElfDumpParts { headers: false, symbols: false, sections: false };
 
     for part in s.split(',') {
         match part.trim() {
@@ -191,7 +233,11 @@ pub fn parse_elf_parts(s: &str) -> Result<ElfDumpParts, String> {
 }
 
 /// Check if a pass should be included based on PassRange
-pub fn should_include_pass(pass: usize, range: &PassRange, is_final: bool) -> bool {
+pub fn should_include_pass(
+    pass: usize,
+    range: &PassRange,
+    is_final: bool,
+) -> bool {
     match range {
         PassRange::Final => is_final,
         PassRange::Specific(n) => pass == *n,
@@ -208,10 +254,16 @@ pub fn should_include_file(file: &str, selection: &FileSelection) -> bool {
         FileSelection::All => true,
         FileSelection::Specific(files) => {
             // Check if file matches any in the list (basename comparison)
-            let file_basename = std::path::Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or(file);
+            let file_basename = std::path::Path::new(file)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(file);
 
             files.iter().any(|f| {
-                let f_basename = std::path::Path::new(f).file_name().and_then(|n| n.to_str()).unwrap_or(f);
+                let f_basename = std::path::Path::new(f)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(f);
                 file_basename == f_basename
             })
         }
@@ -237,7 +289,8 @@ pub fn dump_ast(config: &Config, source: &Source) {
             let max_line_width = calculate_max_line_width_for_file(file);
 
             for line in &file.lines {
-                let (loc_str, padding) = format_location_aligned(&line.location, max_line_width);
+                let (loc_str, padding) =
+                    format_location_aligned(&line.location, max_line_width);
                 print!("{}{} ", loc_str, padding);
                 dump_line_content_ast(&line.content);
                 println!();
@@ -503,7 +556,11 @@ fn dump_expression_ast(expr: &Expression) {
         }
         Expression::CurrentAddress => print!("(current-address)"),
         Expression::NumericLabelRef(ref_item) => {
-            print!("(numeric-label {} {})", ref_item.num, if ref_item.is_forward { "f" } else { "b" });
+            print!(
+                "(numeric-label {} {})",
+                ref_item.num,
+                if ref_item.is_forward { "f" } else { "b" }
+            );
         }
     }
 }
@@ -512,7 +569,11 @@ fn dump_expression_ast(expr: &Expression) {
 // Symbol Resolution Dump
 // ============================================================================
 
-pub fn dump_symbols(config: &Config, source: &Source, symbol_links: &SymbolLinks) {
+pub fn dump_symbols(
+    config: &Config,
+    source: &Source,
+    symbol_links: &SymbolLinks,
+) {
     println!("========== SYMBOL RESOLUTION DUMP ==========\n");
 
     let spec = config.dump.dump_symbols.as_ref().unwrap();
@@ -528,7 +589,8 @@ pub fn dump_symbols(config: &Config, source: &Source, symbol_links: &SymbolLinks
 
             for (line_index, line) in file.lines.iter().enumerate() {
                 // Format: [file:line] content
-                let (loc_str, padding) = format_location_aligned(&line.location, max_line_width);
+                let (loc_str, padding) =
+                    format_location_aligned(&line.location, max_line_width);
                 print!("{}{} {}", loc_str, padding, line.content);
 
                 // If this line has outgoing references, show them
@@ -540,9 +602,14 @@ pub fn dump_symbols(config: &Config, source: &Source, symbol_links: &SymbolLinks
                         if j > 0 {
                             print!(",");
                         }
-                        let def_file = &source.files[ref_item.definition.pointer.file_index];
-                        let def_line = &def_file.lines[ref_item.definition.pointer.line_index];
-                        print!(" {}@{}", ref_item.outgoing_name, def_line.location);
+                        let def_file = &source.files
+                            [ref_item.definition.pointer.file_index];
+                        let def_line = &def_file.lines
+                            [ref_item.definition.pointer.line_index];
+                        print!(
+                            " {}@{}",
+                            ref_item.outgoing_name, def_line.location
+                        );
                     }
                 }
 
@@ -559,11 +626,17 @@ pub fn dump_symbols(config: &Config, source: &Source, symbol_links: &SymbolLinks
         println!("{}", "=".repeat(79));
         for global in &symbol_links.global_symbols {
             let def_file = &source.files[global.definition_pointer.file_index];
-            let def_line = &def_file.lines[global.definition_pointer.line_index];
-            let decl_file = &source.files[global.declaration_pointer.file_index];
-            let decl_line = &decl_file.lines[global.declaration_pointer.line_index];
+            let def_line =
+                &def_file.lines[global.definition_pointer.line_index];
+            let decl_file =
+                &source.files[global.declaration_pointer.file_index];
+            let decl_line =
+                &decl_file.lines[global.declaration_pointer.line_index];
 
-            println!("  {} → defined at {}, declared at {}", global.symbol, def_line.location, decl_line.location);
+            println!(
+                "  {} → defined at {}, declared at {}",
+                global.symbol, def_line.location, decl_line.location
+            );
         }
         println!();
     }
@@ -573,7 +646,13 @@ pub fn dump_symbols(config: &Config, source: &Source, symbol_links: &SymbolLinks
 // Symbol Values Dump
 // ============================================================================
 
-pub fn dump_values(pass_number: usize, is_final: bool, source: &Source, layout: &Layout, spec: &DumpSpec) {
+pub fn dump_values(
+    pass_number: usize,
+    is_final: bool,
+    source: &Source,
+    layout: &Layout,
+    spec: &DumpSpec,
+) {
     if !should_include_pass(pass_number, &spec.passes, is_final) {
         return;
     }
@@ -607,8 +686,15 @@ pub fn dump_values(pass_number: usize, is_final: bool, source: &Source, layout: 
             let line_layout = layout.get(pointer);
             let segment = line_layout.segment;
 
-            let (loc_str, padding) = format_location_aligned(&line.location, max_line_width);
-            print!("{}{} {}: {}", loc_str, padding, format_address(abs_addr, addr_width, segment), line.content);
+            let (loc_str, padding) =
+                format_location_aligned(&line.location, max_line_width);
+            print!(
+                "{}{} {}: {}",
+                loc_str,
+                padding,
+                format_address(abs_addr, addr_width, segment),
+                line.content
+            );
 
             // Collect and show evaluated expression values
             let expr_values = collect_expression_values(line);
@@ -674,25 +760,35 @@ pub fn dump_code(
             let &LineLayout { segment, offset, size } = layout.get(pointer);
 
             let abs_addr = layout.get_line_address(pointer);
-            let encoded_bytes = get_encoded_bytes_with_layout(size, segment, offset, text_bytes, data_bytes);
+            let encoded_bytes = get_encoded_bytes_with_layout(
+                size, segment, offset, text_bytes, data_bytes,
+            );
 
             match &line.content {
                 LineContent::Label(name) => {
                     // For labels, print with location and address prefix
-                    let formatted_addr = format_address(abs_addr, addr_width, segment);
-                    let (loc_str, padding) = format_location_aligned(&line.location, max_line_width);
-                    println!("{}{} {}: {}:", loc_str, padding, formatted_addr, name);
+                    let formatted_addr =
+                        format_address(abs_addr, addr_width, segment);
+                    let (loc_str, padding) =
+                        format_location_aligned(&line.location, max_line_width);
+                    println!(
+                        "{}{} {}: {}:",
+                        loc_str, padding, formatted_addr, name
+                    );
                 }
                 LineContent::Instruction(inst) => {
                     // For instructions: print location, address, first 4 bytes, then instruction at column 16
-                    let formatted_addr = format_address(abs_addr, addr_width, segment);
-                    let (loc_str, padding) = format_location_aligned(&line.location, max_line_width);
+                    let formatted_addr =
+                        format_address(abs_addr, addr_width, segment);
+                    let (loc_str, padding) =
+                        format_location_aligned(&line.location, max_line_width);
                     // print 2 spaces to offset bytes from labels
                     print!("{}{} {}:   ", loc_str, padding, formatted_addr);
 
                     // Print first 4 bytes (or fewer if instruction is shorter)
                     if !encoded_bytes.is_empty() {
-                        let first_chunk = &encoded_bytes[..std::cmp::min(4, encoded_bytes.len())];
+                        let first_chunk = &encoded_bytes
+                            [..std::cmp::min(4, encoded_bytes.len())];
                         for b in first_chunk {
                             print!("{:02x} ", b);
                         }
@@ -704,17 +800,24 @@ pub fn dump_code(
                     } else {
                         2 + std::cmp::min(4, encoded_bytes.len()) * 3 // each byte is "xx " (3 chars)
                     };
-                    let instruction_padding = if bytes_printed < 16 { 16 - bytes_printed } else { 1 };
+                    let instruction_padding =
+                        if bytes_printed < 16 { 16 - bytes_printed } else { 1 };
                     print!("{:<width$}", "", width = instruction_padding);
                     print!("{}", inst);
 
                     // If more than 4 bytes, print continuation lines with 4 bytes each
                     if encoded_bytes.len() > 4 {
                         println!();
-                        for (i, chunk) in encoded_bytes[4..].chunks(4).enumerate() {
+                        for (i, chunk) in
+                            encoded_bytes[4..].chunks(4).enumerate()
+                        {
                             let chunk_addr = abs_addr + ((i + 1) as u32 * 4);
-                            let chunk_formatted_addr = format_address(chunk_addr, addr_width, segment);
-                            print!("{}{} {}:   ", loc_str, padding, chunk_formatted_addr);
+                            let chunk_formatted_addr =
+                                format_address(chunk_addr, addr_width, segment);
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, chunk_formatted_addr
+                            );
                             for b in chunk {
                                 print!("{:02x} ", b);
                             }
@@ -727,11 +830,16 @@ pub fn dump_code(
                 }
                 LineContent::Directive(_dir) => {
                     // For directives: print 8 bytes per line with proper alignment
-                    let (loc_str, padding) = format_location_aligned(&line.location, max_line_width);
+                    let (loc_str, padding) =
+                        format_location_aligned(&line.location, max_line_width);
                     if encoded_bytes.is_empty() {
                         // Directives with no encoded bytes (e.g., .text, .data, .global)
-                        let formatted_addr = format_address(abs_addr, addr_width, segment);
-                        println!("{}{} {}: {}", loc_str, padding, formatted_addr, line.content);
+                        let formatted_addr =
+                            format_address(abs_addr, addr_width, segment);
+                        println!(
+                            "{}{} {}: {}",
+                            loc_str, padding, formatted_addr, line.content
+                        );
                     } else {
                         // Directives with bytes: handle alignment
                         println!(
@@ -744,16 +852,27 @@ pub fn dump_code(
 
                         // Calculate alignment: how many bytes to print on first line to reach 8-byte alignment
                         let alignment_offset = abs_addr & 0x7; // offset within 8-byte boundary
-                        let bytes_to_align = if alignment_offset == 0 { 8 } else { 8 - alignment_offset };
+                        let bytes_to_align = if alignment_offset == 0 {
+                            8
+                        } else {
+                            8 - alignment_offset
+                        };
 
                         let mut byte_offset = 0;
 
                         // First line: print bytes until we reach 8-byte alignment or run out
                         if byte_offset < encoded_bytes.len() {
-                            let first_line_count = std::cmp::min(bytes_to_align as usize, encoded_bytes.len());
+                            let first_line_count = std::cmp::min(
+                                bytes_to_align as usize,
+                                encoded_bytes.len(),
+                            );
                             let first_addr = abs_addr;
-                            let first_formatted_addr = format_address(first_addr, addr_width, segment);
-                            print!("{}{} {}:   ", loc_str, padding, first_formatted_addr);
+                            let first_formatted_addr =
+                                format_address(first_addr, addr_width, segment);
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, first_formatted_addr
+                            );
 
                             // Right-flush bytes: print padding spaces first if not 8 bytes
                             if first_line_count < 8 {
@@ -763,7 +882,9 @@ pub fn dump_code(
                                 }
                             }
 
-                            for b in &encoded_bytes[byte_offset..byte_offset + first_line_count] {
+                            for b in &encoded_bytes
+                                [byte_offset..byte_offset + first_line_count]
+                            {
                                 print!("{:02x} ", b);
                             }
                             println!();
@@ -773,9 +894,15 @@ pub fn dump_code(
                         // Middle lines: print 8 bytes per line starting on 8-byte aligned addresses
                         while byte_offset + 8 <= encoded_bytes.len() {
                             let line_addr = abs_addr + byte_offset as u32;
-                            let line_formatted_addr = format_address(line_addr, addr_width, segment);
-                            print!("{}{} {}:   ", loc_str, padding, line_formatted_addr);
-                            for b in &encoded_bytes[byte_offset..byte_offset + 8] {
+                            let line_formatted_addr =
+                                format_address(line_addr, addr_width, segment);
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, line_formatted_addr
+                            );
+                            for b in
+                                &encoded_bytes[byte_offset..byte_offset + 8]
+                            {
                                 print!("{:02x} ", b);
                             }
                             println!();
@@ -785,8 +912,12 @@ pub fn dump_code(
                         // Last line: print remaining bytes (if any)
                         if byte_offset < encoded_bytes.len() {
                             let last_addr = abs_addr + byte_offset as u32;
-                            let last_formatted_addr = format_address(last_addr, addr_width, segment);
-                            print!("{}{} {}:   ", loc_str, padding, last_formatted_addr);
+                            let last_formatted_addr =
+                                format_address(last_addr, addr_width, segment);
+                            print!(
+                                "{}{} {}:   ",
+                                loc_str, padding, last_formatted_addr
+                            );
                             for b in &encoded_bytes[byte_offset..] {
                                 print!("{:02x} ", b);
                             }
@@ -842,7 +973,9 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
 
     // Class, data, version
     println!("  Class:                           ELF64");
-    println!("  Data:                            2's complement, little endian");
+    println!(
+        "  Data:                            2's complement, little endian"
+    );
     println!("  Version:                         {}", h.e_ident[6]);
     println!("  OS/ABI:                          UNIX - System V");
     println!("  ABI Version:                     {}", h.e_ident[8]);
@@ -858,8 +991,14 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
     println!("  Machine:                         RISC-V");
     println!("  Version:                         0x{:x}", h.e_version);
     println!("  Entry point address:             0x{:x}", h.e_entry);
-    println!("  Start of program headers:        {} (bytes into file)", h.e_phoff);
-    println!("  Start of section headers:        {} (bytes into file)", h.e_shoff);
+    println!(
+        "  Start of program headers:        {} (bytes into file)",
+        h.e_phoff
+    );
+    println!(
+        "  Start of section headers:        {} (bytes into file)",
+        h.e_shoff
+    );
     println!("  Flags:                           0x{:x}", h.e_flags);
     println!("  Size of this header:             {} (bytes)", h.e_ehsize);
     println!("  Size of program headers:         {} (bytes)", h.e_phentsize);
@@ -873,7 +1012,9 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
     println!("Program Headers:");
     println!("{}", "-".repeat(79));
     println!("  Type           Offset             VirtAddr           PhysAddr");
-    println!("                 FileSiz            MemSiz             Flags  Align");
+    println!(
+        "                 FileSiz            MemSiz             Flags  Align"
+    );
 
     for ph in &builder.program_headers {
         let type_str = match ph.p_type {
@@ -889,8 +1030,14 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
             if ph.p_flags & 1 != 0 { "E" } else { " " }
         );
 
-        println!("  {:14} 0x{:016x} 0x{:016x} 0x{:016x}", type_str, ph.p_offset, ph.p_vaddr, ph.p_paddr);
-        println!("                 0x{:016x} 0x{:016x} {}  0x{:x}", ph.p_filesz, ph.p_memsz, flags_str, ph.p_align);
+        println!(
+            "  {:14} 0x{:016x} 0x{:016x} 0x{:016x}",
+            type_str, ph.p_offset, ph.p_vaddr, ph.p_paddr
+        );
+        println!(
+            "                 0x{:016x} 0x{:016x} {}  0x{:x}",
+            ph.p_filesz, ph.p_memsz, flags_str, ph.p_align
+        );
     }
     println!();
 }
@@ -898,7 +1045,9 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
 fn dump_elf_sections<'a>(builder: &ElfBuilder<'a>) {
     println!("Section Headers:");
     println!("{}", "-".repeat(79));
-    println!("  [Nr] Name              Type            Address          Off    Size   Flg Lk");
+    println!(
+        "  [Nr] Name              Type            Address          Off    Size   Flg Lk"
+    );
 
     for (i, sh) in builder.section_headers.iter().enumerate() {
         // Get section name from string table
@@ -909,7 +1058,11 @@ fn dump_elf_sections<'a>(builder: &ElfBuilder<'a>) {
             let strtab = builder.section_names.data();
             let start = sh.sh_name as usize;
             if start < strtab.len() {
-                let end = strtab[start..].iter().position(|&b| b == 0).map(|pos| start + pos).unwrap_or(strtab.len());
+                let end = strtab[start..]
+                    .iter()
+                    .position(|&b| b == 0)
+                    .map(|pos| start + pos)
+                    .unwrap_or(strtab.len());
                 std::str::from_utf8(&strtab[start..end]).unwrap_or("")
             } else {
                 ""
@@ -935,7 +1088,14 @@ fn dump_elf_sections<'a>(builder: &ElfBuilder<'a>) {
 
         println!(
             "  [{:3}] {:17} {:15} {:016x} {:06x} {:06x} {:3} {:2}",
-            i, name, type_str, sh.sh_addr, sh.sh_offset, sh.sh_size, flags_str, sh.sh_link
+            i,
+            name,
+            type_str,
+            sh.sh_addr,
+            sh.sh_offset,
+            sh.sh_size,
+            flags_str,
+            sh.sh_link
         );
     }
 
@@ -958,7 +1118,11 @@ fn dump_elf_symbols<'a>(builder: &ElfBuilder<'a>) {
             let strtab = builder.symbol_names.data();
             let start = sym.st_name as usize;
             if start < strtab.len() {
-                let end = strtab[start..].iter().position(|&b| b == 0).map(|pos| start + pos).unwrap_or(strtab.len());
+                let end = strtab[start..]
+                    .iter()
+                    .position(|&b| b == 0)
+                    .map(|pos| start + pos)
+                    .unwrap_or(strtab.len());
                 std::str::from_utf8(&strtab[start..end]).unwrap_or("")
             } else {
                 ""
@@ -1010,12 +1174,19 @@ fn calculate_max_line_width_for_file(file: &SourceFile) -> usize {
     }
 
     // Count digits in max_line_num
-    if max_line_num == 0 { 1 } else { ((max_line_num as f64).log10().floor() as usize) + 1 }
+    if max_line_num == 0 {
+        1
+    } else {
+        ((max_line_num as f64).log10().floor() as usize) + 1
+    }
 }
 
 /// Format location with alignment padding
 /// Returns (formatted_location, padding_spaces) where padding_spaces aligns all locations
-fn format_location_aligned(location: &Location, max_line_width: usize) -> (String, String) {
+fn format_location_aligned(
+    location: &Location,
+    max_line_width: usize,
+) -> (String, String) {
     let formatted = format!("[{}:{}]", location.file, location.line);
     let line_num_str = location.line.to_string();
     let current_width = line_num_str.len();
@@ -1108,12 +1279,16 @@ fn collect_expression_values(line: &Line) -> Vec<String> {
                     }
                 }
                 Instruction::Pseudo(pseudo) => match pseudo {
-                    PseudoOp::La(_, expr) | PseudoOp::Li(_, expr) | PseudoOp::Call(expr) | PseudoOp::Tail(expr) => {
+                    PseudoOp::La(_, expr)
+                    | PseudoOp::Li(_, expr)
+                    | PseudoOp::Call(expr)
+                    | PseudoOp::Tail(expr) => {
                         if let Expression::Literal(val) = expr.as_ref() {
                             results.push(format!("{}", val));
                         }
                     }
-                    PseudoOp::LoadGlobal(_, _, expr) | PseudoOp::StoreGlobal(_, _, expr, _) => {
+                    PseudoOp::LoadGlobal(_, _, expr)
+                    | PseudoOp::StoreGlobal(_, _, expr, _) => {
                         if let Expression::Literal(val) = expr.as_ref() {
                             results.push(format!("{}", val));
                         }

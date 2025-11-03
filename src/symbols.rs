@@ -30,8 +30,8 @@
 //! 2. **Cross-file linking**: Resolve references between files using the global symbol table
 
 use crate::ast::{
-    CompressedOperands, Directive, Expression, Instruction, Line, LineContent, LinePointer, Location, PseudoOp, Source,
-    SourceFile,
+    CompressedOperands, Directive, Expression, Instruction, Line, LineContent,
+    LinePointer, Location, PseudoOp, Source, SourceFile,
 };
 use crate::error::AssemblerError;
 use std::collections::HashMap;
@@ -133,8 +133,12 @@ struct UnresolvedReference {
 }
 
 /// Return type for link_file function: (globals, unresolved, locals, line_refs)
-type LinkFileResult =
-    (Vec<GlobalDefinition>, Vec<UnresolvedReference>, Vec<SymbolDefinition>, Vec<Vec<SymbolReference>>);
+type LinkFileResult = (
+    Vec<GlobalDefinition>,
+    Vec<UnresolvedReference>,
+    Vec<SymbolDefinition>,
+    Vec<Vec<SymbolReference>>,
+);
 
 /// Links symbols across all source files.
 ///
@@ -158,7 +162,8 @@ pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
 
     // Phase 1: Process each file independently
     for (file_index, file) in source.files.iter().enumerate() {
-        let (file_globals, file_unresolved, file_local_symbols, file_line_refs) = link_file(file_index, file)?;
+        let (file_globals, file_unresolved, file_local_symbols, file_line_refs) =
+            link_file(file_index, file)?;
 
         line_refs.push(file_line_refs);
         local_symbols_by_file.push(file_local_symbols);
@@ -166,12 +171,16 @@ pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
         // Merge global symbols, checking for duplicates
         for global_def in file_globals {
             if let Some(existing) = globals.get(&global_def.symbol) {
-                let old_location = source.files[existing.declaration_pointer.file_index].lines
-                    [existing.declaration_pointer.line_index]
+                let old_location = source.files
+                    [existing.declaration_pointer.file_index]
+                    .lines[existing.declaration_pointer.line_index]
                     .location
                     .to_string();
                 return Err(AssemblerError::from_source_pointer(
-                    format!("Duplicate global symbol: {} (previously declared at {})", global_def.symbol, old_location),
+                    format!(
+                        "Duplicate global symbol: {} (previously declared at {})",
+                        global_def.symbol, old_location
+                    ),
                     source,
                     global_def.declaration_pointer,
                 ));
@@ -191,7 +200,11 @@ pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
         line_refs[file_index][line_index].push(sym_ref);
     }
 
-    Ok(SymbolLinks { line_refs, local_symbols_by_file, global_symbols: globals.into_values().collect() })
+    Ok(SymbolLinks {
+        line_refs,
+        local_symbols_by_file,
+        global_symbols: globals.into_values().collect(),
+    })
 }
 
 /// Checks if a symbol is a backward numeric label reference (e.g., "1b").
@@ -224,9 +237,13 @@ fn flush_numeric_labels(
     definitions.retain(|symbol, _| is_numeric_backward_ref(symbol).is_none());
 
     // Find the first unresolved forward numeric reference, if any
-    if let Some(pos) = unresolved.iter().position(|unref| is_numeric_forward_ref(&unref.symbol).is_some()) {
+    if let Some(pos) = unresolved
+        .iter()
+        .position(|unref| is_numeric_forward_ref(&unref.symbol).is_some())
+    {
         let unref = unresolved.remove(pos);
-        let error_location = locations[unref.referencing_pointer.line_index].clone();
+        let error_location =
+            locations[unref.referencing_pointer.line_index].clone();
         return Err(AssemblerError::from_context(
             format!("Unresolved numeric label reference: {}", unref.symbol),
             error_location,
@@ -249,15 +266,21 @@ fn flush_numeric_labels(
 /// - Unresolved references (to be resolved cross-file)
 /// - Local symbol definitions
 /// - Line-by-line symbol references
-fn link_file(file_index: usize, file: &SourceFile) -> Result<LinkFileResult, AssemblerError> {
+fn link_file(
+    file_index: usize,
+    file: &SourceFile,
+) -> Result<LinkFileResult, AssemblerError> {
     // Precompute locations for error reporting
-    let locations: Vec<Location> = file.lines.iter().map(|line| line.location.clone()).collect();
+    let locations: Vec<Location> =
+        file.lines.iter().map(|line| line.location.clone()).collect();
 
     // Symbol tracking state
     let mut definitions: HashMap<String, LinePointer> = HashMap::new();
     let mut unresolved: Vec<UnresolvedReference> = Vec::new();
-    let mut unfinalized_globals: HashMap<String, UnfinalizedGlobal> = HashMap::new();
-    let mut line_outgoing_refs: Vec<Vec<SymbolReference>> = vec![Vec::new(); file.lines.len()];
+    let mut unfinalized_globals: HashMap<String, UnfinalizedGlobal> =
+        HashMap::new();
+    let mut line_outgoing_refs: Vec<Vec<SymbolReference>> =
+        vec![Vec::new(); file.lines.len()];
 
     // Deferred patches for forward references that get resolved during the pass.
     // We can't modify line_outgoing_refs while iterating, so we collect patches
@@ -269,7 +292,13 @@ fn link_file(file_index: usize, file: &SourceFile) -> Result<LinkFileResult, Ass
         let line_ptr = LinePointer { file_index, line_index };
 
         // Phase 1: Extract and resolve symbol references
-        process_symbol_references(line, line_ptr, &definitions, &mut unresolved, &mut line_outgoing_refs[line_index])?;
+        process_symbol_references(
+            line,
+            line_ptr,
+            &definitions,
+            &mut unresolved,
+            &mut line_outgoing_refs[line_index],
+        )?;
 
         // Phase 2: Handle symbol definitions
         let new_definition = process_symbol_definitions(
@@ -284,17 +313,39 @@ fn link_file(file_index: usize, file: &SourceFile) -> Result<LinkFileResult, Ass
 
         // Phase 3: Resolve any forward references to the newly defined symbol
         if let Some(symbol) = new_definition {
-            resolve_forward_references(&symbol, line_ptr, &mut unresolved, &mut patches);
+            resolve_forward_references(
+                &symbol,
+                line_ptr,
+                &mut unresolved,
+                &mut patches,
+            );
         }
 
         // Phase 4: Handle segment boundaries (flush numeric labels)
-        if matches!(line.content, LineContent::Directive(Directive::Text | Directive::Data | Directive::Bss)) {
-            flush_numeric_labels(&locations, &mut definitions, &mut unresolved)?;
+        if matches!(
+            line.content,
+            LineContent::Directive(
+                Directive::Text | Directive::Data | Directive::Bss
+            )
+        ) {
+            flush_numeric_labels(
+                &locations,
+                &mut definitions,
+                &mut unresolved,
+            )?;
         }
 
         // Phase 5: Handle .global declarations
-        if let LineContent::Directive(Directive::Global(symbols)) = &line.content {
-            process_global_declarations(symbols, line_ptr, &line.location, &definitions, &mut unfinalized_globals)?;
+        if let LineContent::Directive(Directive::Global(symbols)) =
+            &line.content
+        {
+            process_global_declarations(
+                symbols,
+                line_ptr,
+                &line.location,
+                &definitions,
+                &mut unfinalized_globals,
+            )?;
         }
     }
 
@@ -312,8 +363,10 @@ fn link_file(file_index: usize, file: &SourceFile) -> Result<LinkFileResult, Ass
     }
 
     // Convert local definitions to output format
-    let local_symbols: Vec<SymbolDefinition> =
-        definitions.into_iter().map(|(symbol, pointer)| SymbolDefinition { symbol, pointer }).collect();
+    let local_symbols: Vec<SymbolDefinition> = definitions
+        .into_iter()
+        .map(|(symbol, pointer)| SymbolDefinition { symbol, pointer })
+        .collect();
 
     Ok((global_definitions, unresolved, local_symbols, line_outgoing_refs))
 }
@@ -338,24 +391,45 @@ fn process_symbol_references(
             // Backward numeric reference must already exist
             let backward_symbol = format!("{}b", num);
             if let Some(def_ptr) = definitions.get(&backward_symbol) {
-                let definition = SymbolDefinition { symbol: num.to_string(), pointer: *def_ptr };
-                outgoing_refs.push(SymbolReference { outgoing_name: symbol.clone(), definition });
+                let definition = SymbolDefinition {
+                    symbol: num.to_string(),
+                    pointer: *def_ptr,
+                };
+                outgoing_refs.push(SymbolReference {
+                    outgoing_name: symbol.clone(),
+                    definition,
+                });
             } else {
                 return Err(AssemblerError::from_context(
-                    format!("Unresolved backward numeric label reference: {}", symbol),
+                    format!(
+                        "Unresolved backward numeric label reference: {}",
+                        symbol
+                    ),
                     line.location.clone(),
                 ));
             }
         } else if is_numeric_forward_ref(&symbol).is_some() {
             // Forward numeric reference to be resolved later
-            unresolved.push(UnresolvedReference { symbol, referencing_pointer: line_ptr });
+            unresolved.push(UnresolvedReference {
+                symbol,
+                referencing_pointer: line_ptr,
+            });
         } else {
             // Regular symbol reference
             if let Some(def_ptr) = definitions.get(&symbol) {
-                let definition = SymbolDefinition { symbol: symbol.clone(), pointer: *def_ptr };
-                outgoing_refs.push(SymbolReference { outgoing_name: symbol.clone(), definition });
+                let definition = SymbolDefinition {
+                    symbol: symbol.clone(),
+                    pointer: *def_ptr,
+                };
+                outgoing_refs.push(SymbolReference {
+                    outgoing_name: symbol.clone(),
+                    definition,
+                });
             } else {
-                unresolved.push(UnresolvedReference { symbol, referencing_pointer: line_ptr });
+                unresolved.push(UnresolvedReference {
+                    symbol,
+                    referencing_pointer: line_ptr,
+                });
             }
         }
     }
@@ -379,7 +453,13 @@ fn process_symbol_definitions(
         LineContent::Label(label) => {
             if label.parse::<u32>().is_ok() {
                 // Numeric label (e.g., "1:")
-                process_numeric_label(label, line_ptr, unresolved, definitions, patches)
+                process_numeric_label(
+                    label,
+                    line_ptr,
+                    unresolved,
+                    definitions,
+                    patches,
+                )
             } else {
                 // Non-numeric label
                 process_regular_label(
@@ -394,7 +474,13 @@ fn process_symbol_definitions(
             }
         }
         LineContent::Directive(Directive::Equ(name, _)) => {
-            process_equ_definition(name, line_ptr, &line.location, definitions, unfinalized_globals)
+            process_equ_definition(
+                name,
+                line_ptr,
+                &line.location,
+                definitions,
+                unfinalized_globals,
+            )
         }
         _ => Ok(None),
     }
@@ -414,10 +500,16 @@ fn process_numeric_label(
     // Resolve all forward references to this numeric label
     unresolved.retain(|unref| {
         if unref.symbol == forward_symbol {
-            let definition = SymbolDefinition { symbol: label.to_string(), pointer: line_ptr };
+            let definition = SymbolDefinition {
+                symbol: label.to_string(),
+                pointer: line_ptr,
+            };
             patches.push((
                 unref.referencing_pointer.line_index,
-                SymbolReference { outgoing_name: forward_symbol.clone(), definition },
+                SymbolReference {
+                    outgoing_name: forward_symbol.clone(),
+                    definition,
+                },
             ));
             false // Remove from unresolved
         } else {
@@ -445,7 +537,10 @@ fn process_regular_label(
 
     // Check for duplicate label
     if definitions.contains_key(label) {
-        return Err(AssemblerError::from_context(format!("Duplicate label: {}", label), line_location.clone()));
+        return Err(AssemblerError::from_context(
+            format!("Duplicate label: {}", label),
+            line_location.clone(),
+        ));
     }
 
     // Define the label
@@ -495,10 +590,16 @@ fn resolve_forward_references(
 ) {
     unresolved.retain(|unref| {
         if unref.symbol == symbol {
-            let definition = SymbolDefinition { symbol: symbol.to_string(), pointer: definition_ptr };
+            let definition = SymbolDefinition {
+                symbol: symbol.to_string(),
+                pointer: definition_ptr,
+            };
             patches.push((
                 unref.referencing_pointer.line_index,
-                SymbolReference { outgoing_name: unref.symbol.clone(), definition },
+                SymbolReference {
+                    outgoing_name: unref.symbol.clone(),
+                    definition,
+                },
             ));
             false // Remove from unresolved
         } else {
@@ -535,7 +636,10 @@ fn process_global_declarations(
         // Record the global declaration
         unfinalized_globals.insert(
             symbol.clone(),
-            UnfinalizedGlobal { definition: definitions.get(symbol).copied(), declaration_pointer: line_ptr },
+            UnfinalizedGlobal {
+                definition: definitions.get(symbol).copied(),
+                declaration_pointer: line_ptr,
+            },
         );
     }
 
@@ -551,7 +655,8 @@ fn finalize_globals(
 
     for (symbol, ug) in unfinalized_globals {
         let Some(definition_pointer) = ug.definition else {
-            let decl_location = file.lines[ug.declaration_pointer.line_index].location.clone();
+            let decl_location =
+                file.lines[ug.declaration_pointer.line_index].location.clone();
             return Err(AssemblerError::from_context(
                 format!("Global symbol declared but not defined: {}", symbol),
                 decl_location,
@@ -596,7 +701,9 @@ pub fn extract_references_from_line(line: &Line) -> Vec<String> {
 fn extract_refs_from_instruction(inst: &Instruction, refs: &mut Vec<String>) {
     match inst {
         // Instructions with no expressions
-        Instruction::RType(_, _, _, _) | Instruction::Special(_) | Instruction::Atomic(_, _, _, _, _) => {}
+        Instruction::RType(_, _, _, _)
+        | Instruction::Special(_)
+        | Instruction::Atomic(_, _, _, _, _) => {}
 
         // Instructions with a single expression
         Instruction::IType(_, _, _, expr)
@@ -620,7 +727,10 @@ fn extract_refs_from_instruction(inst: &Instruction, refs: &mut Vec<String>) {
 }
 
 /// Extracts symbol references from compressed instruction operands.
-fn extract_refs_from_compressed_operands(operands: &CompressedOperands, refs: &mut Vec<String>) {
+fn extract_refs_from_compressed_operands(
+    operands: &CompressedOperands,
+    refs: &mut Vec<String>,
+) {
     match operands {
         // Operands with no expressions
         CompressedOperands::CR { .. }
@@ -663,12 +773,16 @@ fn extract_refs_from_pseudo(pseudo: &PseudoOp, refs: &mut Vec<String>) {
 fn extract_refs_from_directive(dir: &Directive, refs: &mut Vec<String>) {
     match dir {
         // Directives with a single expression
-        Directive::Equ(_, expr) | Directive::Space(expr) | Directive::Balign(expr) => {
+        Directive::Equ(_, expr)
+        | Directive::Space(expr)
+        | Directive::Balign(expr) => {
             refs.extend(extract_from_expression(expr));
         }
 
         // Directives with multiple expressions
-        Directive::Byte(exprs) | Directive::TwoByte(exprs) | Directive::FourByte(exprs) => {
+        Directive::Byte(exprs)
+        | Directive::TwoByte(exprs)
+        | Directive::FourByte(exprs) => {
             for expr in exprs {
                 refs.extend(extract_from_expression(expr));
             }
@@ -715,7 +829,9 @@ fn extract_from_expression(expr: &Expression) -> Vec<String> {
         }
 
         // Unary operations: recurse on operand
-        Expression::NegateOp { expr } | Expression::BitwiseNotOp { expr } | Expression::Parenthesized(expr) => {
+        Expression::NegateOp { expr }
+        | Expression::BitwiseNotOp { expr }
+        | Expression::Parenthesized(expr) => {
             refs.extend(extract_from_expression(expr));
         }
     }
@@ -740,8 +856,10 @@ fn link_cross_file(
     for unref in unresolved {
         if let Some(global_def) = globals.get(&unref.symbol) {
             // Found a global definition for this reference
-            let definition =
-                SymbolDefinition { symbol: global_def.symbol.clone(), pointer: global_def.definition_pointer };
+            let definition = SymbolDefinition {
+                symbol: global_def.symbol.clone(),
+                pointer: global_def.definition_pointer,
+            };
             cross_file_refs.push((
                 unref.referencing_pointer.file_index,
                 unref.referencing_pointer.line_index,
@@ -785,17 +903,28 @@ pub fn create_builtin_symbols_file() -> SourceFile {
         lines: vec![
             // .data directive
             Line {
-                location: Location { file: BUILTIN_FILE_NAME.to_string(), line: 1 },
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 1,
+                },
                 content: LineContent::Directive(Directive::Data),
             },
             // .global __global_pointer$
             Line {
-                location: Location { file: BUILTIN_FILE_NAME.to_string(), line: 2 },
-                content: LineContent::Directive(Directive::Global(vec![SPECIAL_GLOBAL_POINTER.to_string()])),
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 2,
+                },
+                content: LineContent::Directive(Directive::Global(vec![
+                    SPECIAL_GLOBAL_POINTER.to_string(),
+                ])),
             },
             // __global_pointer$: label at offset 2048
             Line {
-                location: Location { file: BUILTIN_FILE_NAME.to_string(), line: 3 },
+                location: Location {
+                    file: BUILTIN_FILE_NAME.to_string(),
+                    line: 3,
+                },
                 content: LineContent::Label(SPECIAL_GLOBAL_POINTER.to_string()),
             },
         ],

@@ -78,7 +78,9 @@ impl Linter {
             // or written to memory but nothing else
             if self.save_only[x] {
                 match &effects.mem_write {
-                    Some((_, MemoryValue { value: store_val, .. })) if store_val.len() == 8 => {
+                    Some((_, MemoryValue { value: store_val, .. }))
+                        if store_val.len() == 8 =>
+                    {
                         // 64-bit write to memory is okay
                     }
 
@@ -99,9 +101,13 @@ impl Linter {
             self.save_only[x] = false;
 
             // mv clones a value
-            if matches!(instruction.op, Op::Addi { rd: 1..32, rs1: 1..32, imm: 0 }) {
+            if matches!(
+                instruction.op,
+                Op::Addi { rd: 1..32, rs1: 1..32, imm: 0 }
+            ) {
                 assert!(effects.reg_reads.len() == 1);
-                self.registers[x] = self.registers[effects.reg_reads[0].register];
+                self.registers[x] =
+                    self.registers[effects.reg_reads[0].register];
             } else {
                 self.registers[x] = Some(self.new_n());
             }
@@ -116,11 +122,20 @@ impl Linter {
         match instruction.op {
             // function call
             Op::Jal { rd: 1..32, .. } | Op::Jalr { rd: 1..32, .. } => {
-                let op_name = if matches!(instruction.op, Op::Jal { .. }) { "jal" } else { "jalr" };
+                let op_name = if matches!(instruction.op, Op::Jal { .. }) {
+                    "jal"
+                } else {
+                    "jalr"
+                };
 
                 // must use ra for return address
-                let Some((_, RegisterValue { register: RA, .. })) = effects.reg_write else {
-                    return Err(format!("{} did not use ra for return address", op_name));
+                let Some((_, RegisterValue { register: RA, .. })) =
+                    effects.reg_write
+                else {
+                    return Err(format!(
+                        "{} did not use ra for return address",
+                        op_name
+                    ));
                 };
 
                 // must call named function
@@ -160,7 +175,10 @@ impl Linter {
                     // make sure func args are all valid values
                     for &x in A_REGS.iter().take(arg_count) {
                         if !self.valid[x] {
-                            return Err(format!("argument in {} is uninitialized", R[x]));
+                            return Err(format!(
+                                "argument in {} is uninitialized",
+                                R[x]
+                            ));
                         }
                     }
                     for &x in A_REGS.iter().skip(arg_count) {
@@ -193,33 +211,48 @@ impl Linter {
                 // ra, gp, and tp must match what they were at call time
                 for x in [1, 3, 4] {
                     if self.registers[x] != self.at_entry[x] {
-                        return Err(format!("{} is not same value as when function called", R[x]));
+                        return Err(format!(
+                            "{} is not same value as when function called",
+                            R[x]
+                        ));
                     }
                 }
 
                 // s registers must be same as at call time
                 for &x in &S_REGS {
                     if self.registers[x] != self.at_entry[x] {
-                        return Err(format!("{} is not same value as when function called", R[x]));
+                        return Err(format!(
+                            "{} is not same value as when function called",
+                            R[x]
+                        ));
                     }
                 }
 
                 // sp must have the same address, but not necessarily the same value number
                 if m.get_reg(2) as u32 != self.at_entry_sp {
-                    return Err("sp is not same value as when function called".to_string());
+                    return Err("sp is not same value as when function called"
+                        .to_string());
                 }
 
                 // record sp at function exit in Effects for the tui
                 effects.function_end = Some(m.get_reg(2) as u32);
 
                 // pop previous function context
-                if let Some(FunctionRegisters { at_entry, valid, save_only, at_entry_sp }) = self.stack.pop() {
+                if let Some(FunctionRegisters {
+                    at_entry,
+                    valid,
+                    save_only,
+                    at_entry_sp,
+                }) = self.stack.pop()
+                {
                     self.at_entry = at_entry;
                     self.valid = valid;
                     self.save_only = save_only;
                     self.at_entry_sp = at_entry_sp;
                 } else {
-                    return Err("ret with no stack frame to return to".to_string());
+                    return Err(
+                        "ret with no stack frame to return to".to_string()
+                    );
                 }
 
                 // invalidate t and a1+ registers
@@ -236,7 +269,9 @@ impl Linter {
             // stores
             Op::Sb { .. } | Op::Sh { .. } | Op::Sw { .. } => {
                 let Some((_, write)) = &effects.mem_write else {
-                    return Err("store instruction with no memory write".to_string());
+                    return Err(
+                        "store instruction with no memory write".to_string()
+                    );
                 };
 
                 let addr = write.address;
@@ -253,7 +288,11 @@ impl Linter {
                 };
 
                 if addr & alignment != 0 {
-                    return Err(format!("{}-byte memory write at unaligned address 0x{:x}", alignment + 1, addr));
+                    return Err(format!(
+                        "{}-byte memory write at unaligned address 0x{:x}",
+                        alignment + 1,
+                        addr
+                    ));
                 }
 
                 // record the memory write
@@ -263,9 +302,15 @@ impl Linter {
             }
 
             // loads
-            Op::Lb { rd, .. } | Op::Lh { rd, .. } | Op::Lw { rd, .. } | Op::Lbu { rd, .. } | Op::Lhu { rd, .. } => {
+            Op::Lb { rd, .. }
+            | Op::Lh { rd, .. }
+            | Op::Lw { rd, .. }
+            | Op::Lbu { rd, .. }
+            | Op::Lhu { rd, .. } => {
                 let Some(read) = &effects.mem_read else {
-                    return Err("load instruction with no memory read".to_string());
+                    return Err(
+                        "load instruction with no memory read".to_string()
+                    );
                 };
 
                 let addr = read.address;
@@ -281,7 +326,11 @@ impl Linter {
                     _ => unreachable!(),
                 };
                 if addr & alignment != 0 {
-                    return Err(format!("{}-byte memory read from unaligned address 0x{:x}", alignment + 1, addr));
+                    return Err(format!(
+                        "{}-byte memory read from unaligned address 0x{:x}",
+                        alignment + 1,
+                        addr
+                    ));
                 }
 
                 // we accept two kinds of reads:
@@ -292,10 +341,19 @@ impl Linter {
 
                     for address in addr..addr + (size as u32) {
                         match self.memory.get(&address) {
-                            None => return Err("reading data that was only partially written".to_string()),
-                            Some(ValueInMemory { n: mem_n, size: mem_size }) => {
+                            None => return Err(
+                                "reading data that was only partially written"
+                                    .to_string(),
+                            ),
+                            Some(ValueInMemory {
+                                n: mem_n,
+                                size: mem_size,
+                            }) => {
                                 if *mem_n != n {
-                                    return Err("reading data from multiple writes".to_string());
+                                    return Err(
+                                        "reading data from multiple writes"
+                                            .to_string(),
+                                    );
                                 }
                                 if *mem_size != size {
                                     return Err("reading data with different size than when written".to_string());
@@ -332,7 +390,9 @@ impl Linter {
                         if let Some(val) = self.memory.get(&address)
                             && val.size != 1
                         {
-                            return Err("write syscall on non-byte data".to_string());
+                            return Err(
+                                "write syscall on non-byte data".to_string()
+                            );
                         }
                     }
                 }
@@ -347,12 +407,16 @@ impl Linter {
                         if let Some(val) = self.memory.get(&address)
                             && val.size != 1
                         {
-                            return Err("read syscall overwriting non-byte data".to_string());
+                            return Err(
+                                "read syscall overwriting non-byte data"
+                                    .to_string(),
+                            );
                         }
 
                         // record data as individual bytes
                         let n = self.new_n();
-                        self.memory.insert(address, ValueInMemory { n, size: 1 });
+                        self.memory
+                            .insert(address, ValueInMemory { n, size: 1 });
                     }
                 }
             }

@@ -61,10 +61,13 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         print_input_statistics(source, symbol_links);
     }
 
-    let (text_bytes, data_bytes, _bss_size) = relaxation_loop(config, source, symbol_links, &mut layout)?;
+    let (text_bytes, data_bytes, _bss_size) =
+        relaxation_loop(config, source, symbol_links, &mut layout)?;
 
     // Checkpoint: after relaxation, check if we should exit before ELF generation
-    if should_dump_phase(config, Phase::Relaxation) && is_terminal_phase(config, Phase::Relaxation) {
+    if should_dump_phase(config, Phase::Relaxation)
+        && is_terminal_phase(config, Phase::Relaxation)
+    {
         println!("\n(No output file generated)");
         return Ok(());
     }
@@ -100,22 +103,30 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
 
     // Find entry point (_start symbol is required for executables)
     let entry_point = {
-        if let Some(g) = symbol_links.global_symbols.iter().find(|g| g.symbol == "_start") {
+        if let Some(g) =
+            symbol_links.global_symbols.iter().find(|g| g.symbol == "_start")
+        {
             let pointer = g.definition_pointer;
             Ok(layout.get_line_address(pointer))
         } else {
-            Err(AssemblerError::no_context("_start symbol not defined".to_string()))
+            Err(AssemblerError::no_context(
+                "_start symbol not defined".to_string(),
+            ))
         }
     }?;
 
     let elf_bytes = elf_builder.build(entry_point);
 
     // Write to output file
-    let mut file = File::create(&config.output_file).map_err(|e| AssemblerError::no_context(e.to_string()))?;
-    file.write_all(&elf_bytes).map_err(|e| AssemblerError::no_context(e.to_string()))?;
+    let mut file = File::create(&config.output_file)
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
+    file.write_all(&elf_bytes)
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
 
     // Set executable permissions (0755)
-    let metadata = file.metadata().map_err(|e| AssemblerError::no_context(e.to_string()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&config.output_file, permissions)
@@ -158,7 +169,13 @@ pub fn relaxation_loop(
         layout.update_addresses(source);
 
         if config.verbose {
-            eprintln!("  {:4}  {:5}  {:6}  {:6}", pass_number, layout.text_size, layout.data_size, layout.bss_size);
+            eprintln!(
+                "  {:4}  {:5}  {:6}  {:6}",
+                pass_number,
+                layout.text_size,
+                layout.data_size,
+                layout.bss_size
+            );
         }
 
         // Step 2: Compute segment addresses and calculate all symbol values upfront
@@ -195,7 +212,11 @@ pub fn relaxation_loop(
                 dump_values(pass_number, true, source, layout, spec);
             }
             if config.verbose {
-                eprintln!("  Converged after {} pass{}", pass_number, if pass_number == 1 { "" } else { "es" });
+                eprintln!(
+                    "  Converged after {} pass{}",
+                    pass_number,
+                    if pass_number == 1 { "" } else { "es" }
+                );
             }
             return Ok((text_bytes, data_bytes, bss_size));
         }
@@ -224,7 +245,9 @@ fn should_dump_phase(config: &Config, phase: Phase) -> bool {
     match phase {
         Phase::Parse => config.dump.dump_ast.is_some(),
         Phase::SymbolLinking => config.dump.dump_symbols.is_some(),
-        Phase::Relaxation => config.dump.dump_values.is_some() || config.dump.dump_code.is_some(),
+        Phase::Relaxation => {
+            config.dump.dump_values.is_some() || config.dump.dump_code.is_some()
+        }
         Phase::Elf => config.dump.dump_elf.is_some(),
     }
 }
@@ -242,7 +265,10 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
                 && !should_dump_phase(config, Phase::Relaxation)
                 && !should_dump_phase(config, Phase::Elf)
         }
-        Phase::SymbolLinking => !should_dump_phase(config, Phase::Relaxation) && !should_dump_phase(config, Phase::Elf),
+        Phase::SymbolLinking => {
+            !should_dump_phase(config, Phase::Relaxation)
+                && !should_dump_phase(config, Phase::Elf)
+        }
         Phase::Relaxation => !should_dump_phase(config, Phase::Elf),
         Phase::Elf => {
             // ELF is always terminal if we're dumping it
@@ -268,25 +294,36 @@ pub fn process_files(files: &[String]) -> Result<Source> {
 
 /// Process a single source file
 fn process_file(file_path: &str) -> Result<SourceFile> {
-    let file = File::open(file_path)
-        .map_err(|e| AssemblerError::no_context(format!("could not open file '{}': {}", file_path, e)))?;
+    let file = File::open(file_path).map_err(|e| {
+        AssemblerError::no_context(format!(
+            "could not open file '{}': {}",
+            file_path, e
+        ))
+    })?;
     let reader = io::BufReader::new(file);
 
     let mut lines: Vec<Line> = Vec::new();
 
     for (line_num, line_result) in reader.lines().enumerate() {
-        let line = line_result
-            .map_err(|e| AssemblerError::no_context(format!("could not read file '{}': {}", file_path, e)))?;
+        let line = line_result.map_err(|e| {
+            AssemblerError::no_context(format!(
+                "could not read file '{}': {}",
+                file_path, e
+            ))
+        })?;
         if line.trim().is_empty() {
             continue;
         }
 
-        let location = Location { file: file_path.to_string(), line: line_num + 1 };
+        let location =
+            Location { file: file_path.to_string(), line: line_num + 1 };
 
-        let tokens = tokenize(&line).map_err(|e| AssemblerError::from_context(e, location.clone()))?;
+        let tokens = tokenize(&line)
+            .map_err(|e| AssemblerError::from_context(e, location.clone()))?;
 
         if !tokens.is_empty() {
-            let parsed_lines = parse(&tokens, file_path.to_string(), line_num + 1)?;
+            let parsed_lines =
+                parse(&tokens, file_path.to_string(), line_num + 1)?;
 
             for parsed_line in parsed_lines {
                 // Segment and size will be set in the layout phase

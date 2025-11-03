@@ -5,7 +5,9 @@
 // This module implements expression evaluation.
 // There are two types of values (Integer and Address) with strict type checking.
 
-use crate::ast::{Directive, Expression, LineContent, LinePointer, Location, Source};
+use crate::ast::{
+    Directive, Expression, LineContent, LinePointer, Location, Source,
+};
 use crate::error::{AssemblerError, Result};
 use crate::layout::Layout;
 use crate::symbols::{SymbolDefinition, SymbolLinks, SymbolReference};
@@ -72,7 +74,11 @@ impl Default for SymbolValues {
 /// with full dependency resolution and cycle detection.
 ///
 /// Returns a `SymbolValues` containing all evaluated symbols.
-pub fn eval_symbol_values(source: &Source, symbol_links: &SymbolLinks, layout: &Layout) -> Result<SymbolValues> {
+pub fn eval_symbol_values(
+    source: &Source,
+    symbol_links: &SymbolLinks,
+    layout: &Layout,
+) -> Result<SymbolValues> {
     // Start with empty symbol values
     let mut symbol_values = SymbolValues::new();
 
@@ -84,7 +90,9 @@ pub fn eval_symbol_values(source: &Source, symbol_links: &SymbolLinks, layout: &
             // Only process lines that define symbols (labels and .equ)
             let symbol_name = match &line.content {
                 LineContent::Label(name) => Some(name.clone()),
-                LineContent::Directive(Directive::Equ(name, _)) => Some(name.clone()),
+                LineContent::Directive(Directive::Equ(name, _)) => {
+                    Some(name.clone())
+                }
                 _ => None,
             };
 
@@ -94,7 +102,14 @@ pub fn eval_symbol_values(source: &Source, symbol_links: &SymbolLinks, layout: &
 
                 // Recursively evaluate this symbol and its dependencies
                 let mut cycle_stack = Vec::new();
-                eval_symbol(&sym_def, source, symbol_links, layout, &mut symbol_values, &mut cycle_stack)?;
+                eval_symbol(
+                    &sym_def,
+                    source,
+                    symbol_links,
+                    layout,
+                    &mut symbol_values,
+                    &mut cycle_stack,
+                )?;
             }
         }
     }
@@ -118,10 +133,16 @@ fn eval_symbol(
 
     // Base case: cycle detection
     if cycle_stack.contains(key) {
-        let cycle_chain: Vec<String> = cycle_stack.iter().map(|k| k.symbol.clone()).collect();
+        let cycle_chain: Vec<String> =
+            cycle_stack.iter().map(|k| k.symbol.clone()).collect();
         let line = source.get_line(key.pointer)?;
         return Err(AssemblerError::from_context(
-            format!("Circular reference in symbol '{}': {} -> {}", key.symbol, cycle_chain.join(" -> "), key.symbol),
+            format!(
+                "Circular reference in symbol '{}': {} -> {}",
+                key.symbol,
+                cycle_chain.join(" -> "),
+                key.symbol
+            ),
             line.location.clone(),
         ));
     }
@@ -143,7 +164,14 @@ fn eval_symbol(
             // Get all symbol references from this .equ line
             let sym_refs = symbol_links.get_line_refs(key.pointer);
             for sym_ref in sym_refs {
-                eval_symbol(&sym_ref.definition, source, symbol_links, layout, symbol_values, cycle_stack)?;
+                eval_symbol(
+                    &sym_ref.definition,
+                    source,
+                    symbol_links,
+                    layout,
+                    symbol_values,
+                    cycle_stack,
+                )?;
             }
 
             cycle_stack.pop();
@@ -155,7 +183,10 @@ fn eval_symbol(
         }
         _ => {
             return Err(AssemblerError::from_context(
-                format!("Symbol '{}' definition points to invalid line", key.symbol),
+                format!(
+                    "Symbol '{}' definition points to invalid line",
+                    key.symbol
+                ),
                 line.location.clone(),
             ));
         }
@@ -216,44 +247,68 @@ pub fn eval_expr(
         Expression::CurrentAddress => Ok(EvaluatedValue::Address(address)),
 
         Expression::NumericLabelRef(nlr) => {
-            let label_name = format!("{}{}", nlr.num, if nlr.is_forward { "f" } else { "b" });
-            let sym_ref = refs.iter().find(|r| r.outgoing_name == label_name).ok_or_else(|| {
+            let label_name = format!(
+                "{}{}",
+                nlr.num,
+                if nlr.is_forward { "f" } else { "b" }
+            );
+            let sym_ref = refs
+                .iter()
+                .find(|r| r.outgoing_name == label_name)
+                .ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Unresolved numeric label '{}' (internal error)", nlr),
+                    format!(
+                        "Unresolved numeric label '{}' (internal error)",
+                        nlr
+                    ),
                     location.clone(),
                 )
             })?;
 
             symbol_values.get(&sym_ref.definition).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Numeric label '{}' not resolved (internal error)", label_name),
+                    format!(
+                        "Numeric label '{}' not resolved (internal error)",
+                        label_name
+                    ),
                     location.clone(),
                 )
             })
         }
 
-        Expression::Parenthesized(inner) => eval_expr(inner, address, refs, symbol_values, source, pointer),
+        Expression::Parenthesized(inner) => {
+            eval_expr(inner, address, refs, symbol_values, source, pointer)
+        }
 
         Expression::PlusOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             checked_add(lhs_val, rhs_val, location)
         }
 
         Expression::MinusOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             checked_sub(lhs_val, rhs_val, location)
         }
 
         Expression::MultiplyOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "multiplication", location)?;
             let rhs_int = require_integer(rhs_val, "multiplication", location)?;
             let result = lhs_int.checked_mul(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in multiplication: {} * {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in multiplication: {} * {}",
+                        lhs_int, rhs_int
+                    ),
                     location.clone(),
                 )
             })?;
@@ -261,16 +316,24 @@ pub fn eval_expr(
         }
 
         Expression::DivideOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "division", location)?;
             let rhs_int = require_integer(rhs_val, "division", location)?;
             if rhs_int == 0 {
-                return Err(AssemblerError::from_context("Division by zero".to_string(), location.clone()));
+                return Err(AssemblerError::from_context(
+                    "Division by zero".to_string(),
+                    location.clone(),
+                ));
             }
             let result = lhs_int.checked_div(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in division: {} / {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in division: {} / {}",
+                        lhs_int, rhs_int
+                    ),
                     location.clone(),
                 )
             })?;
@@ -278,16 +341,24 @@ pub fn eval_expr(
         }
 
         Expression::ModuloOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "modulo", location)?;
             let rhs_int = require_integer(rhs_val, "modulo", location)?;
             if rhs_int == 0 {
-                return Err(AssemblerError::from_context("Modulo by zero".to_string(), location.clone()));
+                return Err(AssemblerError::from_context(
+                    "Modulo by zero".to_string(),
+                    location.clone(),
+                ));
             }
             let result = lhs_int.checked_rem(rhs_int).ok_or_else(|| {
                 AssemblerError::from_context(
-                    format!("Arithmetic overflow in modulo: {} % {}", lhs_int, rhs_int),
+                    format!(
+                        "Arithmetic overflow in modulo: {} % {}",
+                        lhs_int, rhs_int
+                    ),
                     location.clone(),
                 )
             })?;
@@ -295,8 +366,10 @@ pub fn eval_expr(
         }
 
         Expression::LeftShiftOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "left shift", location)?;
             let rhs_int = require_integer(rhs_val, "left shift", location)?;
 
@@ -307,18 +380,24 @@ pub fn eval_expr(
                 ));
             }
 
-            let result = lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
-                AssemblerError::from_context(
-                    format!("Arithmetic overflow in left shift: {} << {}", lhs_int, rhs_int),
-                    location.clone(),
-                )
-            })?;
+            let result =
+                lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
+                    AssemblerError::from_context(
+                        format!(
+                            "Arithmetic overflow in left shift: {} << {}",
+                            lhs_int, rhs_int
+                        ),
+                        location.clone(),
+                    )
+                })?;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::RightShiftOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "right shift", location)?;
             let rhs_int = require_integer(rhs_val, "right shift", location)?;
 
@@ -334,8 +413,10 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseOrOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "bitwise OR", location)?;
             let rhs_int = require_integer(rhs_val, "bitwise OR", location)?;
             let result = lhs_int | rhs_int;
@@ -343,8 +424,10 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseAndOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "bitwise AND", location)?;
             let rhs_int = require_integer(rhs_val, "bitwise AND", location)?;
             let result = lhs_int & rhs_int;
@@ -352,8 +435,10 @@ pub fn eval_expr(
         }
 
         Expression::BitwiseXorOp { lhs, rhs } => {
-            let lhs_val = eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
-            let rhs_val = eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
+            let lhs_val =
+                eval_expr(lhs, address, refs, symbol_values, source, pointer)?;
+            let rhs_val =
+                eval_expr(rhs, address, refs, symbol_values, source, pointer)?;
             let lhs_int = require_integer(lhs_val, "bitwise XOR", location)?;
             let rhs_int = require_integer(rhs_val, "bitwise XOR", location)?;
             let result = lhs_int ^ rhs_int;
@@ -361,16 +446,21 @@ pub fn eval_expr(
         }
 
         Expression::NegateOp { expr } => {
-            let val = eval_expr(expr, address, refs, symbol_values, source, pointer)?;
+            let val =
+                eval_expr(expr, address, refs, symbol_values, source, pointer)?;
             let int = require_integer(val, "negation", location)?;
             let result = int.checked_neg().ok_or_else(|| {
-                AssemblerError::from_context(format!("Arithmetic overflow in negation: -{}", int), location.clone())
+                AssemblerError::from_context(
+                    format!("Arithmetic overflow in negation: -{}", int),
+                    location.clone(),
+                )
             })?;
             Ok(EvaluatedValue::Integer(result))
         }
 
         Expression::BitwiseNotOp { expr } => {
-            let val = eval_expr(expr, address, refs, symbol_values, source, pointer)?;
+            let val =
+                eval_expr(expr, address, refs, symbol_values, source, pointer)?;
             let int = require_integer(val, "bitwise NOT", location)?;
             Ok(EvaluatedValue::Integer(!int))
         }
@@ -378,11 +468,18 @@ pub fn eval_expr(
 }
 
 /// Perform addition with type checking and overflow detection
-pub fn checked_add(lhs: EvaluatedValue, rhs: EvaluatedValue, location: &Location) -> Result<EvaluatedValue> {
+pub fn checked_add(
+    lhs: EvaluatedValue,
+    rhs: EvaluatedValue,
+    location: &Location,
+) -> Result<EvaluatedValue> {
     match (lhs, rhs) {
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_add(rhs_i).ok_or_else(|| {
-                AssemblerError::from_context(format!("Integer overflow: {} + {}", lhs, rhs), location.clone())
+                AssemblerError::from_context(
+                    format!("Integer overflow: {} + {}", lhs, rhs),
+                    location.clone(),
+                )
             })?;
             Ok(EvaluatedValue::Integer(result))
         }
@@ -398,24 +495,39 @@ pub fn checked_add(lhs: EvaluatedValue, rhs: EvaluatedValue, location: &Location
                         "overflow" // Result too large for u32
                     };
 
-                    AssemblerError::from_context(format!("Address {}: {} + {}", error_type, lhs, rhs), location.clone())
+                    AssemblerError::from_context(
+                        format!("Address {}: {} + {}", error_type, lhs, rhs),
+                        location.clone(),
+                    )
                 })?
             };
             Ok(EvaluatedValue::Address(result))
         }
-        (EvaluatedValue::Address(_), EvaluatedValue::Address(_)) => Err(AssemblerError::from_context(
-            format!("Type error: cannot add Address + Address: {} + {}", lhs, rhs),
-            location.clone(),
-        )),
+        (EvaluatedValue::Address(_), EvaluatedValue::Address(_)) => {
+            Err(AssemblerError::from_context(
+                format!(
+                    "Type error: cannot add Address + Address: {} + {}",
+                    lhs, rhs
+                ),
+                location.clone(),
+            ))
+        }
     }
 }
 
 /// Perform subtraction with type checking and underflow detection
-pub fn checked_sub(lhs: EvaluatedValue, rhs: EvaluatedValue, location: &Location) -> Result<EvaluatedValue> {
+pub fn checked_sub(
+    lhs: EvaluatedValue,
+    rhs: EvaluatedValue,
+    location: &Location,
+) -> Result<EvaluatedValue> {
     match (lhs, rhs) {
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_sub(rhs_i).ok_or_else(|| {
-                AssemblerError::from_context(format!("Integer wraparound: {} - {}", lhs, rhs), location.clone())
+                AssemblerError::from_context(
+                    format!("Integer wraparound: {} - {}", lhs, rhs),
+                    location.clone(),
+                )
             })?;
             Ok(EvaluatedValue::Integer(result))
         }
@@ -430,7 +542,10 @@ pub fn checked_sub(lhs: EvaluatedValue, rhs: EvaluatedValue, location: &Location
                         "overflow" // Result too large for u32
                     };
 
-                    AssemblerError::from_context(format!("Address {}: {} - {}", error_type, lhs, rhs), location.clone())
+                    AssemblerError::from_context(
+                        format!("Address {}: {} - {}", error_type, lhs, rhs),
+                        location.clone(),
+                    )
                 })?
             };
             Ok(EvaluatedValue::Address(result))
@@ -440,24 +555,37 @@ pub fn checked_sub(lhs: EvaluatedValue, rhs: EvaluatedValue, location: &Location
             let result: i32 = {
                 let sum: i64 = i64::from(lhs_a) - i64::from(rhs_a);
                 sum.try_into().map_err(|_| {
-                    AssemblerError::from_context(format!("Integer out of range: {} - {}", lhs, rhs), location.clone())
+                    AssemblerError::from_context(
+                        format!("Integer out of range: {} - {}", lhs, rhs),
+                        location.clone(),
+                    )
                 })?
             };
             Ok(EvaluatedValue::Integer(result))
         }
-        (EvaluatedValue::Integer(_), EvaluatedValue::Address(_)) => Err(AssemblerError::from_context(
-            "Type error in subtraction: cannot compute Integer - Address".to_string(),
-            location.clone(),
-        )),
+        (EvaluatedValue::Integer(_), EvaluatedValue::Address(_)) => {
+            Err(AssemblerError::from_context(
+                "Type error in subtraction: cannot compute Integer - Address"
+                    .to_string(),
+                location.clone(),
+            ))
+        }
     }
 }
 
 /// Check that a value is an Integer type, return error if not
-fn require_integer(value: EvaluatedValue, operation: &str, location: &Location) -> Result<i32> {
+fn require_integer(
+    value: EvaluatedValue,
+    operation: &str,
+    location: &Location,
+) -> Result<i32> {
     match value {
         EvaluatedValue::Integer(i) => Ok(i),
         EvaluatedValue::Address(_) => Err(AssemblerError::from_context(
-            format!("Type error in {}: expected Integer, got Address", operation),
+            format!(
+                "Type error in {}: expected Integer, got Address",
+                operation
+            ),
             location.clone(),
         )),
     }

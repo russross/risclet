@@ -10,8 +10,9 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::ast::{
-    AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive, Expression, ITypeOp, Instruction, Line,
-    LineContent, LinePointer, LoadStoreOp, Location, MemoryOrdering, PseudoOp, RTypeOp, Register, Segment, Source,
+    AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive, Expression,
+    ITypeOp, Instruction, Line, LineContent, LinePointer, LoadStoreOp,
+    Location, MemoryOrdering, PseudoOp, RTypeOp, Register, Segment, Source,
     SpecialOp, UTypeOp,
 };
 use crate::config::Config;
@@ -65,13 +66,21 @@ pub fn encode(
                     (Some(bytes), size)
                 }
                 Segment::Bss => {
-                    let size = encode_bss_line(source, symbol_links, symbol_values, line, pointer, current_address)?;
+                    let size = encode_bss_line(
+                        source,
+                        symbol_links,
+                        symbol_values,
+                        line,
+                        pointer,
+                        current_address,
+                    )?;
                     (None, size)
                 }
             };
 
             if size != actual_size {
-                let updated_layout = LineLayout { segment, offset, size: actual_size };
+                let updated_layout =
+                    LineLayout { segment, offset, size: actual_size };
                 layout.set(pointer, updated_layout);
                 any_changed = true;
             }
@@ -115,9 +124,15 @@ fn encode_line(
             current_address,
             data_start,
         ),
-        LineContent::Directive(dir) => {
-            encode_directive(dir, line, current_address, source, symbol_values, symbol_links, pointer)
-        }
+        LineContent::Directive(dir) => encode_directive(
+            dir,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+        ),
     }
 }
 
@@ -134,8 +149,16 @@ fn encode_bss_line(
         LineContent::Label(_) => Ok(0),
         LineContent::Directive(Directive::Space(expr)) => {
             let refs = symbol_links.get_line_refs(pointer);
-            let val = eval_expr(expr, current_address, refs, symbol_values, source, pointer)?;
-            let size = require_integer(val, ".space directive", &line.location)?;
+            let val = eval_expr(
+                expr,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let size =
+                require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
                 return Err(AssemblerError::from_context(
                     format!(".space size cannot be negative: {}", size),
@@ -161,12 +184,16 @@ fn encode_bss_line(
                 _ => "directive",
             };
             Err(AssemblerError::from_context(
-                format!("{} not allowed in .bss segment (only .space is allowed)", dir_name),
+                format!(
+                    "{} not allowed in .bss segment (only .space is allowed)",
+                    dir_name
+                ),
                 line.location.clone(),
             ))
         }
         LineContent::Instruction(_) => Err(AssemblerError::from_context(
-            "Instructions not allowed in .bss segment (only .space is allowed)".to_string(),
+            "Instructions not allowed in .bss segment (only .space is allowed)"
+                .to_string(),
             line.location.clone(),
         )),
     }
@@ -190,32 +217,81 @@ fn encode_instruction(
     let refs = symbol_links.get_line_refs(pointer);
 
     match inst {
-        Instruction::RType(op, rd, rs1, rs2) => encode_r_type_family(config, op, *rd, *rs1, *rs2),
+        Instruction::RType(op, rd, rs1, rs2) => {
+            encode_r_type_family(config, op, *rd, *rs1, *rs2)
+        }
         Instruction::IType(op, rd, rs1, imm) => {
-            let val = eval_expr(imm, current_address, refs, symbol_values, source, pointer)?;
-            let imm_val = require_integer(val, "I-type immediate", &line.location)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let imm_val =
+                require_integer(val, "I-type immediate", &line.location)?;
             encode_i_type_family(config, &line.location, op, *rd, *rs1, imm_val)
         }
         Instruction::LoadStore(op, rd_or_rs, offset, rs1) => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
-            let offset_val = require_integer(val, "Load/Store offset", &line.location)?;
-            encode_load_store_family(op, *rd_or_rs, *rs1, offset_val, &line.location, config)
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let offset_val =
+                require_integer(val, "Load/Store offset", &line.location)?;
+            encode_load_store_family(
+                op,
+                *rd_or_rs,
+                *rs1,
+                offset_val,
+                &line.location,
+                config,
+            )
         }
         Instruction::BType(op, rs1, rs2, target) => {
-            let target_val = eval_expr(target, current_address, refs, symbol_values, source, pointer)?;
-            let target_addr = require_address(target_val, "Branch target", &line.location)?;
+            let target_val = eval_expr(
+                target,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let target_addr =
+                require_address(target_val, "Branch target", &line.location)?;
             let current_pc = current_address as i64;
             let offset = target_addr as i64 - current_pc;
             encode_branch_family(op, *rs1, *rs2, offset, &line.location, config)
         }
         Instruction::UType(op, rd, imm) => {
-            let val = eval_expr(imm, current_address, refs, symbol_values, source, pointer)?;
-            let imm_val = require_integer(val, "U-type immediate", &line.location)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let imm_val =
+                require_integer(val, "U-type immediate", &line.location)?;
             encode_u_type_family(op, *rd, imm_val, &line.location)
         }
         Instruction::JType(_op, rd, target) => {
-            let target_val = eval_expr(target, current_address, refs, symbol_values, source, pointer)?;
-            let target_addr = require_address(target_val, "Jump target", &line.location)?;
+            let target_val = eval_expr(
+                target,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let target_addr =
+                require_address(target_val, "Jump target", &line.location)?;
             let current_pc = current_address as i64;
             let offset = target_addr as i64 - current_pc;
             encode_jal_family(*rd, offset, &line.location, config)
@@ -231,7 +307,9 @@ fn encode_instruction(
             data_start,
             config,
         ),
-        Instruction::Atomic(op, rd, rs1, rs2, ordering) => encode_atomic(op, *rd, *rs1, *rs2, ordering),
+        Instruction::Atomic(op, rd, rs1, rs2, ordering) => {
+            encode_atomic(op, *rd, *rs1, *rs2, ordering)
+        }
         Instruction::Special(op) => encode_special(op),
         Instruction::Compressed(op, operands) => encode_compressed_explicit(
             op,
@@ -250,17 +328,31 @@ fn encode_instruction(
 // R-Type Instruction Family
 // ============================================================================
 
-fn encode_r_type_family(config: &Config, op: &RTypeOp, rd: Register, rs1: Register, rs2: Register) -> Result<Vec<u8>> {
+fn encode_r_type_family(
+    config: &Config,
+    op: &RTypeOp,
+    rd: Register,
+    rs1: Register,
+    rs2: Register,
+) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
     if config.relax.compressed {
         // c.add rd, rs2 (rd is also rs1, rs2 != x0, rd != x0)
-        if matches!(op, RTypeOp::Add) && rd == rs1 && rs2 != Register::X0 && rd != Register::X0 {
+        if matches!(op, RTypeOp::Add)
+            && rd == rs1
+            && rs2 != Register::X0
+            && rd != Register::X0
+        {
             return Ok(encode_c_add(rd, rs2).to_le_bytes().to_vec());
         }
 
         // c.mv rd, rs2 (rd != rs2, rs1 == x0, rd != x0, rs2 != x0)
         // This handles: add rd, x0, rs2 (copy rs2 to rd)
-        if matches!(op, RTypeOp::Add) && rs1 == Register::X0 && rd != Register::X0 && rs2 != Register::X0 {
+        if matches!(op, RTypeOp::Add)
+            && rs1 == Register::X0
+            && rd != Register::X0
+            && rs2 != Register::X0
+        {
             return Ok(encode_c_mv(rd, rs2).to_le_bytes().to_vec());
         }
 
@@ -325,12 +417,20 @@ fn encode_i_type_family(
     // Try compressed encoding if enabled
     if config.relax.compressed {
         // c.addi rd, imm (rd == rs1, rd != x0, imm fits in 6-bit signed)
-        if matches!(op, ITypeOp::Addi) && rd == rs1 && rd != Register::X0 && fits_signed(imm, 6) {
+        if matches!(op, ITypeOp::Addi)
+            && rd == rs1
+            && rd != Register::X0
+            && fits_signed(imm, 6)
+        {
             return Ok(encode_c_addi(rd, imm as i32).to_le_bytes().to_vec());
         }
 
         // c.li rd, imm (rs1 == x0, rd != x0, imm fits in 6-bit signed)
-        if matches!(op, ITypeOp::Addi) && rs1 == Register::X0 && rd != Register::X0 && fits_signed(imm, 6) {
+        if matches!(op, ITypeOp::Addi)
+            && rs1 == Register::X0
+            && rd != Register::X0
+            && fits_signed(imm, 6)
+        {
             return Ok(encode_c_li(rd, imm as i32).to_le_bytes().to_vec());
         }
 
@@ -352,16 +452,27 @@ fn encode_i_type_family(
         }
 
         // c.slli rd, imm (rd == rs1, rd != x0, 0 < imm < 32)
-        if matches!(op, ITypeOp::Slli) && rd == rs1 && rd != Register::X0 && imm > 0 && imm < 32 {
+        if matches!(op, ITypeOp::Slli)
+            && rd == rs1
+            && rd != Register::X0
+            && imm > 0
+            && imm < 32
+        {
             return Ok(encode_c_slli(rd, imm as u32).to_le_bytes().to_vec());
         }
 
         // c.srli, c.srai, c.andi (compressed register set only)
         if is_compressed_reg(rd) && rd == rs1 {
             let c_inst = match op {
-                ITypeOp::Srli if imm > 0 && imm < 32 => Some(encode_c_srli(rd, imm as u32)),
-                ITypeOp::Srai if imm > 0 && imm < 32 => Some(encode_c_srai(rd, imm as u32)),
-                ITypeOp::Andi if fits_signed(imm, 6) => Some(encode_c_andi(rd, imm as i32)),
+                ITypeOp::Srli if imm > 0 && imm < 32 => {
+                    Some(encode_c_srli(rd, imm as u32))
+                }
+                ITypeOp::Srai if imm > 0 && imm < 32 => {
+                    Some(encode_c_srai(rd, imm as u32))
+                }
+                ITypeOp::Andi if fits_signed(imm, 6) => {
+                    Some(encode_c_andi(rd, imm as i32))
+                }
                 _ => None,
             };
             if let Some(inst) = c_inst {
@@ -389,7 +500,10 @@ fn encode_i_type_family(
         ITypeOp::Slli | ITypeOp::Srli | ITypeOp::Srai => {
             if !(0..32).contains(&imm) {
                 return Err(AssemblerError::from_context(
-                    format!("Shift amount {} out of range (must be 0-31 for RV32)", imm),
+                    format!(
+                        "Shift amount {} out of range (must be 0-31 for RV32)",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
@@ -443,8 +557,14 @@ fn encode_load_store_family(
     location: &Location,
     config: &Config,
 ) -> Result<Vec<u8>> {
-    let _is_load =
-        matches!(op, LoadStoreOp::Lw | LoadStoreOp::Lh | LoadStoreOp::Lb | LoadStoreOp::Lhu | LoadStoreOp::Lbu);
+    let _is_load = matches!(
+        op,
+        LoadStoreOp::Lw
+            | LoadStoreOp::Lh
+            | LoadStoreOp::Lb
+            | LoadStoreOp::Lhu
+            | LoadStoreOp::Lbu
+    );
 
     // Try compressed encoding if enabled
     if config.relax.compressed {
@@ -455,7 +575,9 @@ fn encode_load_store_family(
             && (0..=124).contains(&offset)
             && offset % 4 == 0
         {
-            return Ok(encode_c_lw(rd_or_rs, rs1, offset as u32).to_le_bytes().to_vec());
+            return Ok(encode_c_lw(rd_or_rs, rs1, offset as u32)
+                .to_le_bytes()
+                .to_vec());
         }
 
         // c.lwsp rd, offset(sp) (rd != x0, rs1 == sp, offset 4-byte aligned, 0-252)
@@ -465,7 +587,9 @@ fn encode_load_store_family(
             && (0..=252).contains(&offset)
             && offset % 4 == 0
         {
-            return Ok(encode_c_lwsp(rd_or_rs, offset as u32).to_le_bytes().to_vec());
+            return Ok(encode_c_lwsp(rd_or_rs, offset as u32)
+                .to_le_bytes()
+                .to_vec());
         }
 
         // c.sw rs2, offset(rs1) (compressed regs, offset 4-byte aligned, 0-124)
@@ -475,12 +599,20 @@ fn encode_load_store_family(
             && (0..=124).contains(&offset)
             && offset % 4 == 0
         {
-            return Ok(encode_c_sw(rd_or_rs, rs1, offset as u32).to_le_bytes().to_vec());
+            return Ok(encode_c_sw(rd_or_rs, rs1, offset as u32)
+                .to_le_bytes()
+                .to_vec());
         }
 
         // c.swsp rs2, offset(sp) (rs1 == sp, offset 4-byte aligned, 0-252)
-        if matches!(op, LoadStoreOp::Sw) && rs1 == Register::X2 && (0..=252).contains(&offset) && offset % 4 == 0 {
-            return Ok(encode_c_swsp(rd_or_rs, offset as u32).to_le_bytes().to_vec());
+        if matches!(op, LoadStoreOp::Sw)
+            && rs1 == Register::X2
+            && (0..=252).contains(&offset)
+            && offset % 4 == 0
+        {
+            return Ok(encode_c_swsp(rd_or_rs, offset as u32)
+                .to_le_bytes()
+                .to_vec());
         }
     }
 
@@ -502,15 +634,26 @@ fn encode_branch_family(
     config: &Config,
 ) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
-    if config.relax.compressed && is_compressed_reg(rs1) && rs2 == Register::X0 {
+    if config.relax.compressed && is_compressed_reg(rs1) && rs2 == Register::X0
+    {
         // c.beqz rs1, offset (rs2 == x0, compressed reg rs1, offset in ±256, even)
-        if matches!(op, BTypeOp::Beq) && (-256..256).contains(&offset) && offset % 2 == 0 {
-            return Ok(encode_c_beqz(rs1, offset as i32).to_le_bytes().to_vec());
+        if matches!(op, BTypeOp::Beq)
+            && (-256..256).contains(&offset)
+            && offset % 2 == 0
+        {
+            return Ok(encode_c_beqz(rs1, offset as i32)
+                .to_le_bytes()
+                .to_vec());
         }
 
         // c.bnez rs1, offset (rs2 == x0, compressed reg rs1, offset in ±256, even)
-        if matches!(op, BTypeOp::Bne) && (-256..256).contains(&offset) && offset % 2 == 0 {
-            return Ok(encode_c_bnez(rs1, offset as i32).to_le_bytes().to_vec());
+        if matches!(op, BTypeOp::Bne)
+            && (-256..256).contains(&offset)
+            && offset % 2 == 0
+        {
+            return Ok(encode_c_bnez(rs1, offset as i32)
+                .to_le_bytes()
+                .to_vec());
         }
     }
 
@@ -532,7 +675,12 @@ fn encode_branch_family(
 // JAL Instruction Family
 // ============================================================================
 
-fn encode_jal_family(rd: Register, offset: i64, location: &Location, config: &Config) -> Result<Vec<u8>> {
+fn encode_jal_family(
+    rd: Register,
+    offset: i64,
+    location: &Location,
+    config: &Config,
+) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
     if config.relax.compressed && fits_signed(offset, 12) && offset % 2 == 0 {
         // c.j offset (rd == x0)
@@ -555,13 +703,21 @@ fn encode_jal_family(rd: Register, offset: i64, location: &Location, config: &Co
 // U-Type Instruction Family
 // ============================================================================
 
-fn encode_u_type_family(op: &UTypeOp, rd: Register, imm: i64, location: &Location) -> Result<Vec<u8>> {
+fn encode_u_type_family(
+    op: &UTypeOp,
+    rd: Register,
+    imm: i64,
+    location: &Location,
+) -> Result<Vec<u8>> {
     // U-type instructions don't have compressed variants
 
     // Validate immediate fits in 20 bits (unsigned)
     if !(0..=0xFFFFF).contains(&imm) {
         return Err(AssemblerError::from_context(
-            format!("Immediate {} out of range for U-type (must fit in 20 bits)", imm),
+            format!(
+                "Immediate {} out of range for U-type (must fit in 20 bits)",
+                imm
+            ),
             location.clone(),
         ));
     }
@@ -591,9 +747,17 @@ fn encode_pseudo(
     config: &Config,
 ) -> Result<Vec<u8>> {
     match op {
-        PseudoOp::Li(rd, imm) => {
-            encode_li(*rd, imm, line, current_address, source, symbol_values, symbol_links, pointer, config)
-        }
+        PseudoOp::Li(rd, imm) => encode_li(
+            *rd,
+            imm,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            config,
+        ),
         PseudoOp::La(rd, addr_expr) => encode_la(
             *rd,
             addr_expr,
@@ -606,12 +770,26 @@ fn encode_pseudo(
             data_start,
             config,
         ),
-        PseudoOp::Call(target) => {
-            encode_call(target, line, current_address, source, symbol_values, symbol_links, pointer, config)
-        }
-        PseudoOp::Tail(target) => {
-            encode_tail(target, line, current_address, source, symbol_values, symbol_links, pointer, config)
-        }
+        PseudoOp::Call(target) => encode_call(
+            target,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            config,
+        ),
+        PseudoOp::Tail(target) => encode_tail(
+            target,
+            line,
+            current_address,
+            source,
+            symbol_values,
+            symbol_links,
+            pointer,
+            config,
+        ),
         PseudoOp::LoadGlobal(op, rd, addr) => encode_load_global_pseudo(
             op,
             *rd,
@@ -623,18 +801,20 @@ fn encode_pseudo(
             symbol_links,
             pointer,
         ),
-        PseudoOp::StoreGlobal(op, rs, addr, temp) => encode_store_global_pseudo(
-            op,
-            *rs,
-            addr,
-            *temp,
-            line,
-            current_address,
-            source,
-            symbol_values,
-            symbol_links,
-            pointer,
-        ),
+        PseudoOp::StoreGlobal(op, rs, addr, temp) => {
+            encode_store_global_pseudo(
+                op,
+                *rs,
+                addr,
+                *temp,
+                line,
+                current_address,
+                source,
+                symbol_values,
+                symbol_links,
+                pointer,
+            )
+        }
     }
 }
 
@@ -651,12 +831,26 @@ fn encode_li(
     config: &Config,
 ) -> Result<Vec<u8>> {
     let refs = symbol_links.get_line_refs(pointer);
-    let val = eval_expr(imm_expr, current_address, refs, symbol_values, source, pointer)?;
+    let val = eval_expr(
+        imm_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let imm = require_integer(val, "li immediate", &line.location)?;
 
     // If immediate fits in 12-bit signed, use addi rd, x0, imm
     if fits_signed(imm, 12) {
-        return encode_i_type_family(config, &line.location, &ITypeOp::Addi, rd, Register::X0, imm);
+        return encode_i_type_family(
+            config,
+            &line.location,
+            &ITypeOp::Addi,
+            rd,
+            Register::X0,
+            imm,
+        );
     }
 
     // Otherwise use lui + addi
@@ -664,12 +858,20 @@ fn encode_li(
     let (hi, lo) = split_offset_hi_lo(imm);
 
     // lui rd, hi
-    let lui_inst = encode_u_type(0b0110111, rd, (hi & 0xFFFFF) as u32, &line.location)?;
+    let lui_inst =
+        encode_u_type(0b0110111, rd, (hi & 0xFFFFF) as u32, &line.location)?;
     bytes.extend_from_slice(&lui_inst.to_le_bytes());
 
     // addi rd, rd, lo
     if lo != 0 {
-        let addi_bytes = encode_i_type_family(config, &line.location, &ITypeOp::Addi, rd, rd, lo)?;
+        let addi_bytes = encode_i_type_family(
+            config,
+            &line.location,
+            &ITypeOp::Addi,
+            rd,
+            rd,
+            lo,
+        )?;
         bytes.extend_from_slice(&addi_bytes);
     }
 
@@ -690,7 +892,14 @@ fn encode_la(
     config: &Config,
 ) -> Result<Vec<u8>> {
     let refs = symbol_links.get_line_refs(pointer);
-    let target_val = eval_expr(addr_expr, current_address, refs, symbol_values, source, pointer)?;
+    let target_val = eval_expr(
+        addr_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
     let target_addr = require_address(target_val, "la target", &line.location)?;
     let current_pc = current_address as i64;
 
@@ -705,7 +914,14 @@ fn encode_la(
 
         // If within ±2 KiB of GP, use addi rd, gp, offset
         if fits_signed(gp_offset, 12) {
-            return encode_i_type_family(config, &line.location, &ITypeOp::Addi, rd, Register::X3, gp_offset);
+            return encode_i_type_family(
+                config,
+                &line.location,
+                &ITypeOp::Addi,
+                rd,
+                Register::X3,
+                gp_offset,
+            );
         }
     }
 
@@ -715,11 +931,19 @@ fn encode_la(
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc rd, hi
-    let auipc_inst = encode_u_type(0b0010111, rd, (hi & 0xFFFFF) as u32, &line.location)?;
+    let auipc_inst =
+        encode_u_type(0b0010111, rd, (hi & 0xFFFFF) as u32, &line.location)?;
     bytes.extend_from_slice(&auipc_inst.to_le_bytes());
 
     // addi rd, rd, lo
-    let addi_bytes = encode_i_type_family(config, &line.location, &ITypeOp::Addi, rd, rd, lo)?;
+    let addi_bytes = encode_i_type_family(
+        config,
+        &line.location,
+        &ITypeOp::Addi,
+        rd,
+        rd,
+        lo,
+    )?;
     bytes.extend_from_slice(&addi_bytes);
 
     Ok(bytes)
@@ -737,8 +961,16 @@ fn encode_call(
     config: &Config,
 ) -> Result<Vec<u8>> {
     let refs = symbol_links.get_line_refs(pointer);
-    let target_val = eval_expr(target_expr, current_address, refs, symbol_values, source, pointer)?;
-    let target_addr = require_address(target_val, "call target", &line.location)?;
+    let target_val = eval_expr(
+        target_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
+    let target_addr =
+        require_address(target_val, "call target", &line.location)?;
     let current_pc = current_address as i64;
     let offset = target_addr as i64 - current_pc;
 
@@ -753,11 +985,22 @@ fn encode_call(
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc ra, hi
-    let auipc_inst = encode_u_type(0b0010111, Register::X1, (hi & 0xFFFFF) as u32, &line.location)?;
+    let auipc_inst = encode_u_type(
+        0b0010111,
+        Register::X1,
+        (hi & 0xFFFFF) as u32,
+        &line.location,
+    )?;
     bytes.extend_from_slice(&auipc_inst.to_le_bytes());
 
     // jalr ra, ra, lo
-    let jalr_bytes = encode_jalr_family(config, &line.location, Register::X1, Register::X1, lo)?;
+    let jalr_bytes = encode_jalr_family(
+        config,
+        &line.location,
+        Register::X1,
+        Register::X1,
+        lo,
+    )?;
     bytes.extend_from_slice(&jalr_bytes);
 
     Ok(bytes)
@@ -775,8 +1018,16 @@ fn encode_tail(
     config: &Config,
 ) -> Result<Vec<u8>> {
     let refs = symbol_links.get_line_refs(pointer);
-    let target_val = eval_expr(target_expr, current_address, refs, symbol_values, source, pointer)?;
-    let target_addr = require_address(target_val, "tail target", &line.location)?;
+    let target_val = eval_expr(
+        target_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
+    let target_addr =
+        require_address(target_val, "tail target", &line.location)?;
     let current_pc = current_address as i64;
     let offset = target_addr as i64 - current_pc;
 
@@ -791,11 +1042,22 @@ fn encode_tail(
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc t1, hi
-    let auipc_inst = encode_u_type(0b0010111, Register::X6, (hi & 0xFFFFF) as u32, &line.location)?;
+    let auipc_inst = encode_u_type(
+        0b0010111,
+        Register::X6,
+        (hi & 0xFFFFF) as u32,
+        &line.location,
+    )?;
     bytes.extend_from_slice(&auipc_inst.to_le_bytes());
 
     // jalr x0, t1, lo
-    let jalr_bytes = encode_jalr_family(config, &line.location, Register::X0, Register::X6, lo)?;
+    let jalr_bytes = encode_jalr_family(
+        config,
+        &line.location,
+        Register::X0,
+        Register::X6,
+        lo,
+    )?;
     bytes.extend_from_slice(&jalr_bytes);
 
     Ok(bytes)
@@ -814,8 +1076,16 @@ fn encode_load_global_pseudo(
     pointer: LinePointer,
 ) -> Result<Vec<u8>> {
     let refs = symbol_links.get_line_refs(pointer);
-    let addr_val = eval_expr(addr_expr, current_address, refs, symbol_values, source, pointer)?;
-    let addr = require_address(addr_val, "load global address", &line.location)?;
+    let addr_val = eval_expr(
+        addr_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
+    let addr =
+        require_address(addr_val, "load global address", &line.location)?;
     let current_pc = current_address as i64;
 
     let mut bytes = Vec::new();
@@ -823,7 +1093,8 @@ fn encode_load_global_pseudo(
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc rd, hi
-    let auipc_inst = encode_u_type(0b0010111, rd, (hi & 0xFFFFF) as u32, &line.location)?;
+    let auipc_inst =
+        encode_u_type(0b0010111, rd, (hi & 0xFFFFF) as u32, &line.location)?;
     bytes.extend_from_slice(&auipc_inst.to_le_bytes());
 
     // load rd, lo(rd)
@@ -847,8 +1118,16 @@ fn encode_store_global_pseudo(
     pointer: LinePointer,
 ) -> Result<Vec<u8>> {
     let refs = symbol_links.get_line_refs(pointer);
-    let addr_val = eval_expr(addr_expr, current_address, refs, symbol_values, source, pointer)?;
-    let addr = require_address(addr_val, "store global address", &line.location)?;
+    let addr_val = eval_expr(
+        addr_expr,
+        current_address,
+        refs,
+        symbol_values,
+        source,
+        pointer,
+    )?;
+    let addr =
+        require_address(addr_val, "store global address", &line.location)?;
     let current_pc = current_address as i64;
 
     let mut bytes = Vec::new();
@@ -856,7 +1135,8 @@ fn encode_store_global_pseudo(
     let (hi, lo) = split_offset_hi_lo(offset);
 
     // auipc temp, hi
-    let auipc_inst = encode_u_type(0b0010111, temp, (hi & 0xFFFFF) as u32, &line.location)?;
+    let auipc_inst =
+        encode_u_type(0b0010111, temp, (hi & 0xFFFFF) as u32, &line.location)?;
     bytes.extend_from_slice(&auipc_inst.to_le_bytes());
 
     // store rs, lo(temp)
@@ -881,8 +1161,14 @@ fn encode_compressed_explicit(
     pointer: LinePointer,
 ) -> Result<Vec<u8>> {
     // Evaluate any expressions in operands first
-    let evaluated_operands =
-        eval_compressed_operands(operands, current_address, source, symbol_values, symbol_links, pointer)?;
+    let evaluated_operands = eval_compressed_operands(
+        operands,
+        current_address,
+        source,
+        symbol_values,
+        symbol_links,
+        pointer,
+    )?;
 
     let inst = encode_compressed_inst(op, &evaluated_operands, &line.location)?;
     Ok(inst.to_le_bytes().to_vec())
@@ -953,14 +1239,23 @@ fn encode_directive(
     let refs = symbol_links.get_line_refs(pointer);
 
     match dir {
-        Directive::Text | Directive::Data | Directive::Bss | Directive::Global(_) | Directive::Equ(_, _) => {
-            Ok(Vec::new())
-        }
+        Directive::Text
+        | Directive::Data
+        | Directive::Bss
+        | Directive::Global(_)
+        | Directive::Equ(_, _) => Ok(Vec::new()),
 
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(expr, current_address, refs, symbol_values, source, pointer)?;
+                let val = eval_expr(
+                    expr,
+                    current_address,
+                    refs,
+                    symbol_values,
+                    source,
+                    pointer,
+                )?;
                 let byte_val = match val {
                     EvaluatedValue::Integer(i) => i as u8,
                     EvaluatedValue::Address(a) => a as u8,
@@ -973,7 +1268,14 @@ fn encode_directive(
         Directive::TwoByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(expr, current_address, refs, symbol_values, source, pointer)?;
+                let val = eval_expr(
+                    expr,
+                    current_address,
+                    refs,
+                    symbol_values,
+                    source,
+                    pointer,
+                )?;
                 let short_val = match val {
                     EvaluatedValue::Integer(i) => i as u16,
                     EvaluatedValue::Address(a) => a as u16,
@@ -986,7 +1288,14 @@ fn encode_directive(
         Directive::FourByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(expr, current_address, refs, symbol_values, source, pointer)?;
+                let val = eval_expr(
+                    expr,
+                    current_address,
+                    refs,
+                    symbol_values,
+                    source,
+                    pointer,
+                )?;
                 let word_val = match val {
                     EvaluatedValue::Integer(i) => i as u32,
                     EvaluatedValue::Address(a) => a,
@@ -1014,8 +1323,16 @@ fn encode_directive(
         }
 
         Directive::Space(expr) => {
-            let val = eval_expr(expr, current_address, refs, symbol_values, source, pointer)?;
-            let size = require_integer(val, ".space directive", &line.location)?;
+            let val = eval_expr(
+                expr,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let size =
+                require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
                 return Err(AssemblerError::from_context(
                     format!(".space size cannot be negative: {}", size),
@@ -1026,11 +1343,22 @@ fn encode_directive(
         }
 
         Directive::Balign(expr) => {
-            let val = eval_expr(expr, current_address, refs, symbol_values, source, pointer)?;
-            let alignment = require_integer(val, ".balign directive", &line.location)?;
+            let val = eval_expr(
+                expr,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
+            let alignment =
+                require_integer(val, ".balign directive", &line.location)?;
             if alignment <= 0 {
                 return Err(AssemblerError::from_context(
-                    format!(".balign alignment must be positive: {}", alignment),
+                    format!(
+                        ".balign alignment must be positive: {}",
+                        alignment
+                    ),
                     line.location.clone(),
                 ));
             }
@@ -1045,24 +1373,54 @@ fn encode_directive(
 // Base Instruction Encoding Functions (bit-level)
 // ============================================================================
 
-fn encode_r_type(opcode: u32, rd: Register, funct3: u32, rs1: Register, rs2: Register, funct7: u32) -> u32 {
+fn encode_r_type(
+    opcode: u32,
+    rd: Register,
+    funct3: u32,
+    rs1: Register,
+    rs2: Register,
+    funct7: u32,
+) -> u32 {
     let rd_bits = reg_to_u32(rd);
     let rs1_bits = reg_to_u32(rs1);
     let rs2_bits = reg_to_u32(rs2);
 
-    opcode | (rd_bits << 7) | (funct3 << 12) | (rs1_bits << 15) | (rs2_bits << 20) | (funct7 << 25)
+    opcode
+        | (rd_bits << 7)
+        | (funct3 << 12)
+        | (rs1_bits << 15)
+        | (rs2_bits << 20)
+        | (funct7 << 25)
 }
 
-fn encode_i_type(opcode: u32, rd: Register, funct3: u32, rs1: Register, imm: i64, location: &Location) -> Result<u32> {
+fn encode_i_type(
+    opcode: u32,
+    rd: Register,
+    funct3: u32,
+    rs1: Register,
+    imm: i64,
+    location: &Location,
+) -> Result<u32> {
     check_i_imm(imm, location)?;
     let rd_bits = reg_to_u32(rd);
     let rs1_bits = reg_to_u32(rs1);
     let imm_bits = (imm & 0xFFF) as u32;
 
-    Ok(opcode | (rd_bits << 7) | (funct3 << 12) | (rs1_bits << 15) | (imm_bits << 20))
+    Ok(opcode
+        | (rd_bits << 7)
+        | (funct3 << 12)
+        | (rs1_bits << 15)
+        | (imm_bits << 20))
 }
 
-fn encode_s_type(opcode: u32, rs1: Register, funct3: u32, rs2: Register, imm: i64, location: &Location) -> Result<u32> {
+fn encode_s_type(
+    opcode: u32,
+    rs1: Register,
+    funct3: u32,
+    rs2: Register,
+    imm: i64,
+    location: &Location,
+) -> Result<u32> {
     check_i_imm(imm, location)?;
     let rs1_bits = reg_to_u32(rs1);
     let rs2_bits = reg_to_u32(rs2);
@@ -1070,7 +1428,12 @@ fn encode_s_type(opcode: u32, rs1: Register, funct3: u32, rs2: Register, imm: i6
     let imm_low = (imm_bits & 0x1F) as u32;
     let imm_high = ((imm_bits >> 5) & 0x7F) as u32;
 
-    Ok(opcode | (imm_low << 7) | (funct3 << 12) | (rs1_bits << 15) | (rs2_bits << 20) | (imm_high << 25))
+    Ok(opcode
+        | (imm_low << 7)
+        | (funct3 << 12)
+        | (rs1_bits << 15)
+        | (rs2_bits << 20)
+        | (imm_high << 25))
 }
 
 fn encode_b_type(
@@ -1100,13 +1463,23 @@ fn encode_b_type(
         | (imm_12 << 31))
 }
 
-fn encode_u_type(opcode: u32, rd: Register, imm: u32, location: &Location) -> Result<u32> {
+fn encode_u_type(
+    opcode: u32,
+    rd: Register,
+    imm: u32,
+    location: &Location,
+) -> Result<u32> {
     check_u_imm(imm, location)?;
     let rd_bits = reg_to_u32(rd);
     Ok(opcode | (rd_bits << 7) | (imm << 12))
 }
 
-fn encode_j_type(opcode: u32, rd: Register, offset: i64, location: &Location) -> Result<u32> {
+fn encode_j_type(
+    opcode: u32,
+    rd: Register,
+    offset: i64,
+    location: &Location,
+) -> Result<u32> {
     check_j_imm(offset, location)?;
     let rd_bits = reg_to_u32(rd);
     let offset_bits = offset & 0x1FFFFF;
@@ -1115,7 +1488,12 @@ fn encode_j_type(opcode: u32, rd: Register, offset: i64, location: &Location) ->
     let imm_10_1 = ((offset_bits >> 1) & 0x3FF) as u32;
     let imm_20 = ((offset_bits >> 20) & 0x1) as u32;
 
-    Ok(opcode | (rd_bits << 7) | (imm_19_12 << 12) | (imm_11 << 20) | (imm_10_1 << 21) | (imm_20 << 31))
+    Ok(opcode
+        | (rd_bits << 7)
+        | (imm_19_12 << 12)
+        | (imm_11 << 20)
+        | (imm_10_1 << 21)
+        | (imm_20 << 31))
 }
 
 fn encode_load_store(
@@ -1126,14 +1504,30 @@ fn encode_load_store(
     location: &Location,
 ) -> Result<u32> {
     match op {
-        LoadStoreOp::Lw => encode_i_type(0b0000011, rd_or_rs, 0b010, rs1, offset, location),
-        LoadStoreOp::Lh => encode_i_type(0b0000011, rd_or_rs, 0b001, rs1, offset, location),
-        LoadStoreOp::Lb => encode_i_type(0b0000011, rd_or_rs, 0b000, rs1, offset, location),
-        LoadStoreOp::Lhu => encode_i_type(0b0000011, rd_or_rs, 0b101, rs1, offset, location),
-        LoadStoreOp::Lbu => encode_i_type(0b0000011, rd_or_rs, 0b100, rs1, offset, location),
-        LoadStoreOp::Sw => encode_s_type(0b0100011, rs1, 0b010, rd_or_rs, offset, location),
-        LoadStoreOp::Sh => encode_s_type(0b0100011, rs1, 0b001, rd_or_rs, offset, location),
-        LoadStoreOp::Sb => encode_s_type(0b0100011, rs1, 0b000, rd_or_rs, offset, location),
+        LoadStoreOp::Lw => {
+            encode_i_type(0b0000011, rd_or_rs, 0b010, rs1, offset, location)
+        }
+        LoadStoreOp::Lh => {
+            encode_i_type(0b0000011, rd_or_rs, 0b001, rs1, offset, location)
+        }
+        LoadStoreOp::Lb => {
+            encode_i_type(0b0000011, rd_or_rs, 0b000, rs1, offset, location)
+        }
+        LoadStoreOp::Lhu => {
+            encode_i_type(0b0000011, rd_or_rs, 0b101, rs1, offset, location)
+        }
+        LoadStoreOp::Lbu => {
+            encode_i_type(0b0000011, rd_or_rs, 0b100, rs1, offset, location)
+        }
+        LoadStoreOp::Sw => {
+            encode_s_type(0b0100011, rs1, 0b010, rd_or_rs, offset, location)
+        }
+        LoadStoreOp::Sh => {
+            encode_s_type(0b0100011, rs1, 0b001, rd_or_rs, offset, location)
+        }
+        LoadStoreOp::Sb => {
+            encode_s_type(0b0100011, rs1, 0b000, rd_or_rs, offset, location)
+        }
     }
 }
 
@@ -1143,61 +1537,82 @@ fn encode_load_store(
 
 fn encode_c_add(rd: Register, rs2: Register) -> u16 {
     // CR format: funct4=1001, rd/rs1, rs2, op=10
-    0b1001_00000_00000_10 | ((reg_to_u32(rd) as u16) << 7) | ((reg_to_u32(rs2) as u16) << 2)
+    0b1001_00000_00000_10
+        | ((reg_to_u32(rd) as u16) << 7)
+        | ((reg_to_u32(rs2) as u16) << 2)
 }
 
 fn encode_c_mv(rd: Register, rs2: Register) -> u16 {
     // CR format: funct4=1000, rd, rs2, op=10
-    0b1000_00000_00000_10 | ((reg_to_u32(rd) as u16) << 7) | ((reg_to_u32(rs2) as u16) << 2)
+    0b1000_00000_00000_10
+        | ((reg_to_u32(rd) as u16) << 7)
+        | ((reg_to_u32(rs2) as u16) << 2)
 }
 
 fn encode_c_sub(rd: Register, rs2: Register) -> u16 {
     // CA format: funct6=100011, rd', funct2=00, rs2', op=01
     let rd_compressed = compress_reg_index(rd);
     let rs2_compressed = compress_reg_index(rs2);
-    0b100011_000_00_000_01 | ((rd_compressed as u16) << 7) | ((rs2_compressed as u16) << 2)
+    0b100011_000_00_000_01
+        | ((rd_compressed as u16) << 7)
+        | ((rs2_compressed as u16) << 2)
 }
 
 fn encode_c_and(rd: Register, rs2: Register) -> u16 {
     // CA format: funct6=100011, rd', funct2=11, rs2', op=01
     let rd_compressed = compress_reg_index(rd);
     let rs2_compressed = compress_reg_index(rs2);
-    0b100011_000_11_000_01 | ((rd_compressed as u16) << 7) | ((rs2_compressed as u16) << 2)
+    0b100011_000_11_000_01
+        | ((rd_compressed as u16) << 7)
+        | ((rs2_compressed as u16) << 2)
 }
 
 fn encode_c_or(rd: Register, rs2: Register) -> u16 {
     // CA format: funct6=100011, rd', funct2=10, rs2', op=01
     let rd_compressed = compress_reg_index(rd);
     let rs2_compressed = compress_reg_index(rs2);
-    0b100011_000_10_000_01 | ((rd_compressed as u16) << 7) | ((rs2_compressed as u16) << 2)
+    0b100011_000_10_000_01
+        | ((rd_compressed as u16) << 7)
+        | ((rs2_compressed as u16) << 2)
 }
 
 fn encode_c_xor(rd: Register, rs2: Register) -> u16 {
     // CA format: funct6=100011, rd', funct2=01, rs2', op=01
     let rd_compressed = compress_reg_index(rd);
     let rs2_compressed = compress_reg_index(rs2);
-    0b100011_000_01_000_01 | ((rd_compressed as u16) << 7) | ((rs2_compressed as u16) << 2)
+    0b100011_000_01_000_01
+        | ((rd_compressed as u16) << 7)
+        | ((rs2_compressed as u16) << 2)
 }
 
 fn encode_c_addi(rd: Register, imm: i32) -> u16 {
     // CI format: funct3=000, imm[5], rd, imm[4:0], op=01
     let imm_5 = ((imm >> 5) & 0x1) as u16;
     let imm_4_0 = (imm & 0x1F) as u16;
-    0b000_0_00000_00000_01 | (imm_5 << 12) | ((reg_to_u32(rd) as u16) << 7) | (imm_4_0 << 2)
+    0b000_0_00000_00000_01
+        | (imm_5 << 12)
+        | ((reg_to_u32(rd) as u16) << 7)
+        | (imm_4_0 << 2)
 }
 
 fn encode_c_li(rd: Register, imm: i32) -> u16 {
     // CI format: funct3=010, imm[5], rd, imm[4:0], op=01
     let imm_5 = ((imm >> 5) & 0x1) as u16;
     let imm_4_0 = (imm & 0x1F) as u16;
-    0b010_0_00000_00000_01 | (imm_5 << 12) | ((reg_to_u32(rd) as u16) << 7) | (imm_4_0 << 2)
+    0b010_0_00000_00000_01
+        | (imm_5 << 12)
+        | ((reg_to_u32(rd) as u16) << 7)
+        | (imm_4_0 << 2)
 }
 
 fn encode_c_lui(rd: Register, imm: i32) -> u16 {
     // CI format: funct3=011, imm[5], rd!=0, imm[4:0], op=01
     let imm_5 = ((imm >> 5) & 0x1) as u16;
     let imm_4_0 = (imm & 0x1F) as u16;
-    0b011_0_00000_00000_01 | (imm_5 << 12) | ((reg_to_u32(rd) as u16) << 7) | (imm_4_0 << 2)
+    0b011_0_00000_00000_01
+        | (imm_5 << 12)
+        | ((reg_to_u32(rd) as u16) << 7)
+        | (imm_4_0 << 2)
 }
 
 fn encode_c_addi4spn(rd_prime: Register, imm: u32) -> u16 {
@@ -1208,7 +1623,11 @@ fn encode_c_addi4spn(rd_prime: Register, imm: u32) -> u16 {
     let imm_9_6 = ((imm >> 6) & 0xF) as u16;
     let imm_2 = ((imm >> 2) & 0x1) as u16;
     let imm_3 = ((imm >> 3) & 0x1) as u16;
-    (imm_5_4 << 11) | (imm_9_6 << 7) | (imm_2 << 6) | (imm_3 << 5) | (rd_bits << 2)
+    (imm_5_4 << 11)
+        | (imm_9_6 << 7)
+        | (imm_2 << 6)
+        | (imm_3 << 5)
+        | (rd_bits << 2)
 }
 
 fn encode_c_addi16sp(imm: i32) -> u16 {
@@ -1218,14 +1637,22 @@ fn encode_c_addi16sp(imm: i32) -> u16 {
     let imm_8_7 = ((imm >> 7) & 0x3) as u16;
     let imm_6 = ((imm >> 6) & 0x1) as u16;
     let imm_4 = ((imm >> 4) & 0x1) as u16;
-    0b011_0_00010_00000_01 | (imm_9 << 12) | (imm_4 << 6) | (imm_6 << 5) | (imm_8_7 << 3) | (imm_5 << 2)
+    0b011_0_00010_00000_01
+        | (imm_9 << 12)
+        | (imm_4 << 6)
+        | (imm_6 << 5)
+        | (imm_8_7 << 3)
+        | (imm_5 << 2)
 }
 
 fn encode_c_slli(rd: Register, shamt: u32) -> u16 {
     // CI format: funct3=000, shamt[5], rd, shamt[4:0], op=10
     let shamt_5 = ((shamt >> 5) & 0x1) as u16;
     let shamt_4_0 = (shamt & 0x1F) as u16;
-    0b000_0_00000_00000_10 | (shamt_5 << 12) | ((reg_to_u32(rd) as u16) << 7) | (shamt_4_0 << 2)
+    0b000_0_00000_00000_10
+        | (shamt_5 << 12)
+        | ((reg_to_u32(rd) as u16) << 7)
+        | (shamt_4_0 << 2)
 }
 
 fn encode_c_srli(rd: Register, shamt: u32) -> u16 {
@@ -1233,7 +1660,10 @@ fn encode_c_srli(rd: Register, shamt: u32) -> u16 {
     let rd_compressed = compress_reg_index(rd);
     let shamt_5 = ((shamt >> 5) & 0x1) as u16;
     let shamt_4_0 = (shamt & 0x1F) as u16;
-    0b100_0_00_000_00000_01 | (shamt_5 << 12) | ((rd_compressed as u16) << 7) | (shamt_4_0 << 2)
+    0b100_0_00_000_00000_01
+        | (shamt_5 << 12)
+        | ((rd_compressed as u16) << 7)
+        | (shamt_4_0 << 2)
 }
 
 fn encode_c_srai(rd: Register, shamt: u32) -> u16 {
@@ -1241,7 +1671,10 @@ fn encode_c_srai(rd: Register, shamt: u32) -> u16 {
     let rd_compressed = compress_reg_index(rd);
     let shamt_5 = ((shamt >> 5) & 0x1) as u16;
     let shamt_4_0 = (shamt & 0x1F) as u16;
-    0b100_0_01_000_00000_01 | (shamt_5 << 12) | ((rd_compressed as u16) << 7) | (shamt_4_0 << 2)
+    0b100_0_01_000_00000_01
+        | (shamt_5 << 12)
+        | ((rd_compressed as u16) << 7)
+        | (shamt_4_0 << 2)
 }
 
 fn encode_c_andi(rd: Register, imm: i32) -> u16 {
@@ -1249,7 +1682,10 @@ fn encode_c_andi(rd: Register, imm: i32) -> u16 {
     let rd_compressed = compress_reg_index(rd);
     let imm_5 = ((imm >> 5) & 0x1) as u16;
     let imm_4_0 = (imm & 0x1F) as u16;
-    0b100_0_10_000_00000_01 | (imm_5 << 12) | ((rd_compressed as u16) << 7) | (imm_4_0 << 2)
+    0b100_0_10_000_00000_01
+        | (imm_5 << 12)
+        | ((rd_compressed as u16) << 7)
+        | (imm_4_0 << 2)
 }
 
 fn encode_c_lw(rd: Register, rs1: Register, offset: u32) -> u16 {
@@ -1272,7 +1708,11 @@ fn encode_c_lwsp(rd: Register, offset: u32) -> u16 {
     let offset_5 = ((offset >> 5) & 0x1) as u16;
     let offset_4_2 = ((offset >> 2) & 0x7) as u16;
     let offset_7_6 = ((offset >> 6) & 0x3) as u16;
-    0b010_0_00000_00000_10 | (offset_5 << 12) | ((reg_to_u32(rd) as u16) << 7) | (offset_4_2 << 4) | (offset_7_6 << 2)
+    0b010_0_00000_00000_10
+        | (offset_5 << 12)
+        | ((reg_to_u32(rd) as u16) << 7)
+        | (offset_4_2 << 4)
+        | (offset_7_6 << 2)
 }
 
 fn encode_c_sw(rs2: Register, rs1: Register, offset: u32) -> u16 {
@@ -1294,7 +1734,10 @@ fn encode_c_swsp(rs2: Register, offset: u32) -> u16 {
     // CSS format: funct3=110, offset[5:2|7:6], rs2, op=10
     let offset_5_2 = ((offset >> 2) & 0xF) as u16;
     let offset_7_6 = ((offset >> 6) & 0x3) as u16;
-    0b110_000000_00000_10 | (offset_5_2 << 9) | (offset_7_6 << 7) | ((reg_to_u32(rs2) as u16) << 2)
+    0b110_000000_00000_10
+        | (offset_5_2 << 9)
+        | (offset_7_6 << 7)
+        | ((reg_to_u32(rs2) as u16) << 2)
 }
 
 fn encode_c_beqz(rs1: Register, offset: i32) -> u16 {
@@ -1393,26 +1836,41 @@ fn encode_compressed_inst(
     location: &Location,
 ) -> Result<u16> {
     match (op, operands) {
-        (CompressedOp::CNop, EvaluatedCompressedOperands::None) => Ok(0b000_0_00000_00000_01),
-        (CompressedOp::CEbreak, EvaluatedCompressedOperands::None) => Ok(0b1001_00000_00000_10),
-        (CompressedOp::CAdd, EvaluatedCompressedOperands::CR { rd, rs2 }) => Ok(encode_c_add(*rd, *rs2)),
-        (CompressedOp::CMv, EvaluatedCompressedOperands::CR { rd, rs2 }) => Ok(encode_c_mv(*rd, *rs2)),
-        (CompressedOp::CSub, EvaluatedCompressedOperands::CA { rd_prime, rs2_prime }) => {
-            Ok(encode_c_sub(*rd_prime, *rs2_prime))
+        (CompressedOp::CNop, EvaluatedCompressedOperands::None) => {
+            Ok(0b000_0_00000_00000_01)
         }
-        (CompressedOp::CAnd, EvaluatedCompressedOperands::CA { rd_prime, rs2_prime }) => {
-            Ok(encode_c_and(*rd_prime, *rs2_prime))
+        (CompressedOp::CEbreak, EvaluatedCompressedOperands::None) => {
+            Ok(0b1001_00000_00000_10)
         }
-        (CompressedOp::COr, EvaluatedCompressedOperands::CA { rd_prime, rs2_prime }) => {
-            Ok(encode_c_or(*rd_prime, *rs2_prime))
+        (CompressedOp::CAdd, EvaluatedCompressedOperands::CR { rd, rs2 }) => {
+            Ok(encode_c_add(*rd, *rs2))
         }
-        (CompressedOp::CXor, EvaluatedCompressedOperands::CA { rd_prime, rs2_prime }) => {
-            Ok(encode_c_xor(*rd_prime, *rs2_prime))
+        (CompressedOp::CMv, EvaluatedCompressedOperands::CR { rd, rs2 }) => {
+            Ok(encode_c_mv(*rd, *rs2))
         }
+        (
+            CompressedOp::CSub,
+            EvaluatedCompressedOperands::CA { rd_prime, rs2_prime },
+        ) => Ok(encode_c_sub(*rd_prime, *rs2_prime)),
+        (
+            CompressedOp::CAnd,
+            EvaluatedCompressedOperands::CA { rd_prime, rs2_prime },
+        ) => Ok(encode_c_and(*rd_prime, *rs2_prime)),
+        (
+            CompressedOp::COr,
+            EvaluatedCompressedOperands::CA { rd_prime, rs2_prime },
+        ) => Ok(encode_c_or(*rd_prime, *rs2_prime)),
+        (
+            CompressedOp::CXor,
+            EvaluatedCompressedOperands::CA { rd_prime, rs2_prime },
+        ) => Ok(encode_c_xor(*rd_prime, *rs2_prime)),
         (CompressedOp::CAddi, EvaluatedCompressedOperands::CI { rd, imm }) => {
             if !fits_signed(*imm as i64, 6) {
                 return Err(AssemblerError::from_context(
-                    format!("c.addi immediate {} out of range (must fit in 6-bit signed)", imm),
+                    format!(
+                        "c.addi immediate {} out of range (must fit in 6-bit signed)",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
@@ -1421,7 +1879,10 @@ fn encode_compressed_inst(
         (CompressedOp::CLi, EvaluatedCompressedOperands::CI { rd, imm }) => {
             if !fits_signed(*imm as i64, 6) {
                 return Err(AssemblerError::from_context(
-                    format!("c.li immediate {} out of range (must fit in 6-bit signed)", imm),
+                    format!(
+                        "c.li immediate {} out of range (must fit in 6-bit signed)",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
@@ -1436,140 +1897,232 @@ fn encode_compressed_inst(
             }
             if !fits_signed(*imm as i64, 6) {
                 return Err(AssemblerError::from_context(
-                    format!("c.lui immediate {} out of range (must fit in 6-bit signed)", imm),
+                    format!(
+                        "c.lui immediate {} out of range (must fit in 6-bit signed)",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_lui(*rd, *imm))
         }
-        (CompressedOp::CAddi4spn, EvaluatedCompressedOperands::CIW { rd_prime, imm }) => {
+        (
+            CompressedOp::CAddi4spn,
+            EvaluatedCompressedOperands::CIW { rd_prime, imm },
+        ) => {
             if *imm == 0 || *imm % 4 != 0 || *imm < 0 || *imm > 1020 {
                 return Err(AssemblerError::from_context(
-                    format!("c.addi4spn immediate {} must be non-zero, multiple of 4, and 4-1020", imm),
+                    format!(
+                        "c.addi4spn immediate {} must be non-zero, multiple of 4, and 4-1020",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_addi4spn(*rd_prime, *imm as u32))
         }
-        (CompressedOp::CAddi16sp, EvaluatedCompressedOperands::CI { rd: _, imm }) => {
+        (
+            CompressedOp::CAddi16sp,
+            EvaluatedCompressedOperands::CI { rd: _, imm },
+        ) => {
             if *imm == 0 || *imm % 16 != 0 || !fits_signed(*imm as i64, 10) {
                 return Err(AssemblerError::from_context(
-                    format!("c.addi16sp immediate {} must be non-zero, multiple of 16, and fit in 10 bits", imm),
+                    format!(
+                        "c.addi16sp immediate {} must be non-zero, multiple of 16, and fit in 10 bits",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_addi16sp(*imm))
         }
-        (CompressedOp::CSlli, EvaluatedCompressedOperands::CI { rd, imm: shamt }) => {
+        (
+            CompressedOp::CSlli,
+            EvaluatedCompressedOperands::CI { rd, imm: shamt },
+        ) => {
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(AssemblerError::from_context(
-                    format!("c.slli shift amount {} out of range (must be 1-31)", shamt),
+                    format!(
+                        "c.slli shift amount {} out of range (must be 1-31)",
+                        shamt
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_slli(*rd, *shamt as u32))
         }
-        (CompressedOp::CSrli, EvaluatedCompressedOperands::CBImm { rd_prime, imm: shamt }) => {
+        (
+            CompressedOp::CSrli,
+            EvaluatedCompressedOperands::CBImm { rd_prime, imm: shamt },
+        ) => {
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(AssemblerError::from_context(
-                    format!("c.srli shift amount {} out of range (must be 1-31)", shamt),
+                    format!(
+                        "c.srli shift amount {} out of range (must be 1-31)",
+                        shamt
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_srli(*rd_prime, *shamt as u32))
         }
-        (CompressedOp::CSrai, EvaluatedCompressedOperands::CBImm { rd_prime, imm: shamt }) => {
+        (
+            CompressedOp::CSrai,
+            EvaluatedCompressedOperands::CBImm { rd_prime, imm: shamt },
+        ) => {
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(AssemblerError::from_context(
-                    format!("c.srai shift amount {} out of range (must be 1-31)", shamt),
+                    format!(
+                        "c.srai shift amount {} out of range (must be 1-31)",
+                        shamt
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_srai(*rd_prime, *shamt as u32))
         }
-        (CompressedOp::CAndi, EvaluatedCompressedOperands::CBImm { rd_prime, imm }) => {
+        (
+            CompressedOp::CAndi,
+            EvaluatedCompressedOperands::CBImm { rd_prime, imm },
+        ) => {
             if !fits_signed(*imm as i64, 6) {
                 return Err(AssemblerError::from_context(
-                    format!("c.andi immediate {} out of range (must fit in 6-bit signed)", imm),
+                    format!(
+                        "c.andi immediate {} out of range (must fit in 6-bit signed)",
+                        imm
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_andi(*rd_prime, *imm))
         }
-        (CompressedOp::CLw, EvaluatedCompressedOperands::CL { rd_prime, rs1_prime, offset }) => {
+        (
+            CompressedOp::CLw,
+            EvaluatedCompressedOperands::CL { rd_prime, rs1_prime, offset },
+        ) => {
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.lw offset {} must be 0-124 and 4-byte aligned", offset),
+                    format!(
+                        "c.lw offset {} must be 0-124 and 4-byte aligned",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_lw(*rd_prime, *rs1_prime, *offset as u32))
         }
-        (CompressedOp::CLwsp, EvaluatedCompressedOperands::CIStackLoad { rd, offset }) => {
+        (
+            CompressedOp::CLwsp,
+            EvaluatedCompressedOperands::CIStackLoad { rd, offset },
+        ) => {
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.lwsp offset {} must be 0-252 and 4-byte aligned", offset),
+                    format!(
+                        "c.lwsp offset {} must be 0-252 and 4-byte aligned",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_lwsp(*rd, *offset as u32))
         }
-        (CompressedOp::CSw, EvaluatedCompressedOperands::CS { rs2_prime, rs1_prime, offset }) => {
+        (
+            CompressedOp::CSw,
+            EvaluatedCompressedOperands::CS { rs2_prime, rs1_prime, offset },
+        ) => {
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.sw offset {} must be 0-124 and 4-byte aligned", offset),
+                    format!(
+                        "c.sw offset {} must be 0-124 and 4-byte aligned",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_sw(*rs2_prime, *rs1_prime, *offset as u32))
         }
-        (CompressedOp::CSwsp, EvaluatedCompressedOperands::CSSStackStore { rs2, offset }) => {
+        (
+            CompressedOp::CSwsp,
+            EvaluatedCompressedOperands::CSSStackStore { rs2, offset },
+        ) => {
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.swsp offset {} must be 0-252 and 4-byte aligned", offset),
+                    format!(
+                        "c.swsp offset {} must be 0-252 and 4-byte aligned",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_swsp(*rs2, *offset as u32))
         }
-        (CompressedOp::CBeqz, EvaluatedCompressedOperands::CBBranch { rs1_prime, offset }) => {
+        (
+            CompressedOp::CBeqz,
+            EvaluatedCompressedOperands::CBBranch { rs1_prime, offset },
+        ) => {
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.beqz offset {} must be -256 to 254 and even", offset),
+                    format!(
+                        "c.beqz offset {} must be -256 to 254 and even",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_beqz(*rs1_prime, *offset))
         }
-        (CompressedOp::CBnez, EvaluatedCompressedOperands::CBBranch { rs1_prime, offset }) => {
+        (
+            CompressedOp::CBnez,
+            EvaluatedCompressedOperands::CBBranch { rs1_prime, offset },
+        ) => {
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.bnez offset {} must be -256 to 254 and even", offset),
+                    format!(
+                        "c.bnez offset {} must be -256 to 254 and even",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_bnez(*rs1_prime, *offset))
         }
-        (CompressedOp::CJComp, EvaluatedCompressedOperands::CJOpnd { offset }) => {
+        (
+            CompressedOp::CJComp,
+            EvaluatedCompressedOperands::CJOpnd { offset },
+        ) => {
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.j offset {} must be -2048 to 2046 and even", offset),
+                    format!(
+                        "c.j offset {} must be -2048 to 2046 and even",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_j(*offset))
         }
-        (CompressedOp::CJalComp, EvaluatedCompressedOperands::CJOpnd { offset }) => {
+        (
+            CompressedOp::CJalComp,
+            EvaluatedCompressedOperands::CJOpnd { offset },
+        ) => {
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
                 return Err(AssemblerError::from_context(
-                    format!("c.jal offset {} must be -2048 to 2046 and even", offset),
+                    format!(
+                        "c.jal offset {} must be -2048 to 2046 and even",
+                        offset
+                    ),
                     location.clone(),
                 ));
             }
             Ok(encode_c_jal(*offset))
         }
-        (CompressedOp::CJr, EvaluatedCompressedOperands::CRSingle { rs1 }) => Ok(encode_c_jr(*rs1)),
-        (CompressedOp::CJalr, EvaluatedCompressedOperands::CRSingle { rs1 }) => Ok(encode_c_jalr(*rs1)),
+        (CompressedOp::CJr, EvaluatedCompressedOperands::CRSingle { rs1 }) => {
+            Ok(encode_c_jr(*rs1))
+        }
+        (
+            CompressedOp::CJalr,
+            EvaluatedCompressedOperands::CRSingle { rs1 },
+        ) => Ok(encode_c_jalr(*rs1)),
         _ => Err(AssemblerError::from_context(
             format!("Invalid compressed instruction operands for {:?}", op),
             location.clone(),
@@ -1608,10 +2161,21 @@ fn eval_compressed_operands(
 
     match operands {
         CompressedOperands::None => Ok(EvaluatedCompressedOperands::None),
-        CompressedOperands::CR { rd, rs2 } => Ok(EvaluatedCompressedOperands::CR { rd: *rd, rs2: *rs2 }),
-        CompressedOperands::CRSingle { rs1 } => Ok(EvaluatedCompressedOperands::CRSingle { rs1: *rs1 }),
+        CompressedOperands::CR { rd, rs2 } => {
+            Ok(EvaluatedCompressedOperands::CR { rd: *rd, rs2: *rs2 })
+        }
+        CompressedOperands::CRSingle { rs1 } => {
+            Ok(EvaluatedCompressedOperands::CRSingle { rs1: *rs1 })
+        }
         CompressedOperands::CI { rd, imm } => {
-            let val = eval_expr(imm, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
@@ -1619,58 +2183,130 @@ fn eval_compressed_operands(
             Ok(EvaluatedCompressedOperands::CI { rd: *rd, imm: imm_val })
         }
         CompressedOperands::CIStackLoad { rd, offset } => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
             };
-            Ok(EvaluatedCompressedOperands::CIStackLoad { rd: *rd, offset: offset_val })
+            Ok(EvaluatedCompressedOperands::CIStackLoad {
+                rd: *rd,
+                offset: offset_val,
+            })
         }
         CompressedOperands::CSSStackStore { rs2, offset } => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
             };
-            Ok(EvaluatedCompressedOperands::CSSStackStore { rs2: *rs2, offset: offset_val })
+            Ok(EvaluatedCompressedOperands::CSSStackStore {
+                rs2: *rs2,
+                offset: offset_val,
+            })
         }
         CompressedOperands::CIW { rd_prime, imm } => {
-            let val = eval_expr(imm, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
             };
-            Ok(EvaluatedCompressedOperands::CIW { rd_prime: *rd_prime, imm: imm_val })
+            Ok(EvaluatedCompressedOperands::CIW {
+                rd_prime: *rd_prime,
+                imm: imm_val,
+            })
         }
         CompressedOperands::CL { rd_prime, rs1_prime, offset } => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
             };
-            Ok(EvaluatedCompressedOperands::CL { rd_prime: *rd_prime, rs1_prime: *rs1_prime, offset: offset_val })
+            Ok(EvaluatedCompressedOperands::CL {
+                rd_prime: *rd_prime,
+                rs1_prime: *rs1_prime,
+                offset: offset_val,
+            })
         }
         CompressedOperands::CS { rs2_prime, rs1_prime, offset } => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
             };
-            Ok(EvaluatedCompressedOperands::CS { rs2_prime: *rs2_prime, rs1_prime: *rs1_prime, offset: offset_val })
+            Ok(EvaluatedCompressedOperands::CS {
+                rs2_prime: *rs2_prime,
+                rs1_prime: *rs1_prime,
+                offset: offset_val,
+            })
         }
         CompressedOperands::CA { rd_prime, rs2_prime } => {
-            Ok(EvaluatedCompressedOperands::CA { rd_prime: *rd_prime, rs2_prime: *rs2_prime })
+            Ok(EvaluatedCompressedOperands::CA {
+                rd_prime: *rd_prime,
+                rs2_prime: *rs2_prime,
+            })
         }
         CompressedOperands::CBImm { rd_prime, imm } => {
-            let val = eval_expr(imm, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                imm,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let imm_val = match val {
                 EvaluatedValue::Integer(i) => i,
                 EvaluatedValue::Address(a) => a as i32,
             };
-            Ok(EvaluatedCompressedOperands::CBImm { rd_prime: *rd_prime, imm: imm_val })
+            Ok(EvaluatedCompressedOperands::CBImm {
+                rd_prime: *rd_prime,
+                imm: imm_val,
+            })
         }
         CompressedOperands::CBBranch { rs1_prime, offset } => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 // For branches, if we get an address, compute PC-relative offset
                 EvaluatedValue::Address(target_addr) => {
@@ -1680,10 +2316,20 @@ fn eval_compressed_operands(
                 // If it's an integer, use it directly as the offset
                 EvaluatedValue::Integer(i) => i,
             };
-            Ok(EvaluatedCompressedOperands::CBBranch { rs1_prime: *rs1_prime, offset: offset_val })
+            Ok(EvaluatedCompressedOperands::CBBranch {
+                rs1_prime: *rs1_prime,
+                offset: offset_val,
+            })
         }
         CompressedOperands::CJOpnd { offset } => {
-            let val = eval_expr(offset, current_address, refs, symbol_values, source, pointer)?;
+            let val = eval_expr(
+                offset,
+                current_address,
+                refs,
+                symbol_values,
+                source,
+                pointer,
+            )?;
             let offset_val = match val {
                 // For jumps, if we get an address, compute PC-relative offset
                 EvaluatedValue::Address(target_addr) => {
@@ -1769,28 +2415,41 @@ fn split_offset_hi_lo(offset: i64) -> (i64, i64) {
     (hi as i64, lo as i64)
 }
 
-fn require_integer(val: EvaluatedValue, context: &str, location: &Location) -> Result<i64> {
+fn require_integer(
+    val: EvaluatedValue,
+    context: &str,
+    location: &Location,
+) -> Result<i64> {
     match val {
         EvaluatedValue::Integer(i) => Ok(i as i64),
-        EvaluatedValue::Address(_) => {
-            Err(AssemblerError::from_context(format!("{} must be an Integer, got Address", context), location.clone()))
-        }
+        EvaluatedValue::Address(_) => Err(AssemblerError::from_context(
+            format!("{} must be an Integer, got Address", context),
+            location.clone(),
+        )),
     }
 }
 
-fn require_address(val: EvaluatedValue, context: &str, location: &Location) -> Result<u32> {
+fn require_address(
+    val: EvaluatedValue,
+    context: &str,
+    location: &Location,
+) -> Result<u32> {
     match val {
         EvaluatedValue::Address(a) => Ok(a),
-        EvaluatedValue::Integer(_) => {
-            Err(AssemblerError::from_context(format!("{} must be an Address, got Integer", context), location.clone()))
-        }
+        EvaluatedValue::Integer(_) => Err(AssemblerError::from_context(
+            format!("{} must be an Address, got Integer", context),
+            location.clone(),
+        )),
     }
 }
 
 fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
     if !fits_signed(imm, 12) {
         return Err(AssemblerError::from_context(
-            format!("Immediate {} out of range for I-type (must fit in 12-bit signed)", imm),
+            format!(
+                "Immediate {} out of range for I-type (must fit in 12-bit signed)",
+                imm
+            ),
             location.clone(),
         ));
     }
@@ -1799,11 +2458,17 @@ fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
 
 fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
-        return Err(AssemblerError::from_context(format!("Branch offset {} must be even", offset), location.clone()));
+        return Err(AssemblerError::from_context(
+            format!("Branch offset {} must be even", offset),
+            location.clone(),
+        ));
     }
     if !fits_signed(offset, 13) {
         return Err(AssemblerError::from_context(
-            format!("Branch offset {} out of range (must fit in 13-bit signed)", offset),
+            format!(
+                "Branch offset {} out of range (must fit in 13-bit signed)",
+                offset
+            ),
             location.clone(),
         ));
     }
@@ -1812,11 +2477,17 @@ fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
 
 fn check_j_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
-        return Err(AssemblerError::from_context(format!("Jump offset {} must be even", offset), location.clone()));
+        return Err(AssemblerError::from_context(
+            format!("Jump offset {} must be even", offset),
+            location.clone(),
+        ));
     }
     if !fits_signed(offset, 21) {
         return Err(AssemblerError::from_context(
-            format!("Jump offset {} out of range (must fit in 21-bit signed)", offset),
+            format!(
+                "Jump offset {} out of range (must fit in 21-bit signed)",
+                offset
+            ),
             location.clone(),
         ));
     }
@@ -1826,7 +2497,10 @@ fn check_j_imm(offset: i64, location: &Location) -> Result<()> {
 fn check_u_imm(imm: u32, location: &Location) -> Result<()> {
     if imm > 0xFFFFF {
         return Err(AssemblerError::from_context(
-            format!("Immediate {} out of range for U-type (must fit in 20 bits)", imm),
+            format!(
+                "Immediate {} out of range for U-type (must fit in 20 bits)",
+                imm
+            ),
             location.clone(),
         ));
     }

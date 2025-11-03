@@ -53,7 +53,10 @@ fn main() {
 
     match args[1].as_str() {
         "assemble" => {
-            let config = match self::config::process_cli_args_from_vec(&args[0], &args[2..]) {
+            let config = match self::config::process_cli_args_from_vec(
+                &args[0],
+                &args[2..],
+            ) {
                 Ok(config) => config,
                 Err(e) => {
                     eprintln!("{}", e);
@@ -108,8 +111,14 @@ fn main() {
     }
 }
 
-fn parse_simulator_args(args: &[String], mode: &str) -> self::simulator::SimulatorConfig {
-    let mut config = self::simulator::SimulatorConfig { mode: mode.to_string(), ..Default::default() };
+fn parse_simulator_args(
+    args: &[String],
+    mode: &str,
+) -> self::simulator::SimulatorConfig {
+    let mut config = self::simulator::SimulatorConfig {
+        mode: mode.to_string(),
+        ..Default::default()
+    };
 
     let mut i = 0;
     let mut usage = false;
@@ -175,7 +184,9 @@ fn print_help(program_name: &str) {
     eprintln!("  assemble      Assemble RISC-V source files to executable");
     eprintln!("  run           Run a RISC-V executable and exit");
     eprintln!("  disassemble   Disassemble a RISC-V executable");
-    eprintln!("  debug         Debug a RISC-V executable with interactive TUI (default)");
+    eprintln!(
+        "  debug         Debug a RISC-V executable with interactive TUI (default)"
+    );
     eprintln!("  help, -h      Show this help message");
     eprintln!("  -v, --version Show version information");
     eprintln!();
@@ -190,9 +201,15 @@ fn print_simulator_help(mode: &str) {
     eprintln!("Usage: risclet {} [options]", mode);
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  -e, --executable <path>       Path to executable (default: a.out)");
-    eprintln!("  -l, --lint <true|false>       Enable ABI checks (default: true)");
-    eprintln!("  -s, --steps <count>           Max execution steps (default: 100000000)");
+    eprintln!(
+        "  -e, --executable <path>       Path to executable (default: a.out)"
+    );
+    eprintln!(
+        "  -l, --lint <true|false>       Enable ABI checks (default: true)"
+    );
+    eprintln!(
+        "  -s, --steps <count>           Max execution steps (default: 100000000)"
+    );
     eprintln!("  -h, --help                    Show this help");
 }
 

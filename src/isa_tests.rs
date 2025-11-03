@@ -7,25 +7,30 @@ mod riscv_isa_tests {
 
     fn run_test_binary(binary: &[u8]) -> Result<i32, String> {
         let io = TestIo::new();
-        let mut machine = crate::elf_loader::load_elf_from_bytes(binary, Box::new(io))?;
+        let mut machine =
+            crate::elf_loader::load_elf_from_bytes(binary, Box::new(io))?;
 
         for _step in 0..MAX_STEPS {
             let pc = machine.pc();
 
             let (raw_instruction, length) =
-                machine.load_instruction(pc).map_err(|e| format!("Failed to load instruction at {:x}: {}", pc, e))?;
+                machine.load_instruction(pc).map_err(|e| {
+                    format!("Failed to load instruction at {:x}: {}", pc, e)
+                })?;
 
             let op = Op::new(raw_instruction);
             let is_ecall = matches!(op, Op::Ecall);
 
-            machine.execute_and_collect_effects(&std::rc::Rc::new(crate::execution::Instruction {
-                address: pc,
-                op,
-                length,
-                pseudo_index: 0,
-                verbose_fields: Vec::new(),
-                pseudo_fields: Vec::new(),
-            }));
+            machine.execute_and_collect_effects(&std::rc::Rc::new(
+                crate::execution::Instruction {
+                    address: pc,
+                    op,
+                    length,
+                    pseudo_index: 0,
+                    verbose_fields: Vec::new(),
+                    pseudo_fields: Vec::new(),
+                },
+            ));
 
             if is_ecall {
                 let exit_code = machine.get_reg(10);
@@ -40,9 +45,14 @@ mod riscv_isa_tests {
         ($test_name:ident, $binary:expr) => {
             #[test]
             fn $test_name() {
-                let exit_code = run_test_binary($binary).expect("Test execution failed");
+                let exit_code =
+                    run_test_binary($binary).expect("Test execution failed");
 
-                assert_eq!(exit_code, 0, "Test failed with exit code {}", exit_code);
+                assert_eq!(
+                    exit_code, 0,
+                    "Test failed with exit code {}",
+                    exit_code
+                );
             }
         };
     }

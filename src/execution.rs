@@ -30,7 +30,14 @@ impl Machine {
         address_symbols: HashMap<u32, String>,
         other_symbols: HashMap<String, u32>,
     ) -> Self {
-        Self::with_io_provider(segments, pc_start, global_pointer, address_symbols, other_symbols, Box::new(SystemIo))
+        Self::with_io_provider(
+            segments,
+            pc_start,
+            global_pointer,
+            address_symbols,
+            other_symbols,
+            Box::new(SystemIo),
+        )
     }
 
     pub fn with_io_provider(
@@ -83,7 +90,8 @@ impl Machine {
         let raw = self.memory.load_raw(addr, size)?;
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.mem_read.is_none());
-            effects.mem_read = Some(MemoryValue { address: addr, value: raw.to_vec() });
+            effects.mem_read =
+                Some(MemoryValue { address: addr, value: raw.to_vec() });
         }
         Ok(raw.to_vec())
     }
@@ -135,7 +143,9 @@ impl Machine {
         if reg != 0 && self.current_effect.is_some() {
             let effects = self.current_effect.as_mut().unwrap();
             if !effects.reg_reads.iter().any(|r| r.register == reg) {
-                effects.reg_reads.push(RegisterValue { register: reg, value: val });
+                effects
+                    .reg_reads
+                    .push(RegisterValue { register: reg, value: val });
             }
         }
         val
@@ -145,8 +155,10 @@ impl Machine {
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.reg_write.is_none());
             let old_val = self.state.get_reg(reg);
-            effects.reg_write =
-                Some((RegisterValue { register: reg, value: old_val }, RegisterValue { register: reg, value }));
+            effects.reg_write = Some((
+                RegisterValue { register: reg, value: old_val },
+                RegisterValue { register: reg, value },
+            ));
         }
         self.state.set_reg(reg, value);
     }
@@ -163,7 +175,10 @@ impl Machine {
         Ok(())
     }
 
-    pub fn execute_and_collect_effects(&mut self, instruction: &Rc<Instruction>) -> Effects {
+    pub fn execute_and_collect_effects(
+        &mut self,
+        instruction: &Rc<Instruction>,
+    ) -> Effects {
         self.current_effect = Some(Effects::new(instruction));
 
         let exec_res = instruction.op.execute(self, instruction.length);
@@ -187,7 +202,12 @@ impl Machine {
         effects
     }
 
-    pub fn set_most_recent_memory(&mut self, _sequence: &[Effects], _index: usize) {}
+    pub fn set_most_recent_memory(
+        &mut self,
+        _sequence: &[Effects],
+        _index: usize,
+    ) {
+    }
 
     pub fn most_recent_memory(&self) -> u32 {
         let (addr, _, _) = self.trace.set_most_recent_memory();
@@ -206,7 +226,8 @@ impl Machine {
 
     pub fn apply(&mut self, effect: &Effects, is_forward: bool) {
         let (old_pc, new_pc) = effect.pc;
-        self.set_pc(if is_forward { new_pc } else { old_pc }).expect("PC should be valid during replay");
+        self.set_pc(if is_forward { new_pc } else { old_pc })
+            .expect("PC should be valid during replay");
 
         if let Some((old, new)) = &effect.reg_write {
             let write = if is_forward { new } else { old };
@@ -215,7 +236,8 @@ impl Machine {
 
         if let Some((old, new)) = &effect.mem_write {
             let store = if is_forward { new } else { old };
-            self.store(store.address, &store.value).expect("Memory should be valid during replay");
+            self.store(store.address, &store.value)
+                .expect("Memory should be valid during replay");
         }
 
         if let Some(output) = &effect.stdout {
@@ -375,7 +397,10 @@ impl MachineBuilder {
         self
     }
 
-    pub fn with_address_symbols(mut self, symbols: HashMap<u32, String>) -> Self {
+    pub fn with_address_symbols(
+        mut self,
+        symbols: HashMap<u32, String>,
+    ) -> Self {
         self.address_symbols = symbols;
         self
     }
@@ -391,13 +416,15 @@ impl MachineBuilder {
     }
 
     pub fn with_flat_memory(mut self, size: u32) -> Self {
-        self.segments = vec![Segment::new(0x1000, 0x1000 + size, true, true, Vec::new())];
+        self.segments =
+            vec![Segment::new(0x1000, 0x1000 + size, true, true, Vec::new())];
         self.pc_start = 0x1000;
         self
     }
 
     pub fn build(self) -> Machine {
-        let io_provider = self.io_provider.unwrap_or_else(|| Box::new(SystemIo));
+        let io_provider =
+            self.io_provider.unwrap_or_else(|| Box::new(SystemIo));
         Machine::with_io_provider(
             self.segments,
             self.pc_start,
@@ -489,7 +516,8 @@ pub fn trace(
     let mut linter = Linter::new(m.get_reg(2) as u32);
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
-    let echo_in = [/* "run", */ "debug"].contains(&mode) && !io::stdin().is_tty();
+    let echo_in =
+        [/* "run", */ "debug"].contains(&mode) && !io::stdin().is_tty();
 
     for steps in 1..=max_steps {
         if i >= instructions.len() || instructions[i].address != m.pc() {
@@ -528,7 +556,8 @@ pub fn trace(
 
         if !effects.terminate
             && lint
-            && let Err(msg) = linter.check_instruction(m, instruction, &mut effects)
+            && let Err(msg) =
+                linter.check_instruction(m, instruction, &mut effects)
         {
             effects.error(msg);
         }

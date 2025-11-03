@@ -15,7 +15,9 @@ impl IoProvider for SystemIo {
 
     fn write_stdout(&mut self, data: &[u8]) -> Result<(), String> {
         let mut handle = io::stdout().lock();
-        handle.write_all(data).map_err(|e| format!("write syscall error: {}", e))
+        handle
+            .write_all(data)
+            .map_err(|e| format!("write syscall error: {}", e))
     }
 }
 
@@ -52,7 +54,9 @@ impl IoProvider for TestIo {
     fn read_stdin(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         let available = self.stdin_data.len() - self.stdin_pos;
         let to_read = std::cmp::min(buffer.len(), available);
-        buffer[..to_read].copy_from_slice(&self.stdin_data[self.stdin_pos..self.stdin_pos + to_read]);
+        buffer[..to_read].copy_from_slice(
+            &self.stdin_data[self.stdin_pos..self.stdin_pos + to_read],
+        );
         self.stdin_pos += to_read;
         Ok(to_read)
     }

@@ -1,6 +1,6 @@
 use crate::riscv::{
-    Op, RA, SP, ZERO, get_funct3, get_funct7, get_imm_b, get_imm_i, get_imm_j, get_imm_s, get_imm_u, get_rd, get_rs1,
-    get_rs2,
+    Op, RA, SP, ZERO, get_funct3, get_funct7, get_imm_b, get_imm_i, get_imm_j,
+    get_imm_s, get_imm_u, get_rd, get_rs1, get_rs2,
 };
 
 pub struct InstructionDecoder;
@@ -21,9 +21,19 @@ impl InstructionDecoder {
             0x67 => {
                 let funct3 = get_funct3(inst);
                 if funct3 == 0 {
-                    Op::Jalr { rd: get_rd(inst), rs1: get_rs1(inst), offset: get_imm_i(inst) }
+                    Op::Jalr {
+                        rd: get_rd(inst),
+                        rs1: get_rs1(inst),
+                        offset: get_imm_i(inst),
+                    }
                 } else {
-                    Op::Unimplemented { inst, note: format!("jalr with unknown funct3 value of {}", funct3) }
+                    Op::Unimplemented {
+                        inst,
+                        note: format!(
+                            "jalr with unknown funct3 value of {}",
+                            funct3
+                        ),
+                    }
                 }
             }
             0x03 => Self::decode_load(inst),
@@ -36,7 +46,10 @@ impl InstructionDecoder {
             0x73 if inst == 0x00100073 => Op::Ebreak,
             _ => Op::Unimplemented {
                 inst,
-                note: format!("disassembler found unknown instruction opcode 0x{:x}", opcode),
+                note: format!(
+                    "disassembler found unknown instruction opcode 0x{:x}",
+                    opcode
+                ),
             },
         }
     }
@@ -54,7 +67,10 @@ impl InstructionDecoder {
             5 => Op::Bge { rs1, rs2, offset },
             6 => Op::Bltu { rs1, rs2, offset },
             7 => Op::Bgeu { rs1, rs2, offset },
-            _ => Op::Unimplemented { inst, note: format!("branch instruction of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("branch instruction of unknown type {}", funct3),
+            },
         }
     }
 
@@ -70,7 +86,10 @@ impl InstructionDecoder {
             2 => Op::Lw { rd, rs1, offset },
             4 => Op::Lbu { rd, rs1, offset },
             5 => Op::Lhu { rd, rs1, offset },
-            _ => Op::Unimplemented { inst, note: format!("load instruction of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("load instruction of unknown type {}", funct3),
+            },
         }
     }
 
@@ -84,7 +103,10 @@ impl InstructionDecoder {
             0 => Op::Sb { rs1, rs2, offset },
             1 => Op::Sh { rs1, rs2, offset },
             2 => Op::Sw { rs1, rs2, offset },
-            _ => Op::Unimplemented { inst, note: format!("store instruction of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("store instruction of unknown type {}", funct3),
+            },
         }
     }
 
@@ -127,7 +149,10 @@ impl InstructionDecoder {
             },
             6 => Op::Ori { rd, rs1, imm },
             7 => Op::Andi { rd, rs1, imm },
-            _ => Op::Unimplemented { inst, note: format!("alu immediate of unknown type {}", funct3) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("alu immediate of unknown type {}", funct3),
+            },
         }
     }
 
@@ -161,7 +186,10 @@ impl InstructionDecoder {
 
             _ => Op::Unimplemented {
                 inst,
-                note: format!("alu instruction of unknown type {} subtype {}", funct3, funct7),
+                note: format!(
+                    "alu instruction of unknown type {} subtype {}",
+                    funct3, funct7
+                ),
             },
         }
     }
@@ -179,7 +207,10 @@ impl InstructionDecoder {
         if funct3 != 0x2 {
             return Op::Unimplemented {
                 inst,
-                note: format!("atomic instruction with unsupported width funct3={}", funct3),
+                note: format!(
+                    "atomic instruction with unsupported width funct3={}",
+                    funct3
+                ),
             };
         }
 
@@ -195,15 +226,20 @@ impl InstructionDecoder {
             0x14 => Op::AmomaxW { rd, rs1, rs2, aq, rl },
             0x18 => Op::AmominuW { rd, rs1, rs2, aq, rl },
             0x1c => Op::AmomaxuW { rd, rs1, rs2, aq, rl },
-            _ => Op::Unimplemented { inst, note: format!("unknown atomic operation funct5={}", funct5) },
+            _ => Op::Unimplemented {
+                inst,
+                note: format!("unknown atomic operation funct5={}", funct5),
+            },
         }
     }
 
     fn decode_compressed(inst: i32) -> Op {
         use crate::riscv::{
-            get_c_addi4spn_imm, get_c_addi16sp_imm, get_c_beqz_bnez_imm, get_c_funct3, get_c_j_jal_imm,
-            get_c_li_addi_addiw_andi_imm, get_c_lui_imm, get_c_lw_sw_imm, get_c_lwsp_imm, get_c_op, get_c_rd_rs1,
-            get_c_rs1_prime, get_c_rs2, get_c_rs2_prime, get_c_slli_srli_srai_imm, get_c_swsp_imm,
+            get_c_addi4spn_imm, get_c_addi16sp_imm, get_c_beqz_bnez_imm,
+            get_c_funct3, get_c_j_jal_imm, get_c_li_addi_addiw_andi_imm,
+            get_c_lui_imm, get_c_lw_sw_imm, get_c_lwsp_imm, get_c_op,
+            get_c_rd_rs1, get_c_rs1_prime, get_c_rs2, get_c_rs2_prime,
+            get_c_slli_srli_srai_imm, get_c_swsp_imm,
         };
 
         let op = get_c_op(inst);
@@ -214,30 +250,53 @@ impl InstructionDecoder {
                 let rd = get_c_rs2_prime(inst);
                 let imm = get_c_addi4spn_imm(inst);
                 if rd == 0 && imm == 0 {
-                    Op::Unimplemented { inst, note: String::from("Illegal compressed instruction at (0, 0)") }
+                    Op::Unimplemented {
+                        inst,
+                        note: String::from(
+                            "Illegal compressed instruction at (0, 0)",
+                        ),
+                    }
                 } else if imm == 0 {
-                    Op::Unimplemented { inst, note: String::from("C.ADDI4SPN with imm=0 is reserved") }
+                    Op::Unimplemented {
+                        inst,
+                        note: String::from("C.ADDI4SPN with imm=0 is reserved"),
+                    }
                 } else {
                     Op::Addi { rd, rs1: SP, imm }
                 }
             }
-            (0, 1) => Op::Unimplemented { inst, note: String::from("C.FLD is not supported") },
+            (0, 1) => Op::Unimplemented {
+                inst,
+                note: String::from("C.FLD is not supported"),
+            },
             (0, 2) => {
                 let rd = get_c_rs2_prime(inst);
                 let rs1 = get_c_rs1_prime(inst);
                 let imm = get_c_lw_sw_imm(inst);
                 Op::Lw { rd, rs1, offset: imm }
             }
-            (0, 3) => Op::Unimplemented { inst, note: String::from("C.LD is not supported in RV32") },
-            (0, 4) => Op::Unimplemented { inst, note: String::from("Reserved compressed instruction at (0, 4)") },
-            (0, 5) => Op::Unimplemented { inst, note: String::from("C.FSD is not supported") },
+            (0, 3) => Op::Unimplemented {
+                inst,
+                note: String::from("C.LD is not supported in RV32"),
+            },
+            (0, 4) => Op::Unimplemented {
+                inst,
+                note: String::from("Reserved compressed instruction at (0, 4)"),
+            },
+            (0, 5) => Op::Unimplemented {
+                inst,
+                note: String::from("C.FSD is not supported"),
+            },
             (0, 6) => {
                 let rs2 = get_c_rs2_prime(inst);
                 let rs1 = get_c_rs1_prime(inst);
                 let imm = get_c_lw_sw_imm(inst);
                 Op::Sw { rs1, rs2, offset: imm }
             }
-            (0, 7) => Op::Unimplemented { inst, note: String::from("C.SD is not supported in RV32") },
+            (0, 7) => Op::Unimplemented {
+                inst,
+                note: String::from("C.SD is not supported in RV32"),
+            },
 
             (1, 0) => {
                 let rd = get_c_rd_rs1(inst);
@@ -258,14 +317,22 @@ impl InstructionDecoder {
                 if rd == 2 {
                     let imm = get_c_addi16sp_imm(inst);
                     if imm == 0 {
-                        Op::Unimplemented { inst, note: String::from("C.ADDI16SP with imm=0 is reserved") }
+                        Op::Unimplemented {
+                            inst,
+                            note: String::from(
+                                "C.ADDI16SP with imm=0 is reserved",
+                            ),
+                        }
                     } else {
                         Op::Addi { rd: SP, rs1: SP, imm }
                     }
                 } else {
                     let imm = get_c_lui_imm(inst);
                     if imm == 0 {
-                        Op::Unimplemented { inst, note: String::from("C.LUI with imm=0 is reserved") }
+                        Op::Unimplemented {
+                            inst,
+                            note: String::from("C.LUI with imm=0 is reserved"),
+                        }
                     } else {
                         Op::Lui { rd, imm }
                     }
@@ -296,12 +363,16 @@ impl InstructionDecoder {
                             (0, 1) => Op::Xor { rd, rs1: rd, rs2 },
                             (0, 2) => Op::Or { rd, rs1: rd, rs2 },
                             (0, 3) => Op::And { rd, rs1: rd, rs2 },
-                            (1, 0) | (1, 1) => {
-                                Op::Unimplemented { inst, note: "C.SUBW/C.ADDW are not supported in RV32".to_string() }
-                            }
+                            (1, 0) | (1, 1) => Op::Unimplemented {
+                                inst,
+                                note: "C.SUBW/C.ADDW are not supported in RV32"
+                                    .to_string(),
+                            },
                             _ => Op::Unimplemented {
                                 inst,
-                                note: "Reserved compressed instruction at (1, 4)".to_string(),
+                                note:
+                                    "Reserved compressed instruction at (1, 4)"
+                                        .to_string(),
                             },
                         }
                     }
@@ -328,24 +399,36 @@ impl InstructionDecoder {
                 let shamt = get_c_slli_srli_srai_imm(inst);
                 Op::Slli { rd, rs1: rd, shamt }
             }
-            (2, 1) => Op::Unimplemented { inst, note: String::from("C.FLDSP is not supported") },
+            (2, 1) => Op::Unimplemented {
+                inst,
+                note: String::from("C.FLDSP is not supported"),
+            },
             (2, 2) => {
                 let rd = get_c_rd_rs1(inst);
                 let imm = get_c_lwsp_imm(inst);
                 if rd == 0 {
-                    Op::Unimplemented { inst, note: String::from("C.LWSP with rd=0 is reserved") }
+                    Op::Unimplemented {
+                        inst,
+                        note: String::from("C.LWSP with rd=0 is reserved"),
+                    }
                 } else {
                     Op::Lw { rd, rs1: SP, offset: imm }
                 }
             }
-            (2, 3) => Op::Unimplemented { inst, note: String::from("C.LDSP is not supported in RV32") },
+            (2, 3) => Op::Unimplemented {
+                inst,
+                note: String::from("C.LDSP is not supported in RV32"),
+            },
             (2, 4) => {
                 let rd = get_c_rd_rs1(inst);
                 let rs2 = get_c_rs2(inst);
                 let bit12 = (inst >> 12) & 0x1;
 
                 match (bit12, rd, rs2) {
-                    (0, 0, 0) => Op::Unimplemented { inst, note: String::from("C.JR with rd=0 is reserved") },
+                    (0, 0, 0) => Op::Unimplemented {
+                        inst,
+                        note: String::from("C.JR with rd=0 is reserved"),
+                    },
                     (0, _, 0) => Op::Jalr { rd: ZERO, rs1: rd, offset: 0 },
                     (0, _, _) => Op::Add { rd, rs1: ZERO, rs2 },
                     (1, 0, 0) => Op::Ebreak,
@@ -353,13 +436,19 @@ impl InstructionDecoder {
                     (_, _, _) => Op::Add { rd, rs1: rd, rs2 },
                 }
             }
-            (2, 5) => Op::Unimplemented { inst, note: String::from("C.FSDSP is not supported") },
+            (2, 5) => Op::Unimplemented {
+                inst,
+                note: String::from("C.FSDSP is not supported"),
+            },
             (2, 6) => {
                 let rs2 = get_c_rs2(inst);
                 let imm = get_c_swsp_imm(inst);
                 Op::Sw { rs1: SP, rs2, offset: imm }
             }
-            (2, 7) => Op::Unimplemented { inst, note: String::from("C.SDSP is not supported in RV32") },
+            (2, 7) => Op::Unimplemented {
+                inst,
+                note: String::from("C.SDSP is not supported in RV32"),
+            },
 
             _ => unreachable!(),
         }
