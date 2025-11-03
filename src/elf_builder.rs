@@ -366,11 +366,11 @@ impl StringTable {
 /// This section describes the RISC-V ISA features used by the binary.
 /// Format follows the ELF attributes specification with RISC-V extensions.
 ///
-/// For RV32IMAC (I, M, A, and C extensions), we generate:
-/// "rv32i2p1_m2p0_a2p1_c2p0"
+/// For RV32IMACZifencei (I, M, A, C extensions + Zifencei), we generate:
+/// "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0"
 pub fn generate_riscv_attributes() -> Vec<u8> {
-    // Generate attributes for RV32IMAC with compressed instructions
-    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0";
+    // Generate attributes for RV32IMAC with compressed instructions and Zifencei
+    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0";
 
     let mut attrs = Vec::new();
 

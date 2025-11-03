@@ -267,6 +267,8 @@ pub enum Op {
 
     // misc
     Fence { pred: u8, succ: u8 },
+    FenceTso,
+    FenceI,
     Ecall,
     Ebreak,
 
@@ -927,6 +929,12 @@ impl Op {
             Op::Fence { pred: _, succ: _ } => {
                 // treat fence as a no-op
             }
+            Op::FenceTso => {
+                // treat fence.tso as a no-op
+            }
+            Op::FenceI => {
+                // treat fence.i as a no-op
+            }
             Op::Ecall => {
                 match m.get(17) {
                     63 => {
@@ -1432,6 +1440,8 @@ impl Op {
                     Field::FenceOrdering(pred_str, succ_str),
                 ]
             }
+            Op::FenceTso => vec![Field::Opcode("fence.tso")],
+            Op::FenceI => vec![Field::Opcode("fence.i")],
             Op::Ecall => vec![Field::Opcode("ecall")],
             Op::Ebreak => vec![Field::Opcode("ebreak")],
 

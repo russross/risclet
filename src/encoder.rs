@@ -1218,17 +1218,48 @@ fn encode_atomic(
 fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
     let inst = match op {
         SpecialOp::Fence { pred, succ } => {
-            // Fence instruction encoding (immediate field):
-            // Bits [31:28]: 0000 (unused)
-            // Bits [27:24]: pred (predecessor bits)
-            // Bits [23:20]: succ (successor bits)
-            // Bits [19:15]: 00000 (rs1)
+            // FENCE instruction encoding (matches GNU RISC-V assembler):
+            // Bits [31:28]: fm = 0000 (standard fence)
+            // Bits [27:24]: pred (predecessor bits, 4 bits)
+            // Bits [23:20]: succ (successor bits, 4 bits)
+            // Bits [19:15]: 00000 (rs1, reserved)
             // Bits [14:12]: 000 (funct3)
-            // Bits [11:7]: 00000 (rd)
+            // Bits [11:7]: 00000 (rd, reserved)
             // Bits [6:0]: 0001111 (opcode = 0x0F)
+            // Validate pred bit 4 must be 0 (only 4 bits used)
+            if (*pred & 0x10) != 0 {
+                return Err(AssemblerError::no_context(
+                    "fence: pred bit 4 (reserved) must be 0".to_string(),
+                ));
+            }
+            let fm_bits = 0u32; // Standard fence at bits [31:28]
             let pred_bits = (*pred as u32) << 24;
             let succ_bits = (*succ as u32) << 20;
-            pred_bits | succ_bits | 0x0F
+            (fm_bits << 28) | pred_bits | succ_bits | 0x0F
+        }
+        SpecialOp::FenceTso => {
+            // FENCE.TSO instruction encoding:
+            // Bits [31:28]: fm = 1000 (FENCE.TSO variant)
+            // Bits [27:24]: pred = 0011 (rw, fixed for TSO)
+            // Bits [23:20]: succ = 0011 (rw, fixed for TSO)
+            // Bits [19:15]: 00000 (rs1, reserved)
+            // Bits [14:12]: 000 (funct3)
+            // Bits [11:7]: 00000 (rd, reserved)
+            // Bits [6:0]: 0001111 (opcode = 0x0F)
+            let fm = 0b1000u32;    // FENCE.TSO
+            let pred = 0x3u32;     // rw (bits 0,1 set in 4-bit domain encoding)
+            let succ = 0x3u32;     // rw
+            (fm << 28) | (pred << 24) | (succ << 20) | 0x0F
+        }
+        SpecialOp::FenceI => {
+            // FENCE.I instruction encoding (Zifencei extension):
+            // Bits [31:20]: imm = 000000000001 (funct3=001 in upper 3 bits)
+            // Bits [19:15]: rs1 = 00000 (x0, reserved)
+            // Bits [14:12]: funct3 = 001
+            // Bits [11:7]: rd = 00000 (x0, reserved)
+            // Bits [6:0]: opcode = 0010011 (OP-IMM format, 0x13)
+            // This encodes as 0x0000100f (little-endian bytes: 0f 10 00 00)
+            0x0000100fu32
         }
         SpecialOp::Ecall => 0b00000000000000000000000001110011u32,
         SpecialOp::Ebreak => 0b00000000000100000000000001110011u32,

@@ -522,6 +522,55 @@ fence o,i
     assert_instructions_match(source, expected);
 }
 
+#[test]
+fn test_fence_tso() {
+    let source = r#"
+.text
+fence.tso
+"#;
+
+    // fence.tso encodes to 0x8330000f (fm=1000, pred=0011, succ=0011)
+    // Little-endian bytes: 0f 00 30 83
+    let expected = &[0x0f, 0x00, 0x30, 0x83];
+
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_fence_i() {
+    let source = r#"
+.text
+fence.i
+"#;
+
+    // fence.i encodes to 0x0000100f
+    // Little-endian bytes: 0f 10 00 00
+    let expected = &[0x0f, 0x10, 0x00, 0x00];
+
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_fence_all_variants() {
+    let source = r#"
+.text
+fence
+fence.tso
+fence.i
+fence rw,rw
+"#;
+
+    // All fence variants
+    let expected = &[
+        0x0f, 0x00, 0xf0, 0x0f, // fence (default iorw,iorw)
+        0x0f, 0x00, 0x30, 0x83, // fence.tso
+        0x0f, 0x10, 0x00, 0x00, // fence.i
+        0x0f, 0x00, 0x30, 0x03, // fence rw,rw
+    ];
+
+    assert_instructions_match(source, expected);
+}
+
 // ============================================================================
 // Pseudo-Instruction Tests
 // ============================================================================
