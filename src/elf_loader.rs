@@ -1,15 +1,20 @@
+use crate::io_abstraction::{IoProvider, SystemIo};
 use crate::{Machine, memory::Segment};
 use std::collections::HashMap;
 
 pub fn load_elf(filename: &str) -> Result<Machine, String> {
     let raw = std::fs::read(filename)
         .map_err(|e| format!("loading {}: {}", filename, e))?;
-    load_elf_from_bytes(&raw, Box::new(crate::io_abstraction::SystemIo))
+    load_elf_from_bytes(&raw, Box::new(SystemIo))
+}
+
+pub fn load_elf_from_memory(raw: &[u8]) -> Result<Machine, String> {
+    load_elf_from_bytes(raw, Box::new(SystemIo))
 }
 
 pub fn load_elf_from_bytes(
     raw: &[u8],
-    io_provider: Box<dyn crate::io_abstraction::IoProvider>,
+    io_provider: Box<dyn IoProvider>,
 ) -> Result<Machine, String> {
     if raw.len() < 0x34 {
         return Err("ELF data is too short".to_string());

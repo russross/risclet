@@ -54,6 +54,9 @@ impl Tui {
         addresses: HashMap<u32, usize>,
         pseudo_addresses: HashMap<usize, usize>,
         sequence: Vec<Effects>,
+        hex_mode: bool,
+        show_addresses: bool,
+        verbose: bool,
     ) -> Result<Self, String> {
         // make sure stdout is connected to a tty
         if !io::stdout().is_tty() {
@@ -128,14 +131,14 @@ impl Tui {
             data_colors,
             pastels,
 
-            hex_mode: false,
+            hex_mode,
             show_registers: true,
             show_output: true,
             show_stack: true,
             show_data: true,
             show_help: false,
-            verbose: false,
-            show_addresses: false,
+            verbose,
+            show_addresses,
         })
     }
 
