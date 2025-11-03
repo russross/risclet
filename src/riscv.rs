@@ -118,28 +118,13 @@ define_immediate_decoders! {
         signed: false,
         width: 7
     },
-    get_c_ldsp_imm {
-        mappings: [(12, 5), (6, 4), (5, 3), (4, 8), (3, 7), (2, 6)],
-        signed: false,
-        width: 7
-    },
     get_c_swsp_imm {
         mappings: [(12, 5), (11, 4), (10, 3), (9, 2), (8, 7), (7, 6)],
         signed: false,
         width: 7
     },
-    get_c_sdsp_imm {
-        mappings: [(12, 5), (11, 4), (10, 3), (9, 8), (8, 7), (7, 6)],
-        signed: false,
-        width: 7
-    },
     get_c_lw_sw_imm {
         mappings: [(12, 5), (11, 4), (10, 3), (6, 2), (5, 6)],
-        signed: false,
-        width: 5
-    },
-    get_c_ld_sd_imm {
-        mappings: [(12, 5), (11, 4), (10, 3), (6, 7), (5, 6)],
         signed: false,
         width: 5
     },

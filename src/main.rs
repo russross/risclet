@@ -2,9 +2,46 @@
 //
 // Unified command-line interface for both tools
 
-use risclet::assembler;
-use risclet::config;
-use risclet::simulator::{self, SimulatorConfig};
+// Simulator modules
+mod decoder;
+mod elf_loader;
+mod execution;
+mod execution_context;
+mod io_abstraction;
+mod isa_tests;
+mod linter;
+mod memory;
+mod riscv;
+mod simulator;
+mod test_utils;
+mod trace;
+mod ui;
+
+// Assembler modules
+mod assembler;
+mod ast;
+mod config;
+mod dump;
+mod elf_builder;
+mod encoder;
+mod error;
+mod expressions;
+mod layout;
+mod parser;
+mod symbols;
+mod tokenizer;
+
+// Test modules
+#[cfg(test)]
+mod encoder_tests;
+#[cfg(test)]
+mod expressions_tests;
+#[cfg(test)]
+mod parser_tests;
+#[cfg(test)]
+mod symbols_tests;
+#[cfg(test)]
+mod tokenizer_tests;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -16,8 +53,7 @@ fn main() {
 
     match args[1].as_str() {
         "assemble" => {
-            // Forward assembler subcommand arguments to config parser
-            let config = match config::process_cli_args() {
+            let config = match self::config::process_cli_args_from_vec(&args[0], &args[2..]) {
                 Ok(config) => config,
                 Err(e) => {
                     eprintln!("{}", e);
@@ -25,7 +61,7 @@ fn main() {
                 }
             };
 
-            if let Err(e) = assembler::drive_assembler(&config) {
+            if let Err(e) = self::assembler::drive_assembler(&config) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
@@ -33,7 +69,7 @@ fn main() {
 
         "run" => {
             let sim_config = parse_simulator_args(&args[2..], "run");
-            if let Err(e) = simulator::run_simulator(sim_config) {
+            if let Err(e) = self::simulator::run_simulator(sim_config) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
@@ -41,7 +77,7 @@ fn main() {
 
         "disassemble" => {
             let sim_config = parse_simulator_args(&args[2..], "disassemble");
-            if let Err(e) = simulator::run_simulator(sim_config) {
+            if let Err(e) = self::simulator::run_simulator(sim_config) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
@@ -49,7 +85,7 @@ fn main() {
 
         "debug" => {
             let sim_config = parse_simulator_args(&args[2..], "debug");
-            if let Err(e) = simulator::run_simulator(sim_config) {
+            if let Err(e) = self::simulator::run_simulator(sim_config) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
             }
@@ -72,11 +108,8 @@ fn main() {
     }
 }
 
-fn parse_simulator_args(args: &[String], mode: &str) -> SimulatorConfig {
-    let mut config = SimulatorConfig {
-        mode: mode.to_string(),
-        ..Default::default()
-    };
+fn parse_simulator_args(args: &[String], mode: &str) -> self::simulator::SimulatorConfig {
+    let mut config = self::simulator::SimulatorConfig { mode: mode.to_string(), ..Default::default() };
 
     let mut i = 0;
     let mut usage = false;
@@ -162,3 +195,10 @@ fn print_simulator_help(mode: &str) {
     eprintln!("  -s, --steps <count>           Max execution steps (default: 100000000)");
     eprintln!("  -h, --help                    Show this help");
 }
+
+// Re-export main APIs (for compatibility with any code that imports from this crate)
+pub use elf_loader::*;
+pub use execution::{Instruction, Machine, add_local_labels, trace};
+pub use riscv::{Op, fields_to_string, get_pseudo_sequence};
+pub use trace::Effects;
+pub use ui::*;

@@ -2,17 +2,11 @@
 mod tests {
     use crate::ast::*;
     use crate::parser;
-    use crate::symbols::{
-        SymbolLinks, create_builtin_symbols_file, extract_references_from_line,
-        link_symbols,
-    };
+    use crate::symbols::{SymbolLinks, create_builtin_symbols_file, extract_references_from_line, link_symbols};
     use crate::tokenizer;
 
     /// Helper: Parse source lines into a SourceFile
-    fn parse_source_file(
-        filename: &str,
-        source: &str,
-    ) -> Result<SourceFile, String> {
+    fn parse_source_file(filename: &str, source: &str) -> Result<SourceFile, String> {
         let mut lines = Vec::new();
 
         for (line_num, line_text) in source.lines().enumerate() {
@@ -27,8 +21,7 @@ mod tests {
             }
 
             let parsed_lines =
-                parser::parse(&tokens, filename.to_string(), line_num + 1)
-                    .map_err(|e| e.with_source_context())?;
+                parser::parse(&tokens, filename.to_string(), line_num + 1).map_err(|e| e.with_source_context())?;
 
             for parsed_line in parsed_lines {
                 // Segment and size will be set in the layout phase
@@ -68,10 +61,7 @@ mod tests {
     }
 
     /// Helper: Find the line that contains a reference to the given symbol
-    fn find_referencing_line(
-        source: &Source,
-        symbol: &str,
-    ) -> Option<LinePointer> {
+    fn find_referencing_line(source: &Source, symbol: &str) -> Option<LinePointer> {
         for (file_index, file) in source.files.iter().enumerate() {
             for (line_index, line) in file.lines.iter().enumerate() {
                 // Check if this line has an expression with the symbol
@@ -92,10 +82,8 @@ mod tests {
         expected_def_ptr: LinePointer,
     ) {
         let refs = symbol_links.get_line_refs(line_ptr);
-        let matching_ref = refs.iter().find(|r| {
-            r.outgoing_name == expected_symbol
-                && r.definition.pointer == expected_def_ptr
-        });
+        let matching_ref =
+            refs.iter().find(|r| r.outgoing_name == expected_symbol && r.definition.pointer == expected_def_ptr);
 
         assert!(
             matching_ref.is_some(),
@@ -122,10 +110,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with no symbols"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with no symbols");
 
         let symbols = result.unwrap();
 
@@ -196,10 +181,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with forward reference"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with forward reference");
 
         let symbols = result.unwrap();
 
@@ -238,18 +220,12 @@ mod tests {
             let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 if sym_ref.outgoing_name == "target" {
-                    assert_eq!(
-                        sym_ref.definition.pointer, label_ptr,
-                        "All references should point to the same label"
-                    );
+                    assert_eq!(sym_ref.definition.pointer, label_ptr, "All references should point to the same label");
                     ref_count += 1;
                 }
             }
         }
-        assert_eq!(
-            ref_count, 2,
-            "Should have exactly 2 references to 'target'"
-        );
+        assert_eq!(ref_count, 2, "Should have exactly 2 references to 'target'");
     }
 
     #[test]
@@ -289,10 +265,7 @@ mod tests {
                         assert_eq!(sym_ref.definition.pointer, middle_ptr)
                     }
                     "end" => assert_eq!(sym_ref.definition.pointer, end_ptr),
-                    _ => panic!(
-                        "Unexpected symbol reference: {}",
-                        sym_ref.outgoing_name
-                    ),
+                    _ => panic!("Unexpected symbol reference: {}", sym_ref.outgoing_name),
                 }
             }
         }
@@ -310,10 +283,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with numeric forward reference"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with numeric forward reference");
 
         let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "1").unwrap();
@@ -337,10 +307,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with numeric backward reference"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with numeric backward reference");
 
         let symbols = result.unwrap();
         let label_ptr = find_line_by_label(&source, "1").unwrap();
@@ -367,10 +334,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with reused numeric labels"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with reused numeric labels");
 
         let symbols = result.unwrap();
 
@@ -381,15 +345,10 @@ mod tests {
             if let LineContent::Label(ref l) = line.content
                 && l == "1"
             {
-                label_positions
-                    .push(LinePointer { file_index: 0, line_index: line_idx });
+                label_positions.push(LinePointer { file_index: 0, line_index: line_idx });
             }
         }
-        assert_eq!(
-            label_positions.len(),
-            2,
-            "Should have exactly 2 labels named '1'"
-        );
+        assert_eq!(label_positions.len(), 2, "Should have exactly 2 labels named '1'");
 
         // First reference should point to first label, second to second label
         let mut ref_positions = Vec::new();
@@ -402,31 +361,15 @@ mod tests {
                 }
             }
         }
-        assert_eq!(
-            ref_positions.len(),
-            2,
-            "Should have exactly 2 references to '1f'"
-        );
+        assert_eq!(ref_positions.len(), 2, "Should have exactly 2 references to '1f'");
 
         // First reference should point to first label
-        assert!(
-            ref_positions[0].0 < label_positions[0].line_index,
-            "First ref should come before first label"
-        );
-        assert_eq!(
-            ref_positions[0].1, label_positions[0],
-            "First '1f' should resolve to first '1'"
-        );
+        assert!(ref_positions[0].0 < label_positions[0].line_index, "First ref should come before first label");
+        assert_eq!(ref_positions[0].1, label_positions[0], "First '1f' should resolve to first '1'");
 
         // Second reference should point to second label
-        assert!(
-            ref_positions[1].0 < label_positions[1].line_index,
-            "Second ref should come before second label"
-        );
-        assert_eq!(
-            ref_positions[1].1, label_positions[1],
-            "Second '1f' should resolve to second '1'"
-        );
+        assert!(ref_positions[1].0 < label_positions[1].line_index, "Second ref should come before second label");
+        assert_eq!(ref_positions[1].1, label_positions[1], "Second '1f' should resolve to second '1'");
     }
 
     #[test]
@@ -443,10 +386,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with reused numeric labels"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with reused numeric labels");
 
         let symbols = result.unwrap();
 
@@ -457,15 +397,10 @@ mod tests {
             if let LineContent::Label(ref l) = line.content
                 && l == "1"
             {
-                label_positions
-                    .push(LinePointer { file_index: 0, line_index: line_idx });
+                label_positions.push(LinePointer { file_index: 0, line_index: line_idx });
             }
         }
-        assert_eq!(
-            label_positions.len(),
-            2,
-            "Should have exactly 2 labels named '1'"
-        );
+        assert_eq!(label_positions.len(), 2, "Should have exactly 2 labels named '1'");
 
         // Collect all backward references
         let mut ref_positions = Vec::new();
@@ -478,31 +413,15 @@ mod tests {
                 }
             }
         }
-        assert_eq!(
-            ref_positions.len(),
-            2,
-            "Should have exactly 2 references to '1b'"
-        );
+        assert_eq!(ref_positions.len(), 2, "Should have exactly 2 references to '1b'");
 
         // First reference should point to first label (closest backward)
-        assert!(
-            ref_positions[0].0 > label_positions[0].line_index,
-            "First ref should come after first label"
-        );
-        assert_eq!(
-            ref_positions[0].1, label_positions[0],
-            "First '1b' should resolve to first '1'"
-        );
+        assert!(ref_positions[0].0 > label_positions[0].line_index, "First ref should come after first label");
+        assert_eq!(ref_positions[0].1, label_positions[0], "First '1b' should resolve to first '1'");
 
         // Second reference should point to second label (closest backward)
-        assert!(
-            ref_positions[1].0 > label_positions[1].line_index,
-            "Second ref should come after second label"
-        );
-        assert_eq!(
-            ref_positions[1].1, label_positions[1],
-            "Second '1b' should resolve to second '1'"
-        );
+        assert!(ref_positions[1].0 > label_positions[1].line_index, "Second ref should come after second label");
+        assert_eq!(ref_positions[1].1, label_positions[1], "Second '1b' should resolve to second '1'");
     }
 
     #[test]
@@ -518,10 +437,7 @@ mod tests {
         let result = link_symbols(&source);
 
         // Should fail because numeric label reference crosses a non-numeric label
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail when numeric reference crosses non-numeric label"
-        );
+        assert!(result.is_err(), "Symbol linking should fail when numeric reference crosses non-numeric label");
 
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -543,10 +459,7 @@ mod tests {
         let result = link_symbols(&source);
 
         // Should fail because numeric forward reference crosses a non-numeric label
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail when numeric forward reference crosses non-numeric label"
-        );
+        assert!(result.is_err(), "Symbol linking should fail when numeric forward reference crosses non-numeric label");
 
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -569,10 +482,7 @@ mod tests {
         let result = link_symbols(&source);
 
         // Should fail because segment changes flush numeric labels
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail when numeric reference crosses segment boundary"
-        );
+        assert!(result.is_err(), "Symbol linking should fail when numeric reference crosses segment boundary");
     }
 
     #[test]
@@ -588,10 +498,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with multiple symbols in one expression"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with multiple symbols in one expression");
 
         let symbols = result.unwrap();
         let start_ptr = find_line_by_label(&source, "start").unwrap();
@@ -603,21 +510,14 @@ mod tests {
         for (line_index, _line) in file.lines.iter().enumerate() {
             let line_ptr = LinePointer { file_index: 0, line_index };
             let refs = symbols.get_line_refs(line_ptr);
-            let has_start = refs.iter().any(|r| {
-                r.outgoing_name == "start" && r.definition.pointer == start_ptr
-            });
-            let has_end = refs.iter().any(|r| {
-                r.outgoing_name == "end" && r.definition.pointer == end_ptr
-            });
+            let has_start = refs.iter().any(|r| r.outgoing_name == "start" && r.definition.pointer == start_ptr);
+            let has_end = refs.iter().any(|r| r.outgoing_name == "end" && r.definition.pointer == end_ptr);
             if has_start && has_end {
                 found_both = true;
                 break;
             }
         }
-        assert!(
-            found_both,
-            "Should find a line with references to both 'start' and 'end'"
-        );
+        assert!(found_both, "Should find a line with references to both 'start' and 'end'");
     }
 
     #[test]
@@ -633,11 +533,7 @@ mod tests {
 
         // Should have two lines: label and instruction
         let file = &source.files[0];
-        assert_eq!(
-            file.lines.len(),
-            2,
-            "Label + instruction should create 2 lines"
-        );
+        assert_eq!(file.lines.len(), 2, "Label + instruction should create 2 lines");
 
         // First should be label
         if let LineContent::Label(ref l) = file.lines[0].content {
@@ -669,21 +565,12 @@ mod tests {
 
         // The instruction line should have a reference to the label
         let file = &source.files[0];
-        assert_eq!(
-            file.lines.len(),
-            2,
-            "Label + instruction should create 2 lines"
-        );
+        assert_eq!(file.lines.len(), 2, "Label + instruction should create 2 lines");
 
         let instr_ptr = LinePointer { file_index: 0, line_index: 1 };
         let refs = symbols.get_line_refs(instr_ptr);
-        let has_ref = refs.iter().any(|r| {
-            r.outgoing_name == "loop" && r.definition.pointer == label_ptr
-        });
-        assert!(
-            has_ref,
-            "Instruction should have reference back to its own label"
-        );
+        let has_ref = refs.iter().any(|r| r.outgoing_name == "loop" && r.definition.pointer == label_ptr);
+        assert!(has_ref, "Instruction should have reference back to its own label");
     }
 
     #[test]
@@ -704,12 +591,10 @@ mod tests {
         let file = &source.files[0];
         let mut equ_ptr = None;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "CONST"
             {
-                equ_ptr =
-                    Some(LinePointer { file_index: 0, line_index: line_idx });
+                equ_ptr = Some(LinePointer { file_index: 0, line_index: line_idx });
                 break;
             }
         }
@@ -732,26 +617,19 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with .equ redefinition"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with .equ redefinition");
 
         // Find all .equ lines
         let file = &source.files[0];
         let mut equ_count = 0;
         for line in &file.lines {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "counter"
             {
                 equ_count += 1;
             }
         }
-        assert_eq!(
-            equ_count, 3,
-            "Should have 3 .equ definitions for 'counter'"
-        );
+        assert_eq!(equ_count, 3, "Should have 3 .equ definitions for 'counter'");
 
         let symbols = result.unwrap();
 
@@ -779,15 +657,11 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail with undefined symbol"
-        );
+        assert!(result.is_err(), "Symbol linking should fail with undefined symbol");
 
         let err_msg = result.unwrap_err().to_string();
         assert!(
-            err_msg.contains("undefined_label")
-                || err_msg.contains("Undefined"),
+            err_msg.contains("undefined_label") || err_msg.contains("Undefined"),
             "Error should mention the undefined symbol"
         );
     }
@@ -803,10 +677,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail with backward reference to non-existent label"
-        );
+        assert!(result.is_err(), "Symbol linking should fail with backward reference to non-existent label");
 
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -832,10 +703,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with interleaved numeric labels"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with interleaved numeric labels");
 
         let symbols = result.unwrap();
 
@@ -846,12 +714,8 @@ mod tests {
             let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
                 // Each reference should point to a valid label
-                let target_line =
-                    &file.lines[sym_ref.definition.pointer.line_index];
-                assert!(
-                    matches!(target_line.content, LineContent::Label(_)),
-                    "Reference should point to a label"
-                );
+                let target_line = &file.lines[sym_ref.definition.pointer.line_index];
+                assert!(matches!(target_line.content, LineContent::Label(_)), "Reference should point to a label");
             }
         }
     }
@@ -866,10 +730,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with current address"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with current address");
 
         let symbols = result.unwrap();
 
@@ -901,8 +762,7 @@ mod tests {
         let file = &source.files[0];
         let mut equ_positions = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "value"
             {
                 equ_positions.push(line_idx);
@@ -927,10 +787,7 @@ mod tests {
         // Actually, looking at the implementation, definitions.insert() will overwrite
         // the old value, but we don't explicitly check for label/equ conflicts.
         // Let's test what actually happens:
-        assert!(
-            result.is_ok(),
-            "Current implementation allows .equ to shadow label"
-        );
+        assert!(result.is_ok(), "Current implementation allows .equ to shadow label");
     }
 
     #[test]
@@ -967,17 +824,13 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            ".equ should allow self-reference to previous value"
-        );
+        assert!(result.is_ok(), ".equ should allow self-reference to previous value");
 
         // The second .equ should reference the first, and third should reference second
         let file = &source.files[0];
         let mut equ_line_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "counter"
             {
                 equ_line_indices.push(line_idx);
@@ -988,23 +841,19 @@ mod tests {
         let symbols = result.unwrap();
 
         // Second .equ should have reference to first
-        let second_line_ptr =
-            LinePointer { file_index: 0, line_index: equ_line_indices[1] };
+        let second_line_ptr = LinePointer { file_index: 0, line_index: equ_line_indices[1] };
         let second_refs = symbols.get_line_refs(second_line_ptr);
-        let has_ref_to_first = second_refs.iter().any(|r| {
-            r.outgoing_name == "counter"
-                && r.definition.pointer.line_index == equ_line_indices[0]
-        });
+        let has_ref_to_first = second_refs
+            .iter()
+            .any(|r| r.outgoing_name == "counter" && r.definition.pointer.line_index == equ_line_indices[0]);
         assert!(has_ref_to_first, "Second .equ should reference first");
 
         // Third .equ should have reference to second
-        let third_line_ptr =
-            LinePointer { file_index: 0, line_index: equ_line_indices[2] };
+        let third_line_ptr = LinePointer { file_index: 0, line_index: equ_line_indices[2] };
         let third_refs = symbols.get_line_refs(third_line_ptr);
-        let has_ref_to_second = third_refs.iter().any(|r| {
-            r.outgoing_name == "counter"
-                && r.definition.pointer.line_index == equ_line_indices[1]
-        });
+        let has_ref_to_second = third_refs
+            .iter()
+            .any(|r| r.outgoing_name == "counter" && r.definition.pointer.line_index == equ_line_indices[1]);
         assert!(has_ref_to_second, "Third .equ should reference second");
     }
 
@@ -1026,12 +875,10 @@ mod tests {
         let file = &source.files[0];
         let mut equ_ptr = None;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "CONST"
             {
-                equ_ptr =
-                    Some(LinePointer { file_index: 0, line_index: line_idx });
+                equ_ptr = Some(LinePointer { file_index: 0, line_index: line_idx });
                 break;
             }
         }
@@ -1054,17 +901,13 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Forward reference should resolve to first .equ"
-        );
+        assert!(result.is_ok(), "Forward reference should resolve to first .equ");
 
         // Find all .equ definitions
         let file = &source.files[0];
         let mut equ_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "value"
             {
                 equ_indices.push(line_idx);
@@ -1077,8 +920,7 @@ mod tests {
         // The li instruction should reference the first one
         let ref_ptr = find_referencing_line(&source, "value").unwrap();
         let refs = symbols.get_line_refs(ref_ptr);
-        let ref_to_value =
-            refs.iter().find(|r| r.outgoing_name == "value").unwrap();
+        let ref_to_value = refs.iter().find(|r| r.outgoing_name == "value").unwrap();
         assert_eq!(
             ref_to_value.definition.pointer.line_index, equ_indices[0],
             "Forward reference should resolve to first .equ definition"
@@ -1099,17 +941,13 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Backward references should resolve to most recent .equ"
-        );
+        assert!(result.is_ok(), "Backward references should resolve to most recent .equ");
 
         // Find all .equ definitions
         let file = &source.files[0];
         let mut equ_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "value"
             {
                 equ_indices.push(line_idx);
@@ -1123,42 +961,25 @@ mod tests {
         let mut li_refs = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
             if let LineContent::Instruction(_) = line.content {
-                let line_ptr =
-                    LinePointer { file_index: 0, line_index: line_idx };
+                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(line_ptr);
                 for sym_ref in refs {
                     if sym_ref.outgoing_name == "value" {
-                        li_refs.push((
-                            line_idx,
-                            sym_ref.definition.pointer.line_index,
-                        ));
+                        li_refs.push((line_idx, sym_ref.definition.pointer.line_index));
                     }
                 }
             }
         }
-        assert_eq!(
-            li_refs.len(),
-            3,
-            "Should have 3 li instructions with references"
-        );
+        assert_eq!(li_refs.len(), 3, "Should have 3 li instructions with references");
 
         // First li should reference first .equ (backward)
-        assert_eq!(
-            li_refs[0].1, equ_indices[0],
-            "First li should reference first .equ"
-        );
+        assert_eq!(li_refs[0].1, equ_indices[0], "First li should reference first .equ");
 
         // Second li should reference second .equ (backward, most recent)
-        assert_eq!(
-            li_refs[1].1, equ_indices[1],
-            "Second li should reference second .equ"
-        );
+        assert_eq!(li_refs[1].1, equ_indices[1], "Second li should reference second .equ");
 
         // Third li should reference third .equ (backward, most recent)
-        assert_eq!(
-            li_refs[2].1, equ_indices[2],
-            "Third li should reference third .equ"
-        );
+        assert_eq!(li_refs[2].1, equ_indices[2], "Third li should reference third .equ");
     }
 
     // ============================================================================
@@ -1211,15 +1032,10 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Should fail with undefined numeric forward reference"
-        );
+        assert!(result.is_err(), "Should fail with undefined numeric forward reference");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("1f")
-                || err.contains("numeric")
-                || err.contains("Unresolved"),
+            err.contains("1f") || err.contains("numeric") || err.contains("Unresolved"),
             "Error should mention unresolved numeric label: {}",
             err
         );
@@ -1238,15 +1054,10 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Numeric forward ref should not cross segment boundary"
-        );
+        assert!(result.is_err(), "Numeric forward ref should not cross segment boundary");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("1f")
-                || err.contains("numeric")
-                || err.contains("Unresolved"),
+            err.contains("1f") || err.contains("numeric") || err.contains("Unresolved"),
             "Error should mention unresolved numeric label: {}",
             err
         );
@@ -1265,15 +1076,10 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Numeric forward ref should not cross non-numeric label"
-        );
+        assert!(result.is_err(), "Numeric forward ref should not cross non-numeric label");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("1f")
-                || err.contains("numeric")
-                || err.contains("Unresolved"),
+            err.contains("1f") || err.contains("numeric") || err.contains("Unresolved"),
             "Error should mention unresolved numeric label: {}",
             err
         );
@@ -1288,15 +1094,10 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Should fail with undefined numeric backward reference"
-        );
+        assert!(result.is_err(), "Should fail with undefined numeric backward reference");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("1b")
-                || err.contains("backward")
-                || err.contains("Unresolved"),
+            err.contains("1b") || err.contains("backward") || err.contains("Unresolved"),
             "Error should mention unresolved backward reference: {}",
             err
         );
@@ -1315,16 +1116,9 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Numeric backward ref should not cross non-numeric label"
-        );
+        assert!(result.is_err(), "Numeric backward ref should not cross non-numeric label");
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("1b") || err.contains("Undefined"),
-            "Error should mention undefined symbol: {}",
-            err
-        );
+        assert!(err.contains("1b") || err.contains("Undefined"), "Error should mention undefined symbol: {}", err);
     }
 
     #[test]
@@ -1340,15 +1134,10 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Numeric backward ref should not cross segment boundary"
-        );
+        assert!(result.is_err(), "Numeric backward ref should not cross segment boundary");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("1b")
-                || err.contains("backward")
-                || err.contains("Unresolved"),
+            err.contains("1b") || err.contains("backward") || err.contains("Unresolved"),
             "Error should mention unresolved reference: {}",
             err
         );
@@ -1371,10 +1160,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "All numeric labels should be flushed by non-numeric label"
-        );
+        assert!(result.is_err(), "All numeric labels should be flushed by non-numeric label");
         // Should fail on the first backward reference that can't be resolved
     }
 
@@ -1416,10 +1202,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Numeric labels after non-numeric should work in new scope"
-        );
+        assert!(result.is_ok(), "Numeric labels after non-numeric should work in new scope");
 
         // Verify the references point to the labels after 'named'
         let file = &source.files[0];
@@ -1491,8 +1274,7 @@ mod tests {
         let file = &source.files[0];
         let mut equ_line = None;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "size"
             {
                 equ_line = Some(line_idx);
@@ -1502,19 +1284,11 @@ mod tests {
         assert!(equ_line.is_some());
 
         let symbols = result.unwrap();
-        let equ_ptr =
-            LinePointer { file_index: 0, line_index: equ_line.unwrap() };
+        let equ_ptr = LinePointer { file_index: 0, line_index: equ_line.unwrap() };
         let refs = symbols.get_line_refs(equ_ptr);
-        let has_start = refs.iter().any(|r| {
-            r.outgoing_name == "start" && r.definition.pointer == start_ptr
-        });
-        let has_end = refs.iter().any(|r| {
-            r.outgoing_name == "end" && r.definition.pointer == end_ptr
-        });
-        assert!(
-            has_start && has_end,
-            ".equ should reference both start and end"
-        );
+        let has_start = refs.iter().any(|r| r.outgoing_name == "start" && r.definition.pointer == start_ptr);
+        let has_end = refs.iter().any(|r| r.outgoing_name == "end" && r.definition.pointer == end_ptr);
+        assert!(has_start && has_end, ".equ should reference both start and end");
     }
 
     // ============================================================================
@@ -1539,31 +1313,20 @@ mod tests {
                 ret
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Cross-file reference should work with globals"
-        );
+        assert!(result.is_ok(), "Cross-file reference should work with globals");
 
         let symbols = result.unwrap();
 
         // Find helper in file2
         let helper_ptr = find_line_by_label(&source, "helper").unwrap();
-        assert_eq!(
-            helper_ptr.file_index, 1,
-            "helper should be in file 1 (file2.s)"
-        );
+        assert_eq!(helper_ptr.file_index, 1, "helper should be in file 1 (file2.s)");
 
         // Find call in file1
         let call_ptr = find_referencing_line(&source, "helper").unwrap();
-        assert_eq!(
-            call_ptr.file_index, 0,
-            "call should be in file 0 (file1.s)"
-        );
+        assert_eq!(call_ptr.file_index, 0, "call should be in file 0 (file1.s)");
 
         // Verify the cross-file reference
         assert_reference(&symbols, call_ptr, "helper", helper_ptr);
@@ -1582,22 +1345,16 @@ mod tests {
             li a0, counter
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Global should export the last version of .equ"
-        );
+        assert!(result.is_ok(), "Global should export the last version of .equ");
 
         // Find all three .equ definitions in file1
         let file = &source.files[0];
         let mut equ_indices = Vec::new();
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "counter"
             {
                 equ_indices.push(line_idx);
@@ -1611,12 +1368,8 @@ mod tests {
         assert_eq!(ref_ptr.file_index, 1, "Reference should be in file2");
 
         let refs = symbols.get_line_refs(ref_ptr);
-        let ref_to_counter =
-            refs.iter().find(|r| r.outgoing_name == "counter").unwrap();
-        assert_eq!(
-            ref_to_counter.definition.pointer.file_index, 0,
-            "Should point to file1"
-        );
+        let ref_to_counter = refs.iter().find(|r| r.outgoing_name == "counter").unwrap();
+        assert_eq!(ref_to_counter.definition.pointer.file_index, 0, "Should point to file1");
         assert_eq!(
             ref_to_counter.definition.pointer.line_index, equ_indices[2],
             "Global should export last .equ definition"
@@ -1635,14 +1388,10 @@ mod tests {
         let source = create_source(vec![("file1.s", file1)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Should fail when global is declared but not defined"
-        );
+        assert!(result.is_err(), "Should fail when global is declared but not defined");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("undefined_func")
-                && err.contains("declared but not defined"),
+            err.contains("undefined_func") && err.contains("declared but not defined"),
             "Error should mention symbol and reason: {}",
             err
         );
@@ -1660,23 +1409,15 @@ mod tests {
         let source = create_source(vec![("file1.s", file1)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Global declared before definition should work"
-        );
+        assert!(result.is_ok(), "Global declared before definition should work");
 
         let symbols = result.unwrap();
 
         // Verify global points to the label
         // Note: We have 2 globals: "main" and "__global_pointer$" (from builtin file)
-        assert_eq!(
-            symbols.global_symbols.len(),
-            2,
-            "Should have 2 global symbols (main + __global_pointer$)"
-        );
+        assert_eq!(symbols.global_symbols.len(), 2, "Should have 2 global symbols (main + __global_pointer$)");
         // Find the "main" symbol (could be at index 0 or 1)
-        let main_symbol =
-            symbols.global_symbols.iter().find(|g| g.symbol == "main");
+        let main_symbol = symbols.global_symbols.iter().find(|g| g.symbol == "main");
         assert!(main_symbol.is_some(), "Should have 'main' global symbol");
     }
 
@@ -1698,14 +1439,9 @@ mod tests {
 
         // Verify global points to the label
         // Note: We have 2 globals: "main" and "__global_pointer$" (from builtin file)
-        assert_eq!(
-            symbols.global_symbols.len(),
-            2,
-            "Should have 2 global symbols (main + __global_pointer$)"
-        );
+        assert_eq!(symbols.global_symbols.len(), 2, "Should have 2 global symbols (main + __global_pointer$)");
         // Find the "main" symbol (could be at index 0 or 1)
-        let main_symbol =
-            symbols.global_symbols.iter().find(|g| g.symbol == "main");
+        let main_symbol = symbols.global_symbols.iter().find(|g| g.symbol == "main");
         assert!(main_symbol.is_some(), "Should have 'main' global symbol");
     }
 
@@ -1717,15 +1453,10 @@ mod tests {
 
         // The parser itself rejects this, so create_source will fail
         let result = create_source(vec![("file1.s", file1)]);
-        assert!(
-            result.is_err(),
-            "Parser should reject .global with numeric label"
-        );
+        assert!(result.is_err(), "Parser should reject .global with numeric label");
         let err = result.unwrap_err();
         assert!(
-            err.contains("identifier")
-                || err.contains("Expected")
-                || err.contains("123"),
+            err.contains("identifier") || err.contains("Expected") || err.contains("123"),
             "Error should indicate parser expected identifier: {}",
             err
         );
@@ -1744,10 +1475,7 @@ mod tests {
         let source = create_source(vec![("file1.s", file1)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Should fail when same global declared twice in same file"
-        );
+        assert!(result.is_err(), "Should fail when same global declared twice in same file");
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("func") && err.contains("already declared global"),
@@ -1772,15 +1500,10 @@ mod tests {
                 nop
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Should fail when same global declared in multiple files"
-        );
+        assert!(result.is_err(), "Should fail when same global declared in multiple files");
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("duplicate") && err.contains("Duplicate global"),
@@ -1802,15 +1525,10 @@ mod tests {
                 ret
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_err(),
-            "Should fail with undefined symbol in multi-file case"
-        );
+        assert!(result.is_err(), "Should fail with undefined symbol in multi-file case");
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("undefined_func") && err.contains("Undefined"),
@@ -1837,17 +1555,9 @@ mod tests {
         assert!(result.is_ok(), "Unreferenced global should be OK");
         let symbols = result.unwrap();
         // Note: We have 2 globals: "unused_func" and "__global_pointer$" (from builtin file)
-        assert_eq!(
-            symbols.global_symbols.len(),
-            2,
-            "Should have 2 global symbols (unused_func + __global_pointer$)"
-        );
-        let unused_func =
-            symbols.global_symbols.iter().find(|g| g.symbol == "unused_func");
-        assert!(
-            unused_func.is_some(),
-            "Should have 'unused_func' global symbol"
-        );
+        assert_eq!(symbols.global_symbols.len(), 2, "Should have 2 global symbols (unused_func + __global_pointer$)");
+        let unused_func = symbols.global_symbols.iter().find(|g| g.symbol == "unused_func");
+        assert!(unused_func.is_some(), "Should have 'unused_func' global symbol");
     }
 
     #[test]
@@ -1868,9 +1578,7 @@ mod tests {
                 ret
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Both .equ and label globals should work");
@@ -1883,17 +1591,12 @@ mod tests {
         );
 
         // Verify both globals exist
-        let global_names: Vec<&str> =
-            symbols.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
-        assert!(
-            global_names.contains(&"BUFFER_SIZE"),
-            "Should have BUFFER_SIZE global"
-        );
+        let global_names: Vec<&str> = symbols.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
+        assert!(global_names.contains(&"BUFFER_SIZE"), "Should have BUFFER_SIZE global");
         assert!(global_names.contains(&"main"), "Should have main global");
 
         // Verify cross-file reference to .equ global works
-        let ref_in_file2 =
-            find_referencing_line(&source, "BUFFER_SIZE").unwrap();
+        let ref_in_file2 = find_referencing_line(&source, "BUFFER_SIZE").unwrap();
         if ref_in_file2.file_index == 1 {
             // Found the reference in file2
             let equ_ptr = LinePointer { file_index: 0, line_index: 0 };
@@ -1923,9 +1626,7 @@ mod tests {
                 ret
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
         assert!(result.is_ok(), "Multiple cross-file references should work");
@@ -1995,15 +1696,10 @@ mod tests {
             ret
         ";
 
-        let source =
-            create_source(vec![("file1.s", file1), ("file2.s", file2)])
-                .unwrap();
+        let source = create_source(vec![("file1.s", file1), ("file2.s", file2)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Multiple symbols in single .global directive should work"
-        );
+        assert!(result.is_ok(), "Multiple symbols in single .global directive should work");
 
         let symbols = result.unwrap();
 
@@ -2015,8 +1711,7 @@ mod tests {
             "Should have 4 global symbols (_start + exit + helper + __global_pointer$)"
         );
 
-        let global_names: Vec<&str> =
-            symbols.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
+        let global_names: Vec<&str> = symbols.global_symbols.iter().map(|g| g.symbol.as_str()).collect();
         assert!(global_names.contains(&"_start"), "Should have _start global");
         assert!(global_names.contains(&"exit"), "Should have exit global");
         assert!(global_names.contains(&"helper"), "Should have helper global");
@@ -2035,19 +1730,13 @@ mod tests {
             let line_ptr = LinePointer { file_index: 1, line_index: line_idx };
             let refs = symbols.get_line_refs(line_ptr);
             for sym_ref in refs {
-                if sym_ref.outgoing_name == "_start"
-                    && sym_ref.definition.pointer == start_ptr
-                {
+                if sym_ref.outgoing_name == "_start" && sym_ref.definition.pointer == start_ptr {
                     found_start = true;
                 }
-                if sym_ref.outgoing_name == "exit"
-                    && sym_ref.definition.pointer == exit_ptr
-                {
+                if sym_ref.outgoing_name == "exit" && sym_ref.definition.pointer == exit_ptr {
                     found_exit = true;
                 }
-                if sym_ref.outgoing_name == "helper"
-                    && sym_ref.definition.pointer == helper_ptr
-                {
+                if sym_ref.outgoing_name == "helper" && sym_ref.definition.pointer == helper_ptr {
                     found_helper = true;
                 }
             }
@@ -2079,8 +1768,7 @@ mod tests {
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("__global_pointer$")
-                && err.contains("Duplicate global symbol"),
+            err.contains("__global_pointer$") && err.contains("Duplicate global symbol"),
             "Error should mention duplicate global symbol: {}",
             err
         );
@@ -2102,8 +1790,7 @@ mod tests {
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("__global_pointer$")
-                && err.contains("Duplicate global symbol"),
+            err.contains("__global_pointer$") && err.contains("Duplicate global symbol"),
             "Error should mention duplicate global symbol: {}",
             err
         );
@@ -2122,10 +1809,7 @@ mod tests {
         let source = create_source(vec![("test.s", source_text)]).unwrap();
         let result = link_symbols(&source);
 
-        assert!(
-            result.is_ok(),
-            "Symbol linking should succeed with .equ referencing a label"
-        );
+        assert!(result.is_ok(), "Symbol linking should succeed with .equ referencing a label");
 
         let symbols = result.unwrap();
 
@@ -2133,23 +1817,17 @@ mod tests {
         let file = &source.files[0];
         let mut found_equ_with_ref = false;
         for (line_idx, line) in file.lines.iter().enumerate() {
-            if let LineContent::Directive(Directive::Equ(ref name, _)) =
-                line.content
+            if let LineContent::Directive(Directive::Equ(ref name, _)) = line.content
                 && name == "label_offset"
             {
                 // This .equ should have an outgoing reference to my_label
-                let line_ptr =
-                    LinePointer { file_index: 0, line_index: line_idx };
+                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(line_ptr);
-                found_equ_with_ref =
-                    refs.iter().any(|r| r.outgoing_name == "my_label");
+                found_equ_with_ref = refs.iter().any(|r| r.outgoing_name == "my_label");
             }
         }
 
-        assert!(
-            found_equ_with_ref,
-            ".equ label_offset should have a reference to my_label"
-        );
+        assert!(found_equ_with_ref, ".equ label_offset should have a reference to my_label");
     }
 
     // ============================================================================
@@ -2170,26 +1848,12 @@ mod tests {
         let symbols = link_symbols(&source).expect("Resolution should succeed");
 
         // Verify Symbols struct is populated
-        assert_eq!(
-            symbols.line_refs.len(),
-            2,
-            "Should have two files (test.s + builtin)"
-        );
-        assert!(
-            !symbols.line_refs[0].is_empty(),
-            "First file should have lines"
-        );
+        assert_eq!(symbols.line_refs.len(), 2, "Should have two files (test.s + builtin)");
+        assert!(!symbols.line_refs[0].is_empty(), "First file should have lines");
 
         // Verify the local_symbols_by_file
-        assert_eq!(
-            symbols.local_symbols_by_file.len(),
-            2,
-            "Should have symbols for two files (test.s + builtin)"
-        );
-        assert!(
-            !symbols.local_symbols_by_file[0].is_empty(),
-            "First file should have local symbols"
-        );
+        assert_eq!(symbols.local_symbols_by_file.len(), 2, "Should have symbols for two files (test.s + builtin)");
+        assert!(!symbols.local_symbols_by_file[0].is_empty(), "First file should have local symbols");
 
         // Verify that the loop label is in local symbols
         let local_syms = &symbols.local_symbols_by_file[0];
@@ -2230,10 +1894,7 @@ mod tests {
         // The outgoing name should be "1f" (as written in source)
         assert_eq!(sym_ref.outgoing_name, "1f", "Outgoing name should be '1f'");
         // The definition symbol should be "1" (the actual label)
-        assert_eq!(
-            sym_ref.definition.symbol, "1",
-            "Definition symbol should be '1'"
-        );
+        assert_eq!(sym_ref.definition.symbol, "1", "Definition symbol should be '1'");
     }
 
     #[test]
@@ -2255,10 +1916,7 @@ mod tests {
 
         let sym_ref = &refs[0];
         assert_eq!(sym_ref.outgoing_name, "1b", "Outgoing name should be '1b'");
-        assert_eq!(
-            sym_ref.definition.symbol, "1",
-            "Definition symbol should be '1'"
-        );
+        assert_eq!(sym_ref.definition.symbol, "1", "Definition symbol should be '1'");
     }
 
     #[test]
@@ -2284,31 +1942,15 @@ mod tests {
         let refs = symbols.get_line_refs(ref_ptr);
 
         // Should have exactly two references: one to "1b" and one to "1f"
-        assert_eq!(
-            refs.len(),
-            2,
-            "Should have two references (1b and 1f) from the same line"
-        );
+        assert_eq!(refs.len(), 2, "Should have two references (1b and 1f) from the same line");
 
         // Find the forward reference
-        let forward_ref = refs
-            .iter()
-            .find(|r| r.outgoing_name == "1f")
-            .expect("Should have a reference to '1f'");
-        assert_eq!(
-            forward_ref.definition.symbol, "1",
-            "Forward ref should point to definition '1'"
-        );
+        let forward_ref = refs.iter().find(|r| r.outgoing_name == "1f").expect("Should have a reference to '1f'");
+        assert_eq!(forward_ref.definition.symbol, "1", "Forward ref should point to definition '1'");
 
         // Find the backward reference
-        let backward_ref = refs
-            .iter()
-            .find(|r| r.outgoing_name == "1b")
-            .expect("Should have a reference to '1b'");
-        assert_eq!(
-            backward_ref.definition.symbol, "1",
-            "Backward ref should point to definition '1'"
-        );
+        let backward_ref = refs.iter().find(|r| r.outgoing_name == "1b").expect("Should have a reference to '1b'");
+        assert_eq!(backward_ref.definition.symbol, "1", "Backward ref should point to definition '1'");
 
         // Verify they point to different label instances
         assert_ne!(
@@ -2336,14 +1978,8 @@ mod tests {
         assert_eq!(refs.len(), 1, "Should have one reference to 'my_label'");
 
         let sym_ref = &refs[0];
-        assert_eq!(
-            sym_ref.outgoing_name, "my_label",
-            "Outgoing name should be 'my_label'"
-        );
-        assert_eq!(
-            sym_ref.definition.symbol, "my_label",
-            "Definition symbol should also be 'my_label'"
-        );
+        assert_eq!(sym_ref.outgoing_name, "my_label", "Outgoing name should be 'my_label'");
+        assert_eq!(sym_ref.definition.symbol, "my_label", "Definition symbol should also be 'my_label'");
     }
 
     #[test]
@@ -2370,17 +2006,12 @@ mod tests {
         let mut found_line = false;
         for (line_idx, line) in source.files[0].lines.iter().enumerate() {
             if let LineContent::Instruction(_) = &line.content {
-                let line_ptr =
-                    LinePointer { file_index: 0, line_index: line_idx };
+                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(line_ptr);
 
                 // Check if this is the line with "li a0, 1b"
                 if refs.iter().any(|r| r.outgoing_name == "1b") {
-                    assert_eq!(
-                        refs.len(),
-                        1,
-                        "First li should have 1 reference"
-                    );
+                    assert_eq!(refs.len(), 1, "First li should have 1 reference");
                     let ref_1b = &refs[0];
                     assert_eq!(ref_1b.outgoing_name, "1b");
                     assert_eq!(ref_1b.definition.symbol, "1");
@@ -2388,11 +2019,7 @@ mod tests {
 
                 // Check if this is the line with "li a1, 2b"
                 if refs.iter().any(|r| r.outgoing_name == "2b") {
-                    assert_eq!(
-                        refs.len(),
-                        1,
-                        "Second li should have 1 reference"
-                    );
+                    assert_eq!(refs.len(), 1, "Second li should have 1 reference");
                     let ref_2b = &refs[0];
                     assert_eq!(ref_2b.outgoing_name, "2b");
                     assert_eq!(ref_2b.definition.symbol, "2");
@@ -2400,11 +2027,7 @@ mod tests {
 
                 // Check if this is the line with "li a2, 3f"
                 if refs.iter().any(|r| r.outgoing_name == "3f") {
-                    assert_eq!(
-                        refs.len(),
-                        1,
-                        "Third li should have 1 reference"
-                    );
+                    assert_eq!(refs.len(), 1, "Third li should have 1 reference");
                     let ref_3f = &refs[0];
                     assert_eq!(ref_3f.outgoing_name, "3f");
                     assert_eq!(ref_3f.definition.symbol, "3");
@@ -2436,8 +2059,7 @@ mod tests {
         let mut ref_count = 0;
         for (line_idx, line) in source.files[0].lines.iter().enumerate() {
             if let LineContent::Instruction(_) = &line.content {
-                let line_ptr =
-                    LinePointer { file_index: 0, line_index: line_idx };
+                let line_ptr = LinePointer { file_index: 0, line_index: line_idx };
                 let refs = symbols.get_line_refs(line_ptr);
 
                 if !refs.is_empty() && refs[0].outgoing_name == "1f" {

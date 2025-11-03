@@ -21,15 +21,8 @@ impl AssemblerError {
         AssemblerError { location: Some(location), message }
     }
 
-    pub fn from_source_pointer(
-        message: String,
-        source: &Source,
-        pointer: LinePointer,
-    ) -> Self {
-        let location = source.files[pointer.file_index].lines
-            [pointer.line_index]
-            .location
-            .clone();
+    pub fn from_source_pointer(message: String, source: &Source, pointer: LinePointer) -> Self {
+        let location = source.files[pointer.file_index].lines[pointer.line_index].location.clone();
         AssemblerError { location: Some(location), message }
     }
 
@@ -47,31 +40,18 @@ impl AssemblerError {
             let file = fs::File::open(&location.file);
             if let Ok(file) = file {
                 let reader = io::BufReader::new(file);
-                let lines: Vec<String> = reader
-                    .lines()
-                    .collect::<std::result::Result<_, _>>()
-                    .unwrap_or_default();
+                let lines: Vec<String> = reader.lines().collect::<std::result::Result<_, _>>().unwrap_or_default();
                 let line_num = location.line;
                 let start = line_num.saturating_sub(3);
                 let end = (line_num + 3).min(lines.len());
                 let mut context = String::new();
-                for (i, line) in lines.iter().enumerate().take(end).skip(start)
-                {
-                    let marker =
-                        if i + 1 == line_num { ">>> " } else { "    " };
-                    context.push_str(&format!(
-                        "{}{:4}: {}\n",
-                        marker,
-                        i + 1,
-                        line
-                    ));
+                for (i, line) in lines.iter().enumerate().take(end).skip(start) {
+                    let marker = if i + 1 == line_num { ">>> " } else { "    " };
+                    context.push_str(&format!("{}{:4}: {}\n", marker, i + 1, line));
                 }
                 format!("Error at {}: {}\n{}", location, self.message, context)
             } else {
-                format!(
-                    "Error at {}: {} (could not read source file)",
-                    location, self.message
-                )
+                format!("Error at {}: {} (could not read source file)", location, self.message)
             }
         } else {
             // No location, just return the message

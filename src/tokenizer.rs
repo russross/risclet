@@ -87,12 +87,9 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
             }
             '\'' => {
                 chars.next();
-                let ch =
-                    chars.next().ok_or("Unexpected end in char literal")?;
+                let ch = chars.next().ok_or("Unexpected end in char literal")?;
                 let c = if ch == '\\' {
-                    let esc = chars
-                        .next()
-                        .ok_or("Unexpected end in escape sequence")?;
+                    let esc = chars.next().ok_or("Unexpected end in escape sequence")?;
                     match esc {
                         'n' => '\n',
                         't' => '\t',
@@ -102,10 +99,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                         '"' => '"',
                         '0' => '\0',
                         _ => {
-                            return Err(format!(
-                                "Unknown escape sequence \\{}",
-                                esc
-                            ));
+                            return Err(format!("Unknown escape sequence \\{}", esc));
                         }
                     }
                 } else {
@@ -123,9 +117,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
             }
             '.' => {
                 chars.next();
-                if chars.peek().is_some()
-                    && chars.peek().unwrap().is_alphanumeric()
-                {
+                if chars.peek().is_some() && chars.peek().unwrap().is_alphanumeric() {
                     let ident = parse_identifier(&mut chars)?;
                     let dir = match ident.as_str() {
                         "global" => DirectiveOp::Global,
@@ -143,10 +135,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                         "2byte" => DirectiveOp::TwoByte,
                         "4byte" => DirectiveOp::FourByte,
                         _ => {
-                            return Err(format!(
-                                "Unknown directive .{}",
-                                ident
-                            ));
+                            return Err(format!("Unknown directive .{}", ident));
                         }
                     };
                     tokens.push(Token::Directive(dir));
@@ -172,9 +161,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
-fn parse_identifier(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-) -> Result<String, String> {
+fn parse_identifier(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<String, String> {
     let mut s = String::new();
     while let Some(&ch) = chars.peek() {
         if ch.is_alphanumeric() || ch == '_' || ch == '.' || ch == '$' {
@@ -187,9 +174,7 @@ fn parse_identifier(
     if s.is_empty() { Err("Empty identifier".to_string()) } else { Ok(s) }
 }
 
-fn parse_number(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-) -> Result<i32, String> {
+fn parse_number(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<i32, String> {
     let mut s = String::new();
     let mut base = 10;
     if chars.peek() == Some(&'0') {
@@ -230,8 +215,7 @@ fn parse_number(
             break;
         }
     }
-    let num_str = if (base == 16
-        && (s.starts_with("0x") || s.starts_with("0X")))
+    let num_str = if (base == 16 && (s.starts_with("0x") || s.starts_with("0X")))
         || (base == 2 && (s.starts_with("0b") || s.starts_with("0B")))
         || (base == 8 && (s.starts_with("0o") || s.starts_with("0O")))
     {
@@ -248,16 +232,13 @@ fn parse_number(
     }
 }
 
-fn parse_string_literal(
-    chars: &mut std::iter::Peekable<std::str::Chars>,
-) -> Result<String, String> {
+fn parse_string_literal(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<String, String> {
     let mut s = String::new();
     while let Some(ch) = chars.next() {
         if ch == '"' {
             return Ok(s);
         } else if ch == '\\' {
-            let esc =
-                chars.next().ok_or("Unexpected end in escape sequence")?;
+            let esc = chars.next().ok_or("Unexpected end in escape sequence")?;
             let c = match esc {
                 'n' => '\n',
                 't' => '\t',

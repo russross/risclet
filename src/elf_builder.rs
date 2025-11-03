@@ -257,14 +257,7 @@ pub struct ElfSymbol {
 impl ElfSymbol {
     /// Create undefined symbol (entry 0)
     pub fn null() -> Self {
-        Self {
-            st_name: 0,
-            st_value: 0,
-            st_size: 0,
-            st_info: 0,
-            st_other: 0,
-            st_shndx: SHN_UNDEF,
-        }
+        Self { st_name: 0, st_value: 0, st_size: 0, st_info: 0, st_other: 0, st_shndx: SHN_UNDEF }
     }
 
     /// Create section symbol
@@ -398,13 +391,11 @@ pub fn generate_riscv_attributes() -> Vec<u8> {
 
     // Patch file attributes length
     let file_attrs_length = (attrs.len() - file_attrs_length_pos) as u32;
-    attrs[file_attrs_length_pos..file_attrs_length_pos + 4]
-        .copy_from_slice(&file_attrs_length.to_le_bytes());
+    attrs[file_attrs_length_pos..file_attrs_length_pos + 4].copy_from_slice(&file_attrs_length.to_le_bytes());
 
     // Patch total length
     let total_length = (attrs.len() - length_pos) as u32;
-    attrs[length_pos..length_pos + 4]
-        .copy_from_slice(&total_length.to_le_bytes());
+    attrs[length_pos..length_pos + 4].copy_from_slice(&total_length.to_le_bytes());
 
     attrs
 }
@@ -427,11 +418,7 @@ pub struct ElfBuilder<'a> {
 }
 
 impl<'a> ElfBuilder<'a> {
-    pub fn new(
-        layout: &'a Layout,
-        text_data: Vec<u8>,
-        data_data: Vec<u8>,
-    ) -> Self {
+    pub fn new(layout: &'a Layout, text_data: Vec<u8>, data_data: Vec<u8>) -> Self {
         Self {
             header: ElfHeader::new(),
             program_headers: Vec::new(),
@@ -494,9 +481,7 @@ impl<'a> ElfBuilder<'a> {
 
         // .data section is page-aligned in the file to support mmap.
         // Pad the file with zeros to align the data offset.
-        let data_offset = if !self.data_data.is_empty()
-            || self.layout.bss_size > 0
-        {
+        let data_offset = if !self.data_data.is_empty() || self.layout.bss_size > 0 {
             let current_len = output.len() as u32;
             let padding = (page_size - (current_len % page_size)) % page_size;
             output.resize(output.len() + padding as usize, 0);
@@ -597,8 +582,7 @@ impl<'a> ElfBuilder<'a> {
         for ph in &self.program_headers {
             ph_bytes.extend_from_slice(&ph.encode());
         }
-        output[phoff as usize..(phoff as usize + ph_bytes.len())]
-            .copy_from_slice(&ph_bytes);
+        output[phoff as usize..(phoff as usize + ph_bytes.len())].copy_from_slice(&ph_bytes);
 
         output
     }
@@ -701,8 +685,7 @@ impl<'a> ElfBuilder<'a> {
                 sh_type: SHT_NOBITS,
                 sh_flags: SHF_WRITE | SHF_ALLOC,
                 sh_addr: self.layout.bss_start,
-                sh_offset: data_offset
-                    .unwrap_or(text_offset + self.text_data.len() as u32),
+                sh_offset: data_offset.unwrap_or(text_offset + self.text_data.len() as u32),
                 sh_size: self.layout.bss_size,
                 sh_link: 0,
                 sh_info: 0,
@@ -729,11 +712,11 @@ impl<'a> ElfBuilder<'a> {
 
         // Section: .symtab
         let strtab_section_index = section_index + 1; // .strtab comes next
-        let first_global =
-            self.symbol_table
-                .iter()
-                .position(|sym| (sym.st_info >> 4) == STB_GLOBAL)
-                .unwrap_or(self.symbol_table.len()) as u32;
+        let first_global = self
+            .symbol_table
+            .iter()
+            .position(|sym| (sym.st_info >> 4) == STB_GLOBAL)
+            .unwrap_or(self.symbol_table.len()) as u32;
 
         self.section_headers.push(ElfSectionHeader {
             sh_name: self.section_names.add(".symtab"),
@@ -787,11 +770,7 @@ impl<'a> ElfBuilder<'a> {
     ///    b. Special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
     ///    c. Local labels from that file
     /// 4. Global symbols (including linker-provided symbols)
-    pub fn build_symbol_table(
-        &mut self,
-        source: &Source,
-        symbol_links: &SymbolLinks,
-    ) {
+    pub fn build_symbol_table(&mut self, source: &Source, symbol_links: &SymbolLinks) {
         // Infer has_data and has_bss from layout
         let has_data = self.layout.data_size > 0;
         let has_bss = self.layout.bss_size > 0;
@@ -837,16 +816,13 @@ impl<'a> ElfBuilder<'a> {
 
             // Add special $xrv32i2p1_m2p0_a2p1_c2p0 marker symbol
             // This marks the start of code from this file
-            let marker_name =
-                self.symbol_names.add("$xrv32i2p1_m2p0_a2p1_c2p0");
+            let marker_name = self.symbol_names.add("$xrv32i2p1_m2p0_a2p1_c2p0");
 
             // Find the first .text line in this file to use as the marker address
             let mut marker_addr = text_start;
             for (line_index, _line) in source_file.lines.iter().enumerate() {
                 let pointer = LinePointer { file_index, line_index };
-                if let &LineLayout { offset, segment: Segment::Text, .. } =
-                    self.layout.get(pointer)
-                {
+                if let &LineLayout { offset, segment: Segment::Text, .. } = self.layout.get(pointer) {
                     marker_addr = text_start + offset;
                     break;
                 }
@@ -865,12 +841,11 @@ impl<'a> ElfBuilder<'a> {
             for (line_index, line) in source_file.lines.iter().enumerate() {
                 if let LineContent::Label(name) = &line.content {
                     // Skip if this label is declared global
-                    let is_global =
-                        symbol_links.global_symbols.iter().any(|g| {
-                            &g.symbol == name
-                                && g.definition_pointer.file_index == file_index
-                                && g.definition_pointer.line_index == line_index
-                        });
+                    let is_global = symbol_links.global_symbols.iter().any(|g| {
+                        &g.symbol == name
+                            && g.definition_pointer.file_index == file_index
+                            && g.definition_pointer.line_index == line_index
+                    });
 
                     // Skip numeric labels (they are local/temporary)
                     if name.chars().all(|c| c.is_ascii_digit()) {
@@ -881,18 +856,9 @@ impl<'a> ElfBuilder<'a> {
                         let pointer = LinePointer { file_index, line_index };
                         let line_layout = self.layout.get(pointer);
                         let (addr, section_idx) = match line_layout.segment {
-                            Segment::Text => (
-                                text_start + line_layout.offset,
-                                text_section_index,
-                            ),
-                            Segment::Data => (
-                                data_start + line_layout.offset,
-                                data_section_index.unwrap(),
-                            ),
-                            Segment::Bss => (
-                                bss_start + line_layout.offset,
-                                bss_section_index.unwrap(),
-                            ),
+                            Segment::Text => (text_start + line_layout.offset, text_section_index),
+                            Segment::Data => (data_start + line_layout.offset, data_section_index.unwrap()),
+                            Segment::Bss => (bss_start + line_layout.offset, bss_section_index.unwrap()),
                         };
                         let name_idx = self.symbol_names.add(name);
 
@@ -926,11 +892,7 @@ impl<'a> ElfBuilder<'a> {
         // __SDATA_BEGIN__ = data_start (if data exists)
         if has_data || has_bss {
             let sdata_begin = self.symbol_names.add("__SDATA_BEGIN__");
-            let section = if has_data {
-                data_section_index.unwrap()
-            } else {
-                bss_section_index.unwrap()
-            };
+            let section = if has_data { data_section_index.unwrap() } else { bss_section_index.unwrap() };
             let addr = if has_data { data_start } else { bss_start };
             self.add_symbol(ElfSymbol {
                 st_name: sdata_begin,
@@ -957,17 +919,9 @@ impl<'a> ElfBuilder<'a> {
                 let pointer = LinePointer { file_index, line_index };
                 let line_layout = self.layout.get(pointer);
                 match line_layout.segment {
-                    Segment::Text => {
-                        (text_start + line_layout.offset, text_section_index)
-                    }
-                    Segment::Data => (
-                        data_start + line_layout.offset,
-                        data_section_index.unwrap(),
-                    ),
-                    Segment::Bss => (
-                        bss_start + line_layout.offset,
-                        bss_section_index.unwrap(),
-                    ),
+                    Segment::Text => (text_start + line_layout.offset, text_section_index),
+                    Segment::Data => (data_start + line_layout.offset, data_section_index.unwrap()),
+                    Segment::Bss => (bss_start + line_layout.offset, bss_section_index.unwrap()),
                 }
             };
 
@@ -990,8 +944,7 @@ impl<'a> ElfBuilder<'a> {
         } else {
             end_text
         };
-        let end_bss =
-            if has_bss { bss_start + self.layout.bss_size } else { end_data };
+        let end_bss = if has_bss { bss_start + self.layout.bss_size } else { end_data };
 
         // __bss_start
         let bss_start_name = self.symbol_names.add("__bss_start");

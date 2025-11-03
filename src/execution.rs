@@ -1,7 +1,6 @@
 use crate::execution_context::ExecutionContext;
 use crate::io_abstraction::{IoProvider, SystemIo};
 use crate::linter::Linter;
-use crate::linter_context::LintContext;
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
@@ -447,20 +446,6 @@ impl ExecutionContext for Machine {
 
     fn current_effects(&mut self) -> Option<&mut Effects> {
         self.current_effect_mut()
-    }
-}
-
-impl LintContext for Machine {
-    fn get_register(&self, reg: usize) -> i32 {
-        self.get_reg(reg)
-    }
-
-    fn get_symbol_for_address(&self, addr: u32) -> Option<&String> {
-        self.address_symbols.get(&addr)
-    }
-
-    fn get_symbol_value(&self, name: &str) -> Option<u32> {
-        self.other_symbols.get(name).copied()
     }
 }
 

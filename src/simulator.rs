@@ -13,10 +13,10 @@ const MAX_STEPS_DEFAULT: usize = 100000000;
 
 #[derive(Debug, Clone)]
 pub struct SimulatorConfig {
-    pub mode: String,           // "debug", "run", or "disassemble"
-    pub executable: String,     // Path to executable
-    pub lint: bool,             // Enable linting
-    pub max_steps: usize,       // Maximum execution steps
+    pub mode: String,       // "debug", "run", or "disassemble"
+    pub executable: String, // Path to executable
+    pub lint: bool,         // Enable linting
+    pub max_steps: usize,   // Maximum execution steps
 }
 
 impl Default for SimulatorConfig {

@@ -38,18 +38,13 @@ fn make_config_with_compression() -> Config {
 /// Helper function to assemble a source string and return the encoded bytes
 ///
 /// `config` parameter controls relaxation settings and other configuration
-fn assemble(
-    source_text: &str,
-    config: &Config,
-) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
+fn assemble(source_text: &str, config: &Config) -> Result<(Vec<u8>, Vec<u8>, u32), String> {
     // Process each line
     let mut all_lines = Vec::new();
 
     for (line_num, line_text) in source_text.lines().enumerate() {
         // Tokenize
-        let tokens = tokenize(line_text).map_err(|e| {
-            format!("Tokenize error on line {}: {}", line_num + 1, e)
-        })?;
+        let tokens = tokenize(line_text).map_err(|e| format!("Tokenize error on line {}: {}", line_num + 1, e))?;
 
         if tokens.is_empty() {
             continue;
@@ -57,9 +52,7 @@ fn assemble(
 
         // Parse
         let lines = parse(&tokens, "test.s".to_string(), line_num + 1)
-            .map_err(|e| {
-                format!("Parse error on line {}: {}", line_num + 1, e)
-            })?;
+            .map_err(|e| format!("Parse error on line {}: {}", line_num + 1, e))?;
 
         for line in lines {
             all_lines.push(line);
@@ -67,25 +60,18 @@ fn assemble(
     }
 
     // Build Source structure
-    let mut source = Source {
-        files: vec![SourceFile {
-            file: "test.s".to_string(),
-            lines: all_lines,
-        }],
-    };
+    let mut source = Source { files: vec![SourceFile { file: "test.s".to_string(), lines: all_lines }] };
 
     // Add builtin symbols file (provides __global_pointer$ definition)
     source.files.push(create_builtin_symbols_file());
 
     // Resolve symbols
-    let symbols = link_symbols(&source)
-        .map_err(|e| format!("Symbol resolution error: {:?}", e))?;
+    let symbols = link_symbols(&source).map_err(|e| format!("Symbol resolution error: {:?}", e))?;
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
     let mut layout = Layout::new(&source);
-    relaxation_loop(config, &source, &symbols, &mut layout)
-        .map_err(|e| e.with_source_context())
+    relaxation_loop(config, &source, &symbols, &mut layout).map_err(|e| e.with_source_context())
 }
 
 /// Helper to format bytes as hex for debugging
@@ -95,8 +81,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// Helper to compare encoded data segment with expected bytes
 fn assert_data_match(source: &str, expected_data: &[u8]) {
-    let (text, data, bss_size) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(bss_size, 0, "Expected no BSS segment");
@@ -112,8 +97,7 @@ fn assert_data_match(source: &str, expected_data: &[u8]) {
 
 /// Helper to compare encoded instructions with expected bytes
 fn assert_instructions_match(source: &str, expected_text: &[u8]) {
-    let (text, data, bss_size) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     assert_eq!(data.len(), 0, "Expected no data segment output");
     assert_eq!(bss_size, 0, "Expected no BSS segment");
@@ -122,12 +106,9 @@ fn assert_instructions_match(source: &str, expected_text: &[u8]) {
         // Find which instruction differs
         let chunk_size = 4; // Instructions are 4 bytes
         let text_chunks: Vec<_> = text.chunks(chunk_size).collect();
-        let expected_chunks: Vec<_> =
-            expected_text.chunks(chunk_size).collect();
+        let expected_chunks: Vec<_> = expected_text.chunks(chunk_size).collect();
 
-        for (i, (actual, expected)) in
-            text_chunks.iter().zip(expected_chunks.iter()).enumerate()
-        {
+        for (i, (actual, expected)) in text_chunks.iter().zip(expected_chunks.iter()).enumerate() {
             if actual != expected {
                 panic!(
                     "Instruction {} differs:\n  Expected: {}\n  Got:      {}\n\nFull output:\n  Expected: {}\n  Got:      {}",
@@ -207,15 +188,10 @@ addi a0, a0, 5
 addi a1, a1, -10
 "#;
 
-    let (text, _, _) = assemble(source, &make_config_with_compression())
-        .expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, &make_config_with_compression()).expect("Assembly should succeed");
 
     // With relaxation, 2 addi instructions should compile to 4 bytes (2x2) instead of 8 bytes (2x4)
-    assert_eq!(
-        text.len(),
-        4,
-        "Relaxed 2 addi instructions should be 4 bytes total"
-    );
+    assert_eq!(text.len(), 4, "Relaxed 2 addi instructions should be 4 bytes total");
 }
 
 #[test]
@@ -227,8 +203,7 @@ _start:
 add a0, a0, a1
 "#;
 
-    let (text, _, _) = assemble(source, &make_config_with_compression())
-        .expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, &make_config_with_compression()).expect("Assembly should succeed");
 
     // With relaxation, 1 add instruction should compile to 2 bytes instead of 4 bytes
     assert_eq!(text.len(), 2, "Relaxed add instruction should be 2 bytes");
@@ -243,16 +218,11 @@ _start:
 addi a0, a0, 50
 "#;
 
-    let (text, _, _) = assemble(source, &make_config_with_compression())
-        .expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, &make_config_with_compression()).expect("Assembly should succeed");
 
     // Should NOT be compressed because 50 doesn't fit in 6-bit signed
     // So it should be 4 bytes (base instruction)
-    assert_eq!(
-        text.len(),
-        4,
-        "Large immediate should NOT be compressed and remain 4 bytes"
-    );
+    assert_eq!(text.len(), 4, "Large immediate should NOT be compressed and remain 4 bytes");
 }
 
 // ============================================================================
@@ -672,8 +642,7 @@ fn test_bss_space_directive() {
 .space 64
 "#;
 
-    let (text, data, bss_size) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -688,8 +657,7 @@ buffer1: .space 128
 buffer2: .space 256
 "#;
 
-    let (text, data, bss_size) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, data, bss_size) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
@@ -763,9 +731,7 @@ li x1, target
     assert!(result.is_err(), "Expected error for li with address");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("li")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+        err_msg.contains("li") && err_msg.contains("Integer") && err_msg.contains("Address"),
         "Error should mention type mismatch (expected Integer, got Address), got: {}",
         err_msg
     );
@@ -782,9 +748,7 @@ la x1, 42
     assert!(result.is_err(), "Expected error for la with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("la")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("la") && err_msg.contains("Address") && err_msg.contains("Integer"),
         "Error should mention type mismatch (expected Address, got Integer), got: {}",
         err_msg
     );
@@ -801,9 +765,7 @@ call 100
     assert!(result.is_err(), "Expected error for call with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("call")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("call") && err_msg.contains("Address") && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -820,9 +782,7 @@ tail 200
     assert!(result.is_err(), "Expected error for tail with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("tail")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("tail") && err_msg.contains("Address") && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -839,9 +799,7 @@ jal x1, 42
     assert!(result.is_err(), "Expected error for jal with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("Jump") && err_msg.contains("Address") && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -858,9 +816,7 @@ beq x1, x2, 16
     assert!(result.is_err(), "Expected error for branch with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("Branch") && err_msg.contains("Address") && err_msg.contains("Integer"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -878,9 +834,7 @@ addi x1, x2, target
     assert!(result.is_err(), "Expected error for addi with address");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("I-type")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+        err_msg.contains("I-type") && err_msg.contains("Integer") && err_msg.contains("Address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -898,9 +852,7 @@ lui x1, target
     assert!(result.is_err(), "Expected error for lui with address");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("U-type")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+        err_msg.contains("U-type") && err_msg.contains("Integer") && err_msg.contains("Address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -918,9 +870,7 @@ lw x1, target(x2)
     assert!(result.is_err(), "Expected error for load with address offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Load/Store")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+        err_msg.contains("Load/Store") && err_msg.contains("Integer") && err_msg.contains("Address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -1009,8 +959,7 @@ slli x1, x2, 64
     assert!(result.is_err(), "Expected error for shift amount out of range");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("64")
-            && (err_msg.contains("0-31") || err_msg.contains("RV32")),
+        err_msg.contains("64") && (err_msg.contains("0-31") || err_msg.contains("RV32")),
         "Error should mention shift amount out of range, got: {}",
         err_msg
     );
@@ -1035,9 +984,7 @@ nop
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("Branch")
-            && (err_msg.contains("13-bit")
-                || err_msg.contains("range")
-                || err_msg.contains("4096")),
+            && (err_msg.contains("13-bit") || err_msg.contains("range") || err_msg.contains("4096")),
         "Error should mention branch offset out of range, got: {}",
         err_msg
     );
@@ -1059,8 +1006,7 @@ nop
     assert!(result.is_err(), "Expected error for misaligned branch offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch")
-            && (err_msg.contains("even") || err_msg.contains("aligned")),
+        err_msg.contains("Branch") && (err_msg.contains("even") || err_msg.contains("aligned")),
         "Error should mention branch offset must be even, got: {}",
         err_msg
     );
@@ -1082,8 +1028,7 @@ nop
     assert!(result.is_err(), "Expected error for misaligned jal offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump")
-            && (err_msg.contains("even") || err_msg.contains("aligned")),
+        err_msg.contains("Jump") && (err_msg.contains("even") || err_msg.contains("aligned")),
         "Error should mention jump offset must be even, got: {}",
         err_msg
     );
@@ -1173,9 +1118,7 @@ foo:
     assert!(result.is_err(), "Expected error for duplicate label");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("duplic")
-            || err_msg.contains("Duplic")
-            || err_msg.contains("already"),
+        err_msg.contains("duplic") || err_msg.contains("Duplic") || err_msg.contains("already"),
         "Error should mention duplicate label, got: {}",
         err_msg
     );
@@ -1199,9 +1142,7 @@ target:
     assert!(result.is_err(), "Expected error for jal offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump")
-            || err_msg.contains("range")
-            || err_msg.contains("21-bit"),
+        err_msg.contains("Jump") || err_msg.contains("range") || err_msg.contains("21-bit"),
         "Error should mention jump out of range, got: {}",
         err_msg
     );
@@ -1235,8 +1176,8 @@ nop
 nop
 "#;
 
-    let (text, _data, _bss) = assemble(source, &make_default_config())
-        .expect("Data directives in .text should be allowed");
+    let (text, _data, _bss) =
+        assemble(source, &make_default_config()).expect("Data directives in .text should be allowed");
     assert_eq!(text.len(), 9); // 4 (nop) + 1 (byte) + 4 (nop)
 }
 
@@ -1269,8 +1210,8 @@ target:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source, &make_default_config())
-        .expect("call should relax to auipc+jalr for far targets");
+    let (text, _data, _bss) =
+        assemble(source, &make_default_config()).expect("call should relax to auipc+jalr for far targets");
 
     // call should expand to 8-byte auipc+jalr sequence
     // Plus .space 1048580 bytes, plus 4-byte nop = 1048592 bytes total
@@ -1292,24 +1233,16 @@ target:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source, &make_default_config())
-        .expect("tail should relax to auipc+jalr for far targets");
+    let (text, _data, _bss) =
+        assemble(source, &make_default_config()).expect("tail should relax to auipc+jalr for far targets");
 
     // tail should expand to 8-byte auipc+jalr sequence
     assert_eq!(text.len(), 1048592);
 
     // First 8 bytes should be auipc t1 + jalr x0, t1
     // auipc t1 has opcode 0x17, jalr has opcode 0x67
-    assert_eq!(
-        text[0] & 0x7f,
-        0x17,
-        "First instruction should be auipc (opcode 0x17)"
-    );
-    assert_eq!(
-        text[4] & 0x7f,
-        0x67,
-        "Second instruction should be jalr (opcode 0x67)"
-    );
+    assert_eq!(text[0] & 0x7f, 0x17, "First instruction should be auipc (opcode 0x17)");
+    assert_eq!(text[4] & 0x7f, 0x67, "Second instruction should be jalr (opcode 0x67)");
 }
 
 #[test]
@@ -1320,8 +1253,7 @@ fn test_string_escapes() {
 .string "hello\nworld\t\"\\"
 "#;
 
-    let (text, data, _bss) = assemble(source, &make_default_config())
-        .expect("String escapes should be supported");
+    let (text, data, _bss) = assemble(source, &make_default_config()).expect("String escapes should be supported");
     assert_eq!(text.len(), 0);
 
     // Expected: h e l l o \n w o r l d \t " \
@@ -1356,8 +1288,7 @@ end:
     nop
 "#;
 
-    let (text, _data, _bss) = assemble(source, &make_default_config())
-        .expect("Cascading relaxation should converge");
+    let (text, _data, _bss) = assemble(source, &make_default_config()).expect("Cascading relaxation should converge");
 
     // All three calls should relax to 4-byte jal
     // Total: 3x(4-byte call + 4-byte nop) + 4-byte nop = 28 bytes
@@ -1514,8 +1445,7 @@ data_label:
     .4byte 0x12345678
 "#;
 
-    let (text, data, _bss) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, data, _bss) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     // Verify text section
     // With relax_gp enabled (default), data_label fits within ±2KiB of gp
@@ -1547,8 +1477,7 @@ end:
     .4byte end - start
 "#;
 
-    let (text, data, _bss) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, data, _bss) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     // All calls relax to 4 bytes
     // start at 0, middle at 8, end at 16
@@ -1590,22 +1519,13 @@ target:
     nop
 "#;
 
-    let (text, _, _) = assemble(source, &make_default_config())
-        .expect("Assembly should succeed");
+    let (text, _, _) = assemble(source, &make_default_config()).expect("Assembly should succeed");
 
     // Should use auipc + addi (8 bytes for la) instead of addi rd, gp, offset (4 bytes)
-    assert_eq!(
-        text.len(),
-        16,
-        "Should use auipc + addi (8 bytes) + nop + nop = 16 bytes"
-    );
+    assert_eq!(text.len(), 16, "Should use auipc + addi (8 bytes) + nop + nop = 16 bytes");
 
     // First instruction should be auipc (opcode 0b0010111), proving no GP optimization
-    assert_eq!(
-        text[0] & 0x7F,
-        0b0010111,
-        "First instruction should be auipc, not addi rd, gp, offset"
-    );
+    assert_eq!(text[0] & 0x7F, 0b0010111, "First instruction should be auipc, not addi rd, gp, offset");
 }
 
 // ============================================================================
