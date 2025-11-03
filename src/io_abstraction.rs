@@ -19,17 +19,20 @@ impl IoProvider for SystemIo {
     }
 }
 
+#[cfg(test)]
 pub struct TestIo {
     pub stdin_data: Vec<u8>,
     pub stdin_pos: usize,
     pub stdout_buffer: Vec<u8>,
 }
 
+#[cfg(test)]
 impl TestIo {
     pub fn new() -> Self {
         Self { stdin_data: Vec::new(), stdin_pos: 0, stdout_buffer: Vec::new() }
     }
 
+    #[allow(dead_code)]
     pub fn with_stdin(mut self, data: Vec<u8>) -> Self {
         self.stdin_data = data;
         self.stdin_pos = 0;
@@ -37,12 +40,14 @@ impl TestIo {
     }
 }
 
+#[cfg(test)]
 impl Default for TestIo {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(test)]
 impl IoProvider for TestIo {
     fn read_stdin(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         let available = self.stdin_data.len() - self.stdin_pos;

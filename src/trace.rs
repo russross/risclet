@@ -1,4 +1,4 @@
-use crate::memory::{CpuState, MemoryLayout};
+use crate::memory::MemoryLayout;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -104,14 +104,6 @@ impl ExecutionTrace {
         self.effects.push(effect);
     }
 
-    pub fn effects(&self) -> &[Effects] {
-        &self.effects
-    }
-
-    pub fn effects_mut(&mut self) -> &mut Vec<Effects> {
-        &mut self.effects
-    }
-
     pub fn clear(&mut self) {
         self.effects.clear();
     }
@@ -156,44 +148,5 @@ impl ExecutionTrace {
         }
 
         (most_recent_memory, most_recent_data, most_recent_stack)
-    }
-
-    pub fn apply(&self, state: &mut CpuState, effect: &Effects, is_forward: bool) {
-        let (old_pc, new_pc) = effect.pc;
-        state.set_pc(if is_forward { new_pc } else { old_pc });
-
-        if let Some((old, new)) = &effect.reg_write {
-            let write = if is_forward { new } else { old };
-            state.set_reg(write.register, write.value);
-        }
-
-        if let Some((_old, _new)) = &effect.mem_write {
-            // Memory writes are handled by the caller (Machine/UI)
-            // This just tracks what happened
-        }
-
-        if let Some(_output) = &effect.stdout {
-            // I/O is handled by the caller
-        }
-
-        if let Some(_input) = &effect.stdin {
-            // I/O is handled by the caller
-        }
-
-        if let Some(frame) = effect.function_start {
-            if is_forward {
-                state.push_stack_frame(frame);
-            } else {
-                state.pop_stack_frame();
-            }
-        }
-
-        if let Some(frame) = effect.function_end {
-            if is_forward {
-                state.pop_stack_frame();
-            } else {
-                state.push_stack_frame(frame);
-            }
-        }
     }
 }

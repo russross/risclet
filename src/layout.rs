@@ -4,9 +4,7 @@
 // It separates layout concerns (segment assignments, offsets, sizes) from the AST,
 // creating a clear data flow: Parsing → AST, Linking → SymbolLinks, Layout Computation → Layout.
 
-use crate::ast::{
-    Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment, Source,
-};
+use crate::ast::{Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment, Source};
 use crate::elf_builder::compute_header_size;
 use crate::symbols::{BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER};
 use std::collections::HashMap;
@@ -173,15 +171,10 @@ impl Layout {
         if source.files.is_empty() {
             return;
         }
-        let has_builtin = source
-            .files
-            .last()
-            .map(|f| f.file == BUILTIN_FILE_NAME)
-            .unwrap_or(false);
+        let has_builtin = source.files.last().map(|f| f.file == BUILTIN_FILE_NAME).unwrap_or(false);
 
         for (file_index, source_file) in source.files.iter().enumerate() {
-            let is_builtin_file =
-                has_builtin && file_index == source.files.len() - 1;
+            let is_builtin_file = has_builtin && file_index == source.files.len() - 1;
 
             // For builtin file, we use special hardcoded offsets (not cumulative)
             // This file contains __global_pointer$ at data segment offset 2048
@@ -202,17 +195,13 @@ impl Layout {
                     let size = guess_line_size(&line.content);
 
                     // Special handling: __global_pointer$ label is at offset 2048 in data segment
-                    let offset = if let LineContent::Label(name) = &line.content
-                    {
+                    let offset = if let LineContent::Label(name) = &line.content {
                         if name == SPECIAL_GLOBAL_POINTER { 2048 } else { 0 }
                     } else {
                         0
                     };
 
-                    self.set(
-                        pointer,
-                        LineLayout { segment: current_segment, offset, size },
-                    );
+                    self.set(pointer, LineLayout { segment: current_segment, offset, size });
                 }
                 continue;
             }
@@ -244,10 +233,7 @@ impl Layout {
                 let size = self.get(pointer).size;
 
                 // Update layout with computed offset and segment
-                self.set(
-                    pointer,
-                    LineLayout { segment: current_segment, offset, size },
-                );
+                self.set(pointer, LineLayout { segment: current_segment, offset, size });
 
                 // Advance offset in the appropriate segment
                 match current_segment {
@@ -322,9 +308,7 @@ pub fn guess_line_size(content: &LineContent) -> u32 {
             Directive::TwoByte(exprs) => exprs.len() * 2,
             Directive::FourByte(exprs) => exprs.len() * 4,
             Directive::String(strings) => strings.iter().map(|s| s.len()).sum(),
-            Directive::Asciz(strings) => {
-                strings.iter().map(|s| s.len() + 1).sum()
-            }
+            Directive::Asciz(strings) => strings.iter().map(|s| s.len() + 1).sum(),
             _ => 0, // Non-data directives like .text, .global
         },
     }) as u32
