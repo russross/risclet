@@ -1,74 +1,103 @@
-pub mod decoder;
-pub mod elf;
-pub mod execution;
-pub mod execution_context;
-pub mod io_abstraction;
-pub mod isa_tests;
-pub mod linter;
-pub mod linter_context;
-pub mod memory;
-pub mod memory_interface;
-pub mod riscv;
-pub mod test_utils;
-pub mod trace;
-pub mod ui;
+// Risclet: A RISC-V simulator and assembler
+//
+// Unified command-line interface for both tools
 
-use self::elf::*;
-use self::execution::{Instruction, Machine, add_local_labels, trace};
-use self::riscv::{Op, fields_to_string, get_pseudo_sequence};
-use self::trace::Effects;
-use self::ui::*;
-use std::cmp::min;
-use std::collections::HashMap;
-use std::fmt;
-use std::rc::Rc;
+use risclet::assembler;
+use risclet::config;
+use risclet::simulator::{self, SimulatorConfig};
 
-const MAX_STEPS_DEFAULT: usize = 100000000;
-
-fn main() -> Result<(), String> {
+fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let mut mode = String::from("debug");
-    let mut executable = String::from("a.out");
-    let mut lint = String::from("true");
+    if args.len() < 2 {
+        print_help(&args[0]);
+        std::process::exit(1);
+    }
 
+    match args[1].as_str() {
+        "assemble" => {
+            // Forward assembler subcommand arguments to config parser
+            let config = match config::process_cli_args() {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            if let Err(e) = assembler::drive_assembler(&config) {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+
+        "run" => {
+            let sim_config = parse_simulator_args(&args[2..], "run");
+            if let Err(e) = simulator::run_simulator(sim_config) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+
+        "disassemble" => {
+            let sim_config = parse_simulator_args(&args[2..], "disassemble");
+            if let Err(e) = simulator::run_simulator(sim_config) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+
+        "debug" => {
+            let sim_config = parse_simulator_args(&args[2..], "debug");
+            if let Err(e) = simulator::run_simulator(sim_config) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+
+        "-h" | "--help" | "help" => {
+            print_help(&args[0]);
+        }
+
+        "-v" | "--version" => {
+            println!("risclet 0.4.0");
+        }
+
+        _ => {
+            eprintln!("Unknown subcommand: {}", args[1]);
+            eprintln!();
+            print_help(&args[0]);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn parse_simulator_args(args: &[String], mode: &str) -> SimulatorConfig {
+    let mut config = SimulatorConfig {
+        mode: mode.to_string(),
+        ..Default::default()
+    };
+
+    let mut i = 0;
     let mut usage = false;
-    let mut i = 1;
-    let mut max_steps = MAX_STEPS_DEFAULT;
+
     while i < args.len() {
         match args[i].as_str() {
-            "-m" | "--mode" => {
-                i += 1;
-                if i < args.len() {
-                    mode = args[i].clone();
-                    if !["run", "dasm", "debug"].contains(&mode.as_str()) {
-                        eprintln!("invalid mode");
-                        usage = true;
-                    }
-                } else {
-                    eprintln!("missing argument for {}", args[i]);
-                    usage = true;
-                }
-            }
             "-e" | "--executable" => {
                 i += 1;
                 if i < args.len() {
-                    executable = args[i].clone();
+                    config.executable = args[i].clone();
                 } else {
-                    eprintln!("missing argument for {}", args[i]);
+                    eprintln!("missing argument for {}", args[i - 1]);
                     usage = true;
                 }
             }
             "-l" | "--lint" => {
                 i += 1;
                 if i < args.len() {
-                    lint = args[i].clone();
-                    if !["true", "false"].contains(&lint.as_str()) {
-                        eprintln!("invalid value for lint");
-                        usage = true;
-                    }
+                    config.lint = args[i].to_lowercase() == "true";
                 } else {
-                    eprintln!("missing argument for {}", args[i]);
+                    eprintln!("missing argument for {}", args[i - 1]);
                     usage = true;
                 }
             }
@@ -76,135 +105,60 @@ fn main() -> Result<(), String> {
                 i += 1;
                 if i < args.len() {
                     if let Ok(steps) = args[i].parse::<usize>() {
-                        max_steps = steps;
+                        config.max_steps = steps;
                     } else {
-                        eprintln!("{} with invalid number of steps {}", args[i - 1], args[i]);
+                        eprintln!("invalid number of steps: {}", args[i]);
                         usage = true;
-                    };
+                    }
                 } else {
-                    eprintln!("missing argument for {}", args[i]);
+                    eprintln!("missing argument for {}", args[i - 1]);
                     usage = true;
                 }
             }
-            "-v" | "--version" => {
-                println!("0.3.11");
+            "-h" | "--help" => {
+                print_simulator_help(mode);
                 std::process::exit(0);
             }
-            "-h" | "--help" => usage = true,
-            _ => usage = true,
+            _ => {
+                eprintln!("Unknown option: {}", args[i]);
+                usage = true;
+            }
         }
         i += 1;
     }
+
     if usage {
-        eprintln!("Usage: risclet [options]");
-        eprintln!();
-        eprintln!("Options:");
-        eprintln!("  -e, --executable <path>            Path of executable to run (default a.out)");
-        eprintln!("  -l, --lint <true|false>            Apply strict ABI and other checks (default true)");
-        eprintln!("  -m, --mode <run|dasm|debug>        Simulator Mode (default debug)");
-        eprintln!("  -s, --steps <count>                Maximum steps to run (default {})", MAX_STEPS_DEFAULT);
-        eprintln!("  -v, --version                      Print version number");
-        eprintln!("  -h, --help                         Show this help");
+        print_simulator_help(mode);
         std::process::exit(1);
     }
 
-    let mut m = load_elf(&executable)?;
+    config
+}
 
-    let mut instructions = Vec::new();
-    let mut pc = m.text_start();
-    while pc < m.text_end() {
-        let (inst, length) = m.load_instruction(pc)?;
-        let instruction = Instruction {
-            address: pc,
-            op: Op::new(inst),
-            length,
-            pseudo_index: 0,
-            verbose_fields: Vec::new(),
-            pseudo_fields: Vec::new(),
-        };
-        instructions.push(instruction);
-        pc += length;
-    }
-    let mut addresses = HashMap::new();
-    for (index, instruction) in instructions.iter().enumerate() {
-        addresses.insert(instruction.address, index);
-    }
-    add_local_labels(&mut m, &instructions);
+fn print_help(program_name: &str) {
+    eprintln!("Usage: {} <subcommand> [options]", program_name);
+    eprintln!();
+    eprintln!("Subcommands:");
+    eprintln!("  assemble      Assemble RISC-V source files to executable");
+    eprintln!("  run           Run a RISC-V executable and exit");
+    eprintln!("  disassemble   Disassemble a RISC-V executable");
+    eprintln!("  debug         Debug a RISC-V executable with interactive TUI (default)");
+    eprintln!("  help, -h      Show this help message");
+    eprintln!("  -v, --version Show version information");
+    eprintln!();
+    eprintln!("Examples:");
+    eprintln!("  {} assemble -o a.out prog.s", program_name);
+    eprintln!("  {} run -e a.out", program_name);
+    eprintln!("  {} disassemble -e a.out", program_name);
+    eprintln!("  {} debug -e a.out", program_name);
+}
 
-    let mut pseudo_addresses = HashMap::new();
-    {
-        let mut i = 0;
-        let mut j = 0;
-        while i < instructions.len() {
-            let n = if let Some((n, fields)) = get_pseudo_sequence(&instructions[i..], &m.address_symbols) {
-                instructions[i].pseudo_fields = fields;
-                n
-            } else {
-                instructions[i].pseudo_fields = instructions[i].op.to_pseudo_fields();
-                1
-            };
-            for inst in &mut instructions[i..i + n] {
-                inst.verbose_fields = inst.op.to_fields();
-                inst.pseudo_index = j;
-            }
-            pseudo_addresses.insert(j, i);
-            i += n;
-            j += 1;
-        }
-    }
-
-    if mode == "dasm" {
-        let mut prev = usize::MAX;
-        for instruction in &instructions {
-            if instruction.pseudo_index == prev {
-                continue;
-            } else {
-                prev = instruction.pseudo_index;
-            }
-            println!(
-                "{}",
-                fields_to_string(
-                    &instruction.pseudo_fields,
-                    instruction.address,
-                    m.global_pointer,
-                    instruction.length == 2,
-                    false,
-                    false,
-                    false,
-                    None,
-                    &m.address_symbols
-                )
-            );
-        }
-        return Ok(());
-    }
-
-    let instructions: Vec<Rc<Instruction>> = instructions.into_iter().map(Rc::new).collect();
-
-    let sequence = trace(&mut m, &instructions, &addresses, lint == "true", max_steps, &mode);
-
-    if mode == "debug" {
-        m.reset();
-        m.set_most_recent_memory(&sequence, 0);
-        let mut tui = Tui::new(m, instructions, addresses, pseudo_addresses, sequence)?;
-        tui.main_loop()?;
-        return Ok(());
-    }
-
-    if let Some(effects) = sequence.last() {
-        if let (Op::Ecall, Some(msg)) = (&effects.instruction.op, &effects.other_message)
-            && msg.starts_with("exit(")
-            && msg.ends_with(")")
-        {
-            let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
-            std::process::exit(n);
-        }
-
-        if let Some(msg) = &effects.other_message {
-            eprintln!("{}", msg);
-            std::process::exit(1);
-        }
-    }
-    eprintln!("program ended unexpectedly");
-    std::process::exit(1);
+fn print_simulator_help(mode: &str) {
+    eprintln!("Usage: risclet {} [options]", mode);
+    eprintln!();
+    eprintln!("Options:");
+    eprintln!("  -e, --executable <path>       Path to executable (default: a.out)");
+    eprintln!("  -l, --lint <true|false>       Enable ABI checks (default: true)");
+    eprintln!("  -s, --steps <count>           Max execution steps (default: 100000000)");
+    eprintln!("  -h, --help                    Show this help");
 }

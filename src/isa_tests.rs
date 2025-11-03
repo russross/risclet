@@ -7,7 +7,7 @@ mod riscv_isa_tests {
 
     fn run_test_binary(binary: &[u8]) -> Result<i32, String> {
         let io = TestIo::new();
-        let mut machine = crate::elf::load_elf_from_bytes(binary, Box::new(io))?;
+        let mut machine = crate::elf_loader::load_elf_from_bytes(binary, Box::new(io))?;
 
         for _step in 0..MAX_STEPS {
             let pc = machine.pc();

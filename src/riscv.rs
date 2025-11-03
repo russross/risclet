@@ -1,6 +1,7 @@
 use super::*;
 use crate::decoder::InstructionDecoder;
 use crate::execution_context::ExecutionContext;
+use std::collections::HashMap;
 
 pub fn get_funct3(inst: i32) -> i32 {
     (inst >> 12) & 0x07
