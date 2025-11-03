@@ -41,10 +41,24 @@ impl InstructionDecoder {
             0x2f => Self::decode_atomic(inst),
             0x37 => Op::Lui { rd: get_rd(inst), imm: get_imm_u(inst) },
             0x17 => Op::Auipc { rd: get_rd(inst), imm: get_imm_u(inst) },
-            0x0f => Op::Fence {
-                pred: get_fence_pred(inst),
-                succ: get_fence_succ(inst),
-            },
+            0x0f => {
+                // FENCE/FENCE.TSO/FENCE.I instructions
+                // FENCE.I has inst == 0x0000100f (all fields zero except 0x10 in bits [15:8])
+                if inst == 0x0000100f {
+                    Op::FenceI
+                } else {
+                    let pred = get_fence_pred(inst);
+                    let succ = get_fence_succ(inst);
+                    let fm = ((inst >> 28) & 0x0F) as u8;
+
+                    // Check if this is FENCE.TSO (fm=1000, pred=0011, succ=0011)
+                    if fm == 0b1000 && pred == 0x3 && succ == 0x3 {
+                        Op::FenceTso
+                    } else {
+                        Op::Fence { pred, succ }
+                    }
+                }
+            }
             0x73 if inst == 0x00000073 => Op::Ecall,
             0x73 if inst == 0x00100073 => Op::Ebreak,
             _ => Op::Unimplemented {

@@ -116,4 +116,35 @@ mod riscv_isa_tests {
     riscv_test!(test_amominu_w, include_bytes!("test_binaries/amominu_w"));
     riscv_test!(test_amomaxu_w, include_bytes!("test_binaries/amomaxu_w"));
     riscv_test!(test_lrsc, include_bytes!("test_binaries/lrsc"));
+
+    // Fence instruction decoder tests
+    #[test]
+    fn test_fence_i_decoder() {
+        // fence.i instruction = 0x0000100f
+        let inst: i32 = 0x0000100f;
+        let op = Op::new(inst);
+        assert!(matches!(op, Op::FenceI), "Expected FenceI");
+    }
+
+    #[test]
+    fn test_fence_tso_decoder() {
+        // fence.tso instruction = 0x8330000f (negative as i32)
+        let inst: i32 = 0x8330000fu32 as i32;
+        let op = Op::new(inst);
+        assert!(matches!(op, Op::FenceTso), "Expected FenceTso");
+    }
+
+    #[test]
+    fn test_fence_decoder() {
+        // fence rw,rw instruction = 0x0330000f
+        let inst: i32 = 0x0330000f;
+        let op = Op::new(inst);
+        match op {
+            Op::Fence { pred, succ } => {
+                assert_eq!(pred, 0x3, "Expected pred=0x3, got {}", pred);
+                assert_eq!(succ, 0x3, "Expected succ=0x3, got {}", succ);
+            }
+            _ => panic!("Expected Fence"),
+        }
+    }
 }

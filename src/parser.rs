@@ -562,6 +562,8 @@ impl<'a> Parser<'a> {
             }
             // Special
             "fence" => self.parse_fence(),
+            "fence.tso" => Ok(Instruction::Special(SpecialOp::FenceTso)),
+            "fence.i" => Ok(Instruction::Special(SpecialOp::FenceI)),
             "ecall" => Ok(Instruction::Special(SpecialOp::Ecall)),
             "ebreak" => Ok(Instruction::Special(SpecialOp::Ebreak)),
             // Load/store

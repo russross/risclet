@@ -489,11 +489,16 @@ pub enum JTypeOp {
 /// **Grammar Rule and Example:**
 /// `SpecialOp`
 ///
+/// - `fence`
+/// - `fence.tso`
+/// - `fence.i`
 /// - `ecall`
 /// - `ebreak`
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum SpecialOp {
     Fence { pred: u8, succ: u8 },
+    FenceTso,
+    FenceI,
     Ecall,
     Ebreak,
 }
