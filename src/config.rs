@@ -1,16 +1,46 @@
 // config.rs
 //
-// Configuration and CLI argument parsing for the RISC-V assembler
+// Unified configuration and CLI argument parsing for risclet
 
 use crate::dump;
-use std::env;
 
-/// Complete configuration for the assembler
+/// Operating mode for risclet
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mode {
+    /// Default mode: auto-assemble *.s files or load a.out, then debug
+    Default,
+    /// Explicit assemble mode
+    Assemble,
+    /// Run mode: execute and exit
+    Run,
+    /// Debug mode: interactive TUI
+    Debug,
+    /// Disassemble mode: print disassembly and exit
+    Disassemble,
+}
+
+/// Complete unified configuration for risclet
 pub struct Config {
+    // Mode
+    pub mode: Mode,
+
+    // Common options
+    pub verbose: bool,
+    pub max_steps: usize,
+
+    // Simulator/debugger options
+    pub executable: String,
+    pub lint: bool,
+
+    // Display options (for debug/disassemble modes)
+    pub hex_mode: bool,
+    pub show_addresses: bool,
+    pub verbose_instructions: bool,
+
+    // Assembler-specific options
     pub input_files: Vec<String>,
     pub output_file: String,
     pub text_start: u32,
-    pub verbose: bool,
     pub dump: dump::DumpConfig,
     pub relax: Relax,
 }
@@ -38,35 +68,35 @@ impl Relax {
     }
 }
 
-/// Parse command-line arguments and return a Config object
-#[allow(dead_code)]
-pub fn process_cli_args() -> Result<Config, String> {
-    let args: Vec<String> = env::args().collect();
+const MAX_STEPS_DEFAULT: usize = 100_000_000;
 
-    if args.len() < 2 {
-        return Err(print_help(&args[0]));
-    }
-
-    process_cli_args_impl(&args[0], &args[1..])
-}
-
-/// Parse command-line arguments from a vector
-pub fn process_cli_args_from_vec(
-    program_name: &str,
-    args: &[String],
-) -> Result<Config, String> {
-    process_cli_args_impl(program_name, args)
-}
-
-/// Internal implementation of CLI argument parsing
-fn process_cli_args_impl(
-    program_name: &str,
-    args: &[String],
-) -> Result<Config, String> {
+/// Parse command-line arguments - unified entry point
+pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
     if args.is_empty() {
-        return Err(print_help(program_name));
+        // Default mode: auto-detect *.s files or a.out
+        return parse_default_mode(&[]);
     }
 
+    // Check for subcommands
+    match args[0].as_str() {
+        "assemble" => parse_assemble_mode(&args[1..]),
+        "run" => parse_simulator_mode(&args[1..], Mode::Run),
+        "debug" => parse_simulator_mode(&args[1..], Mode::Debug),
+        "disassemble" => parse_simulator_mode(&args[1..], Mode::Disassemble),
+        "-h" | "--help" | "help" => Err(print_main_help()),
+        "-v" | "--version" => {
+            println!("risclet 0.4.0");
+            std::process::exit(0);
+        }
+        _ => {
+            // No recognized subcommand - try default mode with these args
+            parse_default_mode(args)
+        }
+    }
+}
+
+/// Parse arguments for assemble mode
+fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
     let mut input_files = Vec::new();
     let mut output_file = "a.out".to_string();
     let mut text_start = 0x10000u32;
@@ -165,7 +195,7 @@ fn process_cli_args_impl(
                     relax.compressed = false;
                 }
                 "-h" | "--help" => {
-                    return Err(print_help(program_name));
+                    return Err(print_assemble_help());
                 }
                 _ => {
                     if arg.starts_with('-') {
@@ -183,19 +213,245 @@ fn process_cli_args_impl(
     }
 
     Ok(Config {
+        mode: Mode::Assemble,
+        verbose,
+        max_steps: MAX_STEPS_DEFAULT,
+        executable: "a.out".to_string(),
+        lint: false,
+        hex_mode: false,
+        show_addresses: false,
+        verbose_instructions: false,
         input_files,
         output_file,
         text_start,
-        verbose,
         dump: dump_config,
         relax,
     })
 }
 
-/// Print help message
-fn print_help(program_name: &str) -> String {
-    format!(
-        "Usage: {} [options] <file.s> [file.s...]
+/// Parse arguments for simulator modes (run, debug, disassemble)
+fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
+    let mut executable = "a.out".to_string();
+    let mut lint = false; // Changed default to false
+    let mut max_steps = MAX_STEPS_DEFAULT;
+    let mut hex_mode = false;
+    let mut show_addresses = false;
+    let mut verbose_instructions = false;
+    let mut i = 0;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "-e" | "--executable" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!(
+                        "Error: {} requires an argument",
+                        args[i - 1]
+                    ));
+                }
+                executable = args[i].clone();
+            }
+            "-l" | "--lint" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!(
+                        "Error: {} requires an argument",
+                        args[i - 1]
+                    ));
+                }
+                lint = args[i].to_lowercase() == "true";
+            }
+            "-s" | "--steps" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!(
+                        "Error: {} requires an argument",
+                        args[i - 1]
+                    ));
+                }
+                max_steps = args[i].parse::<usize>().map_err(|_| {
+                    format!("Error: invalid number of steps: {}", args[i])
+                })?;
+            }
+            "--hex" => hex_mode = true,
+            "--no-hex" => hex_mode = false,
+            "--show-addresses" => show_addresses = true,
+            "--no-show-addresses" => show_addresses = false,
+            "--verbose-instructions" => verbose_instructions = true,
+            "--no-verbose-instructions" => verbose_instructions = false,
+            "-h" | "--help" => {
+                return Err(print_simulator_help(&mode));
+            }
+            _ => {
+                return Err(format!("Error: unknown option: {}", args[i]));
+            }
+        }
+        i += 1;
+    }
+
+    Ok(Config {
+        mode,
+        verbose: false,
+        max_steps,
+        executable,
+        lint,
+        hex_mode,
+        show_addresses,
+        verbose_instructions,
+        input_files: Vec::new(),
+        output_file: "a.out".to_string(),
+        text_start: 0x10000,
+        dump: dump::DumpConfig::new(),
+        relax: Relax::all(),
+    })
+}
+
+/// Parse default mode: auto-detect *.s files or a.out
+fn parse_default_mode(args: &[String]) -> Result<Config, String> {
+    let mut lint = false;
+    let mut max_steps = MAX_STEPS_DEFAULT;
+    let mut hex_mode = false;
+    let mut show_addresses = false;
+    let mut verbose_instructions = false;
+    let mut i = 0;
+
+    // Parse allowed options for default mode
+    while i < args.len() {
+        match args[i].as_str() {
+            "-l" | "--lint" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!(
+                        "Error: {} requires an argument",
+                        args[i - 1]
+                    ));
+                }
+                lint = args[i].to_lowercase() == "true";
+            }
+            "-s" | "--steps" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!(
+                        "Error: {} requires an argument",
+                        args[i - 1]
+                    ));
+                }
+                max_steps = args[i].parse::<usize>().map_err(|_| {
+                    format!("Error: invalid number of steps: {}", args[i])
+                })?;
+            }
+            "--hex" => hex_mode = true,
+            "--no-hex" => hex_mode = false,
+            "--show-addresses" => show_addresses = true,
+            "--no-show-addresses" => show_addresses = false,
+            "--verbose-instructions" => verbose_instructions = true,
+            "--no-verbose-instructions" => verbose_instructions = false,
+            "-h" | "--help" => {
+                return Err(print_main_help());
+            }
+            _ => {
+                return Err(format!(
+                    "Error: unknown option in default mode: {}",
+                    args[i]
+                ));
+            }
+        }
+        i += 1;
+    }
+
+    // Auto-detect: look for *.s files in current directory
+    let input_files = find_assembly_files()?;
+
+    Ok(Config {
+        mode: Mode::Default,
+        verbose: false,
+        max_steps,
+        executable: "a.out".to_string(),
+        lint,
+        hex_mode,
+        show_addresses,
+        verbose_instructions,
+        input_files,
+        output_file: "a.out".to_string(),
+        text_start: 0x10000,
+        dump: dump::DumpConfig::new(),
+        relax: Relax::all(),
+    })
+}
+
+/// Find assembly files in current directory, or check for a.out
+fn find_assembly_files() -> Result<Vec<String>, String> {
+    use std::fs;
+
+    let mut asm_files = Vec::new();
+
+    // Try to read current directory
+    let entries = fs::read_dir(".")
+        .map_err(|e| format!("Error reading current directory: {}", e))?;
+
+    for entry in entries {
+        if let Ok(entry) = entry
+            && let Some(name) = entry.file_name().to_str()
+            && name.ends_with(".s")
+        {
+            asm_files.push(name.to_string());
+        }
+    }
+
+    if !asm_files.is_empty() {
+        asm_files.sort();
+        return Ok(asm_files);
+    }
+
+    // No .s files found, check for a.out
+    if fs::metadata("a.out").is_ok() {
+        // Return empty vec to signal we should just debug a.out
+        return Ok(Vec::new());
+    }
+
+    Err("Error: no assembly files (*.s) or a.out found in current directory"
+        .to_string())
+}
+
+/// Print main help message
+fn print_main_help() -> String {
+    "Usage: risclet [subcommand] [options]
+
+Default Mode (no subcommand):
+  Auto-assembles *.s files in current directory and launches debugger
+  OR loads a.out if no *.s files found and launches debugger
+
+  Allowed options:
+    -l, --lint <true|false>       Enable ABI checks (default: false)
+    -s, --steps <count>           Max execution steps (default: 100000000)
+    --hex / --no-hex              Display values in hexadecimal
+    --show-addresses              Show addresses in disassembly
+    --verbose-instructions        Show strict instructions (not pseudo)
+    -h, --help                    Show this help
+
+Subcommands:
+  assemble      Assemble RISC-V source files to executable
+  run           Run a RISC-V executable and exit
+  disassemble   Disassemble a RISC-V executable
+  debug         Debug a RISC-V executable with interactive TUI
+  help, -h      Show this help message
+  -v, --version Show version information
+
+Examples:
+  risclet                          # Auto-detect and debug
+  risclet --lint true              # Auto-detect with linting enabled
+  risclet assemble -o a.out prog.s
+  risclet run -e a.out
+  risclet debug -e a.out --hex
+  risclet disassemble -e a.out
+
+Use 'risclet <subcommand> --help' for subcommand-specific help."
+        .to_string()
+}
+
+/// Print assembler help message
+fn print_assemble_help() -> String {
+    "Usage: risclet assemble [options] <file.s> [file.s...]
 
 Options:
     -o <file>            Write output to <file> (default: a.out)
@@ -243,15 +499,57 @@ Debug Dump Options:
     (comma-separated for multiple, e.g., headers,symbols)
 
 Examples:
-  ./assembler program.s                        # Silent on success
-  ./assembler -v program.s                     # Show input stats and relaxation progress
-  ./assembler --dump-code program.s            # Dump generated code (no stats)
-  ./assembler -v --dump-code program.s         # Show stats AND code dump
-  ./assembler --dump-elf=headers,symbols prog.s # Dump ELF metadata
+  risclet assemble program.s                        # Silent on success
+  risclet assemble -v program.s                     # Show input stats and relaxation progress
+  risclet assemble --dump-code program.s            # Dump generated code (no stats)
+  risclet assemble -v --dump-code program.s         # Show stats AND code dump
+  risclet assemble --dump-elf=headers,symbols prog.s # Dump ELF metadata
 
-Note: When any --dump-* option is used, no output file is generated.",
-        program_name
-    )
+Note: When any --dump-* option is used, no output file is generated.".to_string()
+}
+
+/// Print simulator help message
+fn print_simulator_help(mode: &Mode) -> String {
+    let mode_str = match mode {
+        Mode::Run => "run",
+        Mode::Debug => "debug",
+        Mode::Disassemble => "disassemble",
+        _ => "simulator",
+    };
+
+    let mut help =
+        format!("Usage: risclet {} [options]\n\nOptions:\n", mode_str);
+    help.push_str(
+        "  -e, --executable <path>       Path to executable (default: a.out)\n",
+    );
+    help.push_str(
+        "  -l, --lint <true|false>       Enable ABI checks (default: false)\n",
+    );
+    help.push_str("  -s, --steps <count>           Max execution steps (default: 100000000)\n");
+
+    if mode == &Mode::Debug || mode == &Mode::Disassemble {
+        help.push_str(
+            "  --hex / --no-hex              Display values in hexadecimal\n",
+        );
+        help.push_str(
+            "  --show-addresses              Show addresses in disassembly\n",
+        );
+        help.push_str(
+            "  --no-show-addresses           Hide addresses in disassembly\n",
+        );
+        help.push_str("  --verbose-instructions        Show strict instructions (not pseudo)\n");
+        help.push_str("  --no-verbose-instructions     Show pseudo-instructions (default)\n");
+    }
+
+    help.push_str("  -h, --help                    Show this help\n");
+
+    if mode == &Mode::Debug {
+        help.push_str("\nInteractive Controls (in debugger):\n");
+        help.push_str("  Press '?' in the debugger for keyboard shortcuts\n");
+        help.push_str("  Key toggles: x (hex), v (verbose), a (addresses), r/o/s/d (panels)\n");
+    }
+
+    help
 }
 
 /// Parse an address string (decimal or hex with 0x prefix)

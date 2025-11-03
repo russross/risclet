@@ -2,37 +2,28 @@
 //
 // Provides the RISC-V simulation and debugging functionality
 
-use crate::elf_loader::load_elf;
-use crate::execution::{Instruction, add_local_labels, trace};
+use crate::config::{Config, Mode};
+use crate::elf_loader::{load_elf, load_elf_from_memory};
+use crate::execution::{Instruction, Machine, add_local_labels, trace};
 use crate::riscv::{Op, fields_to_string, get_pseudo_sequence};
 use crate::ui::Tui;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-const MAX_STEPS_DEFAULT: usize = 100000000;
-
-#[derive(Debug, Clone)]
-pub struct SimulatorConfig {
-    pub mode: String,       // "debug", "run", or "disassemble"
-    pub executable: String, // Path to executable
-    pub lint: bool,         // Enable linting
-    pub max_steps: usize,   // Maximum execution steps
+pub fn run_simulator(config: &Config) -> Result<(), String> {
+    let m = load_elf(&config.executable)?;
+    run_simulator_impl(config, m)
 }
 
-impl Default for SimulatorConfig {
-    fn default() -> Self {
-        SimulatorConfig {
-            mode: "debug".to_string(),
-            executable: "a.out".to_string(),
-            lint: true,
-            max_steps: MAX_STEPS_DEFAULT,
-        }
-    }
+pub fn run_simulator_from_memory(
+    config: &Config,
+    elf_bytes: &[u8],
+) -> Result<(), String> {
+    let m = load_elf_from_memory(elf_bytes)?;
+    run_simulator_impl(config, m)
 }
 
-pub fn run_simulator(config: SimulatorConfig) -> Result<(), String> {
-    let mut m = load_elf(&config.executable)?;
-
+fn run_simulator_impl(config: &Config, mut m: Machine) -> Result<(), String> {
     let mut instructions = Vec::new();
     let mut pc = m.text_start();
     while pc < m.text_end() {
@@ -79,7 +70,7 @@ pub fn run_simulator(config: SimulatorConfig) -> Result<(), String> {
         }
     }
 
-    if config.mode == "disassemble" {
+    if config.mode == Mode::Disassemble {
         let mut prev = usize::MAX;
         for instruction in &instructions {
             if instruction.pseudo_index == prev {
@@ -87,16 +78,24 @@ pub fn run_simulator(config: SimulatorConfig) -> Result<(), String> {
             } else {
                 prev = instruction.pseudo_index;
             }
+
+            // Choose fields based on verbose_instructions setting
+            let fields = if config.verbose_instructions {
+                &instruction.verbose_fields
+            } else {
+                &instruction.pseudo_fields
+            };
+
             println!(
                 "{}",
                 fields_to_string(
-                    &instruction.pseudo_fields,
+                    fields,
                     instruction.address,
                     m.global_pointer,
                     instruction.length == 2,
-                    false,
-                    false,
-                    false,
+                    config.hex_mode,
+                    config.show_addresses,
+                    false, // is_cursor (not applicable here)
                     None,
                     &m.address_symbols
                 )
@@ -108,20 +107,35 @@ pub fn run_simulator(config: SimulatorConfig) -> Result<(), String> {
     let instructions: Vec<Rc<Instruction>> =
         instructions.into_iter().map(Rc::new).collect();
 
+    let mode_str = match config.mode {
+        Mode::Run => "run",
+        Mode::Debug | Mode::Default => "debug",
+        Mode::Disassemble => "disassemble",
+        _ => "run",
+    };
+
     let sequence = trace(
         &mut m,
         &instructions,
         &addresses,
         config.lint,
         config.max_steps,
-        &config.mode,
+        mode_str,
     );
 
-    if config.mode == "debug" {
+    if config.mode == Mode::Debug || config.mode == Mode::Default {
         m.reset();
         m.set_most_recent_memory(&sequence, 0);
-        let mut tui =
-            Tui::new(m, instructions, addresses, pseudo_addresses, sequence)?;
+        let mut tui = Tui::new(
+            m,
+            instructions,
+            addresses,
+            pseudo_addresses,
+            sequence,
+            config.hex_mode,
+            config.show_addresses,
+            config.verbose_instructions,
+        )?;
         tui.main_loop()?;
         return Ok(());
     }

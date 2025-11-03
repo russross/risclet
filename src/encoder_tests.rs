@@ -14,10 +14,17 @@ use crate::tokenizer::tokenize;
 // Default relaxation settings for most tests (compression disabled for predictable sizes)
 fn make_default_config() -> Config {
     Config {
+        mode: crate::config::Mode::Assemble,
+        verbose: false,
+        max_steps: 100_000_000,
+        executable: "a.out".to_string(),
+        lint: false,
+        hex_mode: false,
+        show_addresses: false,
+        verbose_instructions: false,
         input_files: vec!["test.s".to_string()],
         output_file: "a.out".to_string(),
         text_start: 0x10000,
-        verbose: false,
         dump: crate::dump::DumpConfig::new(),
         relax: Relax { gp: true, pseudo: true, compressed: false },
     }
@@ -26,10 +33,17 @@ fn make_default_config() -> Config {
 // Relaxation with compression enabled (for compression-specific tests)
 fn make_config_with_compression() -> Config {
     Config {
+        mode: crate::config::Mode::Assemble,
+        verbose: false,
+        max_steps: 100_000_000,
+        executable: "a.out".to_string(),
+        lint: false,
+        hex_mode: false,
+        show_addresses: false,
+        verbose_instructions: false,
         input_files: vec!["test.s".to_string()],
         output_file: "a.out".to_string(),
         text_start: 0x10000,
-        verbose: false,
         dump: crate::dump::DumpConfig::new(),
         relax: Relax { gp: true, pseudo: true, compressed: true },
     }

@@ -17,8 +17,32 @@ use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
 
-/// Main assembly driver - processing flow with output dump checkpoints
+/// Main assembly driver - wrapper that generates ELF and writes to disk
 pub fn drive_assembler(config: &Config) -> Result<()> {
+    // Generate ELF bytes (handles all phases and dump checkpoints)
+    let elf_bytes = assemble_to_memory(config)?;
+
+    // Write to output file
+    let mut file = File::create(&config.output_file)
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
+    file.write_all(&elf_bytes)
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
+
+    // Set executable permissions (0755)
+    let metadata = file
+        .metadata()
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&config.output_file, permissions)
+        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
+
+    // Default: silent on success
+    Ok(())
+}
+
+/// Assemble to in-memory ELF bytes - core assembly logic
+pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
     // ========================================================================
     // Phase 1: Parse source files into AST
     // ========================================================================
@@ -29,7 +53,9 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         dump_ast(config, source);
         if is_terminal_phase(config, Phase::Parse) {
             println!("\n(No output file generated)");
-            return Ok(());
+            return Err(AssemblerError::no_context(
+                "Dump mode: no ELF generated".to_string(),
+            ));
         }
         println!(); // Separator between phase dumps
     }
@@ -44,7 +70,9 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         dump_symbols(config, source, symbol_links);
         if is_terminal_phase(config, Phase::SymbolLinking) {
             println!("\n(No output file generated)");
-            return Ok(());
+            return Err(AssemblerError::no_context(
+                "Dump mode: no ELF generated".to_string(),
+            ));
         }
         println!(); // Separator between phase dumps
     }
@@ -69,7 +97,9 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         && is_terminal_phase(config, Phase::Relaxation)
     {
         println!("\n(No output file generated)");
-        return Ok(());
+        return Err(AssemblerError::no_context(
+            "Dump mode: no ELF generated".to_string(),
+        ));
     }
 
     // ========================================================================
@@ -86,19 +116,19 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         dump_elf(config, &elf_builder);
         if is_terminal_phase(config, Phase::Elf) {
             println!("\n(No output file generated)");
-            return Ok(());
+            return Err(AssemblerError::no_context(
+                "Dump mode: no ELF generated".to_string(),
+            ));
         }
         println!(); // Separator (though this won't be reached for ELF dumps currently)
     }
 
-    // ========================================================================
-    // Output: Write ELF binary to file and display summary
-    // ========================================================================
-
-    // If any dump options were used, we skip writing the output file
+    // If any dump options were used, we skip generating ELF
     if config.dump.has_dumps() {
         println!("\n(No output file generated)");
-        return Ok(());
+        return Err(AssemblerError::no_context(
+            "Dump mode: no ELF generated".to_string(),
+        ));
     }
 
     // Find entry point (_start symbol is required for executables)
@@ -115,26 +145,7 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         }
     }?;
 
-    let elf_bytes = elf_builder.build(entry_point);
-
-    // Write to output file
-    let mut file = File::create(&config.output_file)
-        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
-    file.write_all(&elf_bytes)
-        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
-
-    // Set executable permissions (0755)
-    let metadata = file
-        .metadata()
-        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&config.output_file, permissions)
-        .map_err(|e| AssemblerError::no_context(e.to_string()))?;
-
-    // Default: silent on success
-
-    Ok(())
+    Ok(elf_builder.build(entry_point))
 }
 
 /// Iterate until line sizes and offsets are stable
