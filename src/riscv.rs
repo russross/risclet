@@ -53,6 +53,34 @@ pub fn get_funct7(inst: i32) -> i32 {
     inst >> 25
 }
 
+pub fn get_fence_pred(inst: i32) -> u8 {
+    ((inst >> 24) & 0x0F) as u8
+}
+
+pub fn get_fence_succ(inst: i32) -> u8 {
+    ((inst >> 20) & 0x0F) as u8
+}
+
+pub fn fence_bits_to_string(bits: u8) -> String {
+    let mut s = String::new();
+    if bits & 0x08 != 0 {
+        s.push('i');
+    } // input
+    if bits & 0x04 != 0 {
+        s.push('o');
+    } // output
+    if bits & 0x02 != 0 {
+        s.push('r');
+    } // read
+    if bits & 0x01 != 0 {
+        s.push('w');
+    } // write
+    if s.is_empty() {
+        s = "0".to_string(); // default for 0 bits
+    }
+    s
+}
+
 // Extract the opcode (lowest 2 bits) from a compressed instruction
 pub fn get_c_op(inst: i32) -> i32 {
     inst & 0x3
@@ -238,7 +266,7 @@ pub enum Op {
     Auipc { rd: usize, imm: i32 },
 
     // misc
-    Fence,
+    Fence { pred: u8, succ: u8 },
     Ecall,
     Ebreak,
 
@@ -896,7 +924,7 @@ impl Op {
             }
 
             // misc
-            Op::Fence => {
+            Op::Fence { pred: _, succ: _ } => {
                 // treat fence as a no-op
             }
             Op::Ecall => {
@@ -1395,7 +1423,15 @@ impl Op {
             }
 
             // misc
-            Op::Fence => vec![Field::Opcode("fence")],
+            Op::Fence { pred, succ } => {
+                // Display fence with parameters
+                let pred_str = fence_bits_to_string(pred);
+                let succ_str = fence_bits_to_string(succ);
+                vec![
+                    Field::Opcode("fence"),
+                    Field::FenceOrdering(pred_str, succ_str),
+                ]
+            }
             Op::Ecall => vec![Field::Opcode("ecall")],
             Op::Ebreak => vec![Field::Opcode("ebreak")],
 
@@ -1813,6 +1849,7 @@ pub enum Field {
     Indirect(i32, usize),
     PCRelAddr(i32),
     GPRelAddr(i32),
+    FenceOrdering(String, String),
 }
 
 impl Field {
@@ -1868,6 +1905,7 @@ impl Field {
                     }
                 }
             }
+            Field::FenceOrdering(pred, succ) => format!("{},{}", pred, succ),
         }
     }
 }

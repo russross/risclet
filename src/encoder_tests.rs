@@ -462,6 +462,66 @@ ebreak
     assert_instructions_match(source, expected);
 }
 
+#[test]
+fn test_fence_default() {
+    let source = r#"
+.text
+fence
+"#;
+
+    // fence with no parameters defaults to iorw,iorw (0xf,0xf)
+    // Encoding: pred=0xf (bits 27:24), succ=0xf (bits 23:20), opcode=0x0f
+    // = 0xff00000f (little-endian: 0f 00 f0 0f)
+    let expected = &[0x0f, 0x00, 0xf0, 0x0f];
+
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_fence_with_parameters() {
+    let source = r#"
+.text
+fence iorw,iorw
+fence r,w
+fence w,r
+fence i,o
+fence rw,rw
+"#;
+
+    // Derived from GNU objdump output:
+    let expected = &[
+        0x0f, 0x00, 0xf0, 0x0f, // fence iorw,iorw (pred=f, succ=f)
+        0x0f, 0x00, 0x10, 0x02, // fence r,w (pred=2, succ=1)
+        0x0f, 0x00, 0x20, 0x01, // fence w,r (pred=1, succ=2)
+        0x0f, 0x00, 0x40, 0x08, // fence i,o (pred=8, succ=4)
+        0x0f, 0x00, 0x30, 0x03, // fence rw,rw (pred=3, succ=3)
+    ];
+
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_fence_various_combinations() {
+    let source = r#"
+.text
+fence ir,ow
+fence iw,or
+fence io,rw
+fence o,i
+"#;
+
+    // All derived from GNU objdump output:
+    // 0a50000f = 0x0a50000f: pred=0xa (bits 27:24), succ=0x5 (bits 23:20)
+    let expected = &[
+        0x0f, 0x00, 0x50, 0x0a, // fence ir,ow
+        0x0f, 0x00, 0x60, 0x09, // fence iw,or
+        0x0f, 0x00, 0x30, 0x0c, // fence io,rw
+        0x0f, 0x00, 0x80, 0x04, // fence o,i
+    ];
+
+    assert_instructions_match(source, expected);
+}
+
 // ============================================================================
 // Pseudo-Instruction Tests
 // ============================================================================

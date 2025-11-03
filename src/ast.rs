@@ -493,6 +493,7 @@ pub enum JTypeOp {
 /// - `ebreak`
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum SpecialOp {
+    Fence { pred: u8, succ: u8 },
     Ecall,
     Ebreak,
 }

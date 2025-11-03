@@ -1217,6 +1217,19 @@ fn encode_atomic(
 
 fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
     let inst = match op {
+        SpecialOp::Fence { pred, succ } => {
+            // Fence instruction encoding (immediate field):
+            // Bits [31:28]: 0000 (unused)
+            // Bits [27:24]: pred (predecessor bits)
+            // Bits [23:20]: succ (successor bits)
+            // Bits [19:15]: 00000 (rs1)
+            // Bits [14:12]: 000 (funct3)
+            // Bits [11:7]: 00000 (rd)
+            // Bits [6:0]: 0001111 (opcode = 0x0F)
+            let pred_bits = (*pred as u32) << 24;
+            let succ_bits = (*succ as u32) << 20;
+            pred_bits | succ_bits | 0x0F
+        }
         SpecialOp::Ecall => 0b00000000000000000000000001110011u32,
         SpecialOp::Ebreak => 0b00000000000100000000000001110011u32,
     };
