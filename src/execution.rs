@@ -1,4 +1,3 @@
-use crate::execution_context::ExecutionContext;
 use crate::linter::Linter;
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op};
@@ -461,36 +460,6 @@ impl MachineBuilder {
 impl Default for MachineBuilder {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl ExecutionContext for Machine {
-    fn read_register(&mut self, reg: usize) -> i32 {
-        self.get(reg)
-    }
-
-    fn write_register(&mut self, reg: usize, value: i32) {
-        self.set(reg, value);
-    }
-
-    fn read_memory(&mut self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
-        self.load(addr, size)
-    }
-
-    fn write_memory(&mut self, addr: u32, data: &[u8]) -> Result<(), String> {
-        self.store(addr, data)
-    }
-
-    fn read_pc(&self) -> u32 {
-        self.pc()
-    }
-
-    fn write_pc(&mut self, pc: u32) -> Result<(), String> {
-        self.set_pc(pc)
-    }
-
-    fn current_effects(&mut self) -> Option<&mut Effects> {
-        self.current_effect_mut()
     }
 }
 
