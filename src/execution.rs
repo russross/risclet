@@ -1,12 +1,11 @@
 use crate::execution_context::ExecutionContext;
-use crate::io_abstraction::{IoProvider, SystemIo};
 use crate::linter::Linter;
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
 use crossterm::tty::IsTty;
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::rc::Rc;
 
 pub struct Machine {
@@ -18,8 +17,13 @@ pub struct Machine {
     pub address_symbols: HashMap<u32, String>,
     pub other_symbols: HashMap<String, u32>,
     current_effect: Option<Effects>,
-    io_provider: Box<dyn IoProvider>,
     reservation_set: Option<u32>,
+    #[cfg(test)]
+    stdin_data: Vec<u8>,
+    #[cfg(test)]
+    stdin_pos: usize,
+    #[cfg(test)]
+    stdout_buffer: Vec<u8>,
 }
 
 impl Machine {
@@ -29,24 +33,6 @@ impl Machine {
         global_pointer: u32,
         address_symbols: HashMap<u32, String>,
         other_symbols: HashMap<String, u32>,
-    ) -> Self {
-        Self::with_io_provider(
-            segments,
-            pc_start,
-            global_pointer,
-            address_symbols,
-            other_symbols,
-            Box::new(SystemIo),
-        )
-    }
-
-    pub fn with_io_provider(
-        segments: Vec<Segment>,
-        pc_start: u32,
-        global_pointer: u32,
-        address_symbols: HashMap<u32, String>,
-        other_symbols: HashMap<String, u32>,
-        io_provider: Box<dyn IoProvider>,
     ) -> Self {
         let mut memory = MemoryManager::new(segments);
         memory.reset();
@@ -65,8 +51,13 @@ impl Machine {
             address_symbols,
             other_symbols,
             current_effect: None,
-            io_provider,
             reservation_set: None,
+            #[cfg(test)]
+            stdin_data: Vec::new(),
+            #[cfg(test)]
+            stdin_pos: 0,
+            #[cfg(test)]
+            stdout_buffer: Vec::new(),
         }
     }
 
@@ -339,8 +330,37 @@ impl Machine {
         self.current_effect.as_mut()
     }
 
-    pub fn io_provider_mut(&mut self) -> &mut dyn IoProvider {
-        &mut *self.io_provider
+    pub fn read_stdin(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
+        #[cfg(test)]
+        {
+            let available = self.stdin_data.len() - self.stdin_pos;
+            let to_read = std::cmp::min(buffer.len(), available);
+            buffer[..to_read].copy_from_slice(
+                &self.stdin_data[self.stdin_pos..self.stdin_pos + to_read],
+            );
+            self.stdin_pos += to_read;
+            Ok(to_read)
+        }
+        #[cfg(not(test))]
+        {
+            let mut handle = io::stdin().lock();
+            handle.read(buffer).map_err(|e| format!("read syscall error: {}", e))
+        }
+    }
+
+    pub fn write_stdout(&mut self, data: &[u8]) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            self.stdout_buffer.extend_from_slice(data);
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            let mut handle = io::stdout().lock();
+            handle
+                .write_all(data)
+                .map_err(|e| format!("write syscall error: {}", e))
+        }
     }
 
     pub fn set_reservation(&mut self, addr: u32) {
@@ -359,6 +379,18 @@ impl Machine {
     pub fn clear_reservation(&mut self) {
         self.reservation_set = None;
     }
+
+    #[cfg(test)]
+    pub fn with_stdin(mut self, data: Vec<u8>) -> Self {
+        self.stdin_data = data;
+        self.stdin_pos = 0;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn get_stdout_buffer(&self) -> &[u8] {
+        &self.stdout_buffer
+    }
 }
 
 pub struct MachineBuilder {
@@ -367,7 +399,6 @@ pub struct MachineBuilder {
     global_pointer: u32,
     address_symbols: HashMap<u32, String>,
     other_symbols: HashMap<String, u32>,
-    io_provider: Option<Box<dyn IoProvider>>,
 }
 
 impl MachineBuilder {
@@ -378,7 +409,6 @@ impl MachineBuilder {
             global_pointer: 0,
             address_symbols: HashMap::new(),
             other_symbols: HashMap::new(),
-            io_provider: None,
         }
     }
 
@@ -410,11 +440,6 @@ impl MachineBuilder {
         self
     }
 
-    pub fn with_io_provider(mut self, provider: Box<dyn IoProvider>) -> Self {
-        self.io_provider = Some(provider);
-        self
-    }
-
     pub fn with_flat_memory(mut self, size: u32) -> Self {
         self.segments =
             vec![Segment::new(0x1000, 0x1000 + size, true, true, Vec::new())];
@@ -423,15 +448,12 @@ impl MachineBuilder {
     }
 
     pub fn build(self) -> Machine {
-        let io_provider =
-            self.io_provider.unwrap_or_else(|| Box::new(SystemIo));
-        Machine::with_io_provider(
+        Machine::new(
             self.segments,
             self.pc_start,
             self.global_pointer,
             self.address_symbols,
             self.other_symbols,
-            io_provider,
         )
     }
 }
@@ -465,10 +487,6 @@ impl ExecutionContext for Machine {
 
     fn write_pc(&mut self, pc: u32) -> Result<(), String> {
         self.set_pc(pc)
-    }
-
-    fn io_provider(&mut self) -> &mut dyn IoProvider {
-        self.io_provider_mut()
     }
 
     fn current_effects(&mut self) -> Option<&mut Effects> {
