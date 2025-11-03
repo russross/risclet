@@ -1905,7 +1905,7 @@ impl Field {
                     }
                 }
             }
-            Field::FenceOrdering(pred, succ) => format!("{},{}", pred, succ),
+            Field::FenceOrdering(pred, succ) => format!("{}, {}", pred, succ),
         }
     }
 }
