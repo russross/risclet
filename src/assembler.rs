@@ -5,7 +5,7 @@
 use crate::ast::{Line, LineContent, Location, Source, SourceFile};
 use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
-use crate::elf::ElfBuilder;
+use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
 use crate::error::{AssemblerError, Result};
 use crate::expressions::eval_symbol_values;

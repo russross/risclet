@@ -8,7 +8,7 @@ use crate::ast::{
     Location, PseudoOp, Segment, Source, SourceFile,
 };
 use crate::config::Config;
-use crate::elf::ElfBuilder;
+use crate::elf_builder::ElfBuilder;
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::{BUILTIN_FILE_NAME, SymbolLinks};
 

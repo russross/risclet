@@ -1,6 +1,8 @@
 use super::riscv::*;
 use super::*;
-use std::fmt::Write;
+use std::cmp::min;
+use std::collections::HashMap;
+use std::fmt::{self, Write};
 use std::io::{self, Write as IoWrite};
 use std::mem::take;
 use std::rc::Rc;

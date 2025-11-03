@@ -7,7 +7,7 @@
 use crate::ast::{
     Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment, Source,
 };
-use crate::elf::compute_header_size;
+use crate::elf_builder::compute_header_size;
 use crate::symbols::{BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER};
 use std::collections::HashMap;
 
