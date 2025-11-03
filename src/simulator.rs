@@ -94,8 +94,8 @@ fn run_simulator_impl(config: &Config, mut m: Machine) -> Result<(), String> {
                     m.global_pointer,
                     instruction.length == 2,
                     config.hex_mode,
+                    config.verbose_instructions,
                     config.show_addresses,
-                    false, // is_cursor (not applicable here)
                     None,
                     &m.address_symbols
                 )
