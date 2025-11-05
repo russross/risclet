@@ -2,6 +2,10 @@
 //
 // Unified command-line interface for both tools
 
+// Shared modules
+mod elf;
+mod error;
+
 // Simulator modules
 mod decoder;
 mod elf_loader;
@@ -22,7 +26,6 @@ mod config;
 mod dump;
 mod elf_builder;
 mod encoder;
-mod error;
 mod expressions;
 mod layout;
 mod parser;

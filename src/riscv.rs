@@ -963,8 +963,7 @@ impl Op {
 
                         // make a buffer and read from stdin
                         let mut read_buffer = vec![0; count as usize];
-                        let n =
-                            m.read_stdin(&mut read_buffer)?;
+                        let n = m.read_stdin(&mut read_buffer)?;
                         read_buffer.truncate(n);
 
                         m.store(buf_addr, &read_buffer)?;

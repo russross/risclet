@@ -343,7 +343,9 @@ impl Machine {
         #[cfg(not(test))]
         {
             let mut handle = io::stdin().lock();
-            handle.read(buffer).map_err(|e| format!("read syscall error: {}", e))
+            handle
+                .read(buffer)
+                .map_err(|e| format!("read syscall error: {}", e))
         }
     }
 

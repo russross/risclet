@@ -145,7 +145,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
         }
     }?;
 
-    Ok(elf_builder.build(entry_point))
+    elf_builder.build(entry_point)
 }
 
 /// Iterate until line sizes and offsets are stable

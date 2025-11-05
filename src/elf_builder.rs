@@ -1,413 +1,22 @@
 // ELF binary format generation for RISC-V 32-bit little-endian executables
 //
-// This module provides data structures and encoding functions to generate
-// executable ELF binaries matching the layout produced by GNU as + ld.
+// This module provides the builder for generating executable ELF binaries
+// matching the layout produced by GNU as + ld.
 //
 // Reference: ELF-32 Object File Format, Version 1.5 Draft 2
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
 use crate::ast::{LineContent, LinePointer, Segment, Source};
-use crate::layout::{Layout, LineLayout};
+use crate::elf::{
+    ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PF_R, PF_W, PF_X,
+    PT_LOAD, PT_RISCV_ATTRIBUTES, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE, SHN_ABS,
+    SHT_NOBITS, SHT_PROGBITS, SHT_RISCV_ATTRIBUTES, SHT_STRTAB, SHT_SYMTAB,
+    STB_GLOBAL, STB_LOCAL, STT_NOTYPE, StringTable, generate_riscv_attributes,
+    make_st_info,
+};
+use crate::error::Result;
+use crate::layout::Layout;
 use crate::symbols::SymbolLinks;
-use std::collections::HashMap;
-
-// ============================================================================
-// ELF Constants
-// ============================================================================
-
-// ELF Identification
-const EI_MAG0: u8 = 0x7f;
-const EI_MAG1: u8 = b'E';
-const EI_MAG2: u8 = b'L';
-const EI_MAG3: u8 = b'F';
-const EI_CLASS: u8 = 1; // ELFCLASS32
-const EI_DATA: u8 = 1; // ELFDATA2LSB (little endian)
-const EI_VERSION: u8 = 1; // EV_CURRENT
-const EI_OSABI: u8 = 0; // ELFOSABI_SYSV
-const EI_ABIVERSION: u8 = 0;
-
-// ELF File Types
-const ET_EXEC: u16 = 2; // Executable file
-
-// Machine Type
-const EM_RISCV: u16 = 0xF3; // RISC-V
-
-// Object File Version
-const EV_CURRENT: u32 = 1;
-
-// ELF Header Flags (for RISC-V)
-const EF_RISCV_FLOAT_ABI_DOUBLE: u32 = 0x4; // Double-precision FP ABI
-
-// Section Types
-const SHT_NULL: u32 = 0;
-const SHT_PROGBITS: u32 = 1;
-const SHT_SYMTAB: u32 = 2;
-const SHT_STRTAB: u32 = 3;
-const SHT_NOBITS: u32 = 8;
-const SHT_RISCV_ATTRIBUTES: u32 = 0x7000_0003;
-
-// Section Flags
-const SHF_WRITE: u32 = 0x1;
-const SHF_ALLOC: u32 = 0x2;
-const SHF_EXECINSTR: u32 = 0x4;
-
-// Program Header Types
-const PT_LOAD: u32 = 1;
-const PT_RISCV_ATTRIBUTES: u32 = 0x7000_0003;
-
-// Program Header Flags
-const PF_X: u32 = 0x1; // Execute
-const PF_W: u32 = 0x2; // Write
-const PF_R: u32 = 0x4; // Read
-
-// Symbol Binding
-const STB_LOCAL: u8 = 0;
-const STB_GLOBAL: u8 = 1;
-
-// Symbol Types
-const STT_NOTYPE: u8 = 0;
-const STT_SECTION: u8 = 3;
-const STT_FILE: u8 = 4;
-
-// Special Section Indices
-const SHN_UNDEF: u16 = 0;
-const SHN_ABS: u16 = 0xfff1;
-
-// ============================================================================
-// ELF Data Structures
-// ============================================================================
-
-/// ELF-32 File Header
-#[derive(Debug, Clone)]
-pub struct ElfHeader {
-    pub e_ident: [u8; 16], // ELF identification
-    pub e_type: u16,       // Object file type
-    pub e_machine: u16,    // Machine type
-    pub e_version: u32,    // Object file version
-    pub e_entry: u32,      // Entry point address
-    pub e_phoff: u32,      // Program header offset
-    pub e_shoff: u32,      // Section header offset
-    pub e_flags: u32,      // Processor-specific flags
-    pub e_ehsize: u16,     // ELF header size
-    pub e_phentsize: u16,  // Program header entry size
-    pub e_phnum: u16,      // Number of program headers
-    pub e_shentsize: u16,  // Section header entry size
-    pub e_shnum: u16,      // Number of section headers
-    pub e_shstrndx: u16,   // Section name string table index
-}
-
-impl Default for ElfHeader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ElfHeader {
-    pub fn new() -> Self {
-        let mut e_ident = [0u8; 16];
-        e_ident[0] = EI_MAG0;
-        e_ident[1] = EI_MAG1;
-        e_ident[2] = EI_MAG2;
-        e_ident[3] = EI_MAG3;
-        e_ident[4] = EI_CLASS;
-        e_ident[5] = EI_DATA;
-        e_ident[6] = EI_VERSION;
-        e_ident[7] = EI_OSABI;
-        e_ident[8] = EI_ABIVERSION;
-        // Bytes 9-15 are padding (already zeroed)
-
-        Self {
-            e_ident,
-            e_type: ET_EXEC,
-            e_machine: EM_RISCV,
-            e_version: EV_CURRENT,
-            e_entry: 0,
-            e_phoff: 52, // Program headers start right after ELF header
-            e_shoff: 0,  // Will be set later
-            e_flags: EF_RISCV_FLOAT_ABI_DOUBLE,
-            e_ehsize: 52,
-            e_phentsize: 32,
-            e_phnum: 0, // Will be set later
-            e_shentsize: 40,
-            e_shnum: 0,    // Will be set later
-            e_shstrndx: 0, // Will be set later
-        }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(52);
-        bytes.extend_from_slice(&self.e_ident);
-        bytes.extend_from_slice(&self.e_type.to_le_bytes());
-        bytes.extend_from_slice(&self.e_machine.to_le_bytes());
-        bytes.extend_from_slice(&self.e_version.to_le_bytes());
-        bytes.extend_from_slice(&self.e_entry.to_le_bytes());
-        bytes.extend_from_slice(&self.e_phoff.to_le_bytes());
-        bytes.extend_from_slice(&self.e_shoff.to_le_bytes());
-        bytes.extend_from_slice(&self.e_flags.to_le_bytes());
-        bytes.extend_from_slice(&self.e_ehsize.to_le_bytes());
-        bytes.extend_from_slice(&self.e_phentsize.to_le_bytes());
-        bytes.extend_from_slice(&self.e_phnum.to_le_bytes());
-        bytes.extend_from_slice(&self.e_shentsize.to_le_bytes());
-        bytes.extend_from_slice(&self.e_shnum.to_le_bytes());
-        bytes.extend_from_slice(&self.e_shstrndx.to_le_bytes());
-        bytes
-    }
-}
-
-/// ELF-32 Program Header
-#[derive(Debug, Clone)]
-pub struct ElfProgramHeader {
-    pub p_type: u32,   // Segment type
-    pub p_offset: u32, // Segment file offset
-    pub p_vaddr: u32,  // Segment virtual address
-    pub p_paddr: u32,  // Segment physical address
-    pub p_filesz: u32, // Segment size in file
-    pub p_memsz: u32,  // Segment size in memory
-    pub p_flags: u32,  // Segment flags
-    pub p_align: u32,  // Segment alignment
-}
-
-impl ElfProgramHeader {
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(32);
-        bytes.extend_from_slice(&self.p_type.to_le_bytes());
-        bytes.extend_from_slice(&self.p_offset.to_le_bytes());
-        bytes.extend_from_slice(&self.p_vaddr.to_le_bytes());
-        bytes.extend_from_slice(&self.p_paddr.to_le_bytes());
-        bytes.extend_from_slice(&self.p_filesz.to_le_bytes());
-        bytes.extend_from_slice(&self.p_memsz.to_le_bytes());
-        bytes.extend_from_slice(&self.p_flags.to_le_bytes());
-        bytes.extend_from_slice(&self.p_align.to_le_bytes());
-        bytes
-    }
-}
-
-/// Computes the expected combined size of the ELF header and program headers.
-///
-/// # Arguments
-/// * `num_segments` - The number of program segments (e.g., 1 for text-only, 2 for text + data/bss).
-///
-/// # Returns
-/// The total size in bytes (ELF header + program headers).
-pub fn compute_header_size(num_segments: u32) -> u32 {
-    const ELF_HEADER_SIZE: u32 = 52; // From e_ehsize in ElfHeader
-    const PROGRAM_HEADER_SIZE: u32 = 32; // From e_phentsize in ElfHeader
-
-    ELF_HEADER_SIZE + (num_segments * PROGRAM_HEADER_SIZE)
-}
-
-/// ELF-32 Section Header
-#[derive(Debug, Clone)]
-pub struct ElfSectionHeader {
-    pub sh_name: u32,      // Section name (string table index)
-    pub sh_type: u32,      // Section type
-    pub sh_flags: u32,     // Section flags
-    pub sh_addr: u32,      // Section virtual address
-    pub sh_offset: u32,    // Section file offset
-    pub sh_size: u32,      // Section size in bytes
-    pub sh_link: u32,      // Link to another section
-    pub sh_info: u32,      // Additional section information
-    pub sh_addralign: u32, // Section alignment
-    pub sh_entsize: u32,   // Entry size if section holds table
-}
-
-impl ElfSectionHeader {
-    pub fn null() -> Self {
-        Self {
-            sh_name: 0,
-            sh_type: SHT_NULL,
-            sh_flags: 0,
-            sh_addr: 0,
-            sh_offset: 0,
-            sh_size: 0,
-            sh_link: 0,
-            sh_info: 0,
-            sh_addralign: 0,
-            sh_entsize: 0,
-        }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(40);
-        bytes.extend_from_slice(&self.sh_name.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_type.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_flags.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_addr.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_offset.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_size.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_link.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_info.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_addralign.to_le_bytes());
-        bytes.extend_from_slice(&self.sh_entsize.to_le_bytes());
-        bytes
-    }
-}
-
-/// ELF-32 Symbol Table Entry
-#[derive(Debug, Clone)]
-pub struct ElfSymbol {
-    pub st_name: u32,  // Symbol name (string table index)
-    pub st_value: u32, // Symbol value
-    pub st_size: u32,  // Symbol size
-    pub st_info: u8,   // Symbol type and binding
-    pub st_other: u8,  // Symbol visibility
-    pub st_shndx: u16, // Section index
-}
-
-impl ElfSymbol {
-    /// Create undefined symbol (entry 0)
-    pub fn null() -> Self {
-        Self {
-            st_name: 0,
-            st_value: 0,
-            st_size: 0,
-            st_info: 0,
-            st_other: 0,
-            st_shndx: SHN_UNDEF,
-        }
-    }
-
-    /// Create section symbol
-    pub fn section(section_index: u16) -> Self {
-        Self {
-            st_name: 0,
-            st_value: 0,
-            st_size: 0,
-            st_info: make_st_info(STB_LOCAL, STT_SECTION),
-            st_other: 0,
-            st_shndx: section_index,
-        }
-    }
-
-    /// Create FILE symbol
-    pub fn file(name_index: u32) -> Self {
-        Self {
-            st_name: name_index,
-            st_value: 0,
-            st_size: 0,
-            st_info: make_st_info(STB_LOCAL, STT_FILE),
-            st_other: 0,
-            st_shndx: SHN_ABS,
-        }
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(16);
-        bytes.extend_from_slice(&self.st_name.to_le_bytes());
-        bytes.extend_from_slice(&self.st_value.to_le_bytes());
-        bytes.extend_from_slice(&self.st_size.to_le_bytes());
-        bytes.push(self.st_info);
-        bytes.push(self.st_other);
-        bytes.extend_from_slice(&self.st_shndx.to_le_bytes());
-        bytes
-    }
-}
-
-/// Helper to create st_info field from binding and type
-fn make_st_info(bind: u8, typ: u8) -> u8 {
-    (bind << 4) | (typ & 0xf)
-}
-
-// ============================================================================
-// String Table Builder
-// ============================================================================
-
-/// String table builder that deduplicates strings
-pub struct StringTable {
-    strings: Vec<u8>,
-    offsets: HashMap<String, u32>,
-}
-
-impl Default for StringTable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl StringTable {
-    pub fn new() -> Self {
-        // String tables start with a null byte
-        Self { strings: vec![0], offsets: HashMap::new() }
-    }
-
-    /// Add a string and return its offset
-    pub fn add(&mut self, s: &str) -> u32 {
-        if let Some(&offset) = self.offsets.get(s) {
-            return offset;
-        }
-
-        let offset = self.strings.len() as u32;
-        self.offsets.insert(s.to_string(), offset);
-        self.strings.extend_from_slice(s.as_bytes());
-        self.strings.push(0); // Null terminator
-        offset
-    }
-
-    pub fn data(&self) -> &[u8] {
-        &self.strings
-    }
-
-    pub fn len(&self) -> usize {
-        self.strings.len()
-    }
-
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.strings.len() <= 1
-    }
-}
-
-// ============================================================================
-// RISC-V Attributes Section
-// ============================================================================
-
-/// Generate .riscv.attributes section content
-///
-/// This section describes the RISC-V ISA features used by the binary.
-/// Format follows the ELF attributes specification with RISC-V extensions.
-///
-/// For RV32IMACZifencei (I, M, A, C extensions + Zifencei), we generate:
-/// "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0"
-pub fn generate_riscv_attributes() -> Vec<u8> {
-    // Generate attributes for RV32IMAC with compressed instructions and Zifencei
-    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0";
-
-    let mut attrs = Vec::new();
-
-    // Format version (always 'A' = 0x41)
-    attrs.push(b'A');
-
-    // Total length of attribute section (will be patched)
-    let length_pos = attrs.len();
-    attrs.extend_from_slice(&[0u8; 4]);
-
-    // Vendor name (always "riscv" for RISC-V)
-    attrs.extend_from_slice(b"riscv\0");
-
-    // File attributes tag (1)
-    attrs.push(1);
-
-    // Length of file attributes subsection (will be patched)
-    let file_attrs_length_pos = attrs.len();
-    attrs.extend_from_slice(&[0u8; 4]);
-
-    // Tag_RISCV_arch (5): RISC-V architecture string
-    attrs.push(5);
-    attrs.extend_from_slice(arch_string.as_bytes());
-    attrs.push(0); // Null terminator
-
-    // Patch file attributes length
-    let file_attrs_length = (attrs.len() - file_attrs_length_pos) as u32;
-    attrs[file_attrs_length_pos..file_attrs_length_pos + 4]
-        .copy_from_slice(&file_attrs_length.to_le_bytes());
-
-    // Patch total length
-    let total_length = (attrs.len() - length_pos) as u32;
-    attrs[length_pos..length_pos + 4]
-        .copy_from_slice(&total_length.to_le_bytes());
-
-    attrs
-}
 
 // ============================================================================
 // ELF Builder
@@ -452,7 +61,7 @@ impl<'a> ElfBuilder<'a> {
     }
 
     /// Build the complete ELF file
-    pub fn build(mut self, entry_point: u32) -> Vec<u8> {
+    pub fn build(mut self, entry_point: u32) -> Result<Vec<u8>> {
         self.header.e_entry = entry_point;
 
         let mut output = vec![0; 52];
@@ -477,12 +86,16 @@ impl<'a> ElfBuilder<'a> {
         let ph_size = self.program_headers.len() as u32 * 32;
         let actual_header_size = phoff + ph_size;
 
-        // Verification check: ensure the estimated header size matches the actual size.
+        // Validation check: ensure the estimated header size matches the actual size.
         // A mismatch indicates a bug in the program header count estimation.
-        assert_eq!(
-            self.layout.header_size, actual_header_size,
-            "Mismatch between estimated and actual ELF header size. The number of program headers was likely estimated incorrectly."
-        );
+        if self.layout.header_size != actual_header_size {
+            return Err(format!(
+                "ELF header size mismatch: estimated {} but actual is {} \
+                 (the number of program headers was likely estimated incorrectly)",
+                self.layout.header_size, actual_header_size
+            )
+            .into());
+        }
         output.resize(output.len() + ph_size as usize, 0);
 
         // --- Section Layout ---
@@ -540,7 +153,7 @@ impl<'a> ElfBuilder<'a> {
             symtab_offset,
             strtab_offset,
             shstrtab_offset,
-        );
+        )?;
 
         // Write section headers
         let shoff = output.len() as u32;
@@ -600,7 +213,7 @@ impl<'a> ElfBuilder<'a> {
         output[phoff as usize..(phoff as usize + ph_bytes.len())]
             .copy_from_slice(&ph_bytes);
 
-        output
+        Ok(output)
     }
 
     fn build_program_headers(&mut self) {
@@ -655,7 +268,7 @@ impl<'a> ElfBuilder<'a> {
         symtab_offset: u32,
         strtab_offset: u32,
         shstrtab_offset: u32,
-    ) {
+    ) -> Result<()> {
         let mut section_index = 0u16;
 
         // Section 0: NULL
@@ -684,7 +297,10 @@ impl<'a> ElfBuilder<'a> {
                 sh_type: SHT_PROGBITS,
                 sh_flags: SHF_WRITE | SHF_ALLOC,
                 sh_addr: self.layout.data_start,
-                sh_offset: data_offset.unwrap(),
+                sh_offset: data_offset.ok_or_else(|| {
+                    "data offset should be set when data section exists"
+                        .to_string()
+                })?,
                 sh_size: self.data_data.len() as u32,
                 sh_link: 0,
                 sh_info: 0,
@@ -775,6 +391,8 @@ impl<'a> ElfBuilder<'a> {
             sh_addralign: 1,
             sh_entsize: 0,
         });
+
+        Ok(())
     }
 
     /// Build symbol table from Source and SymbolLinks
@@ -844,8 +462,11 @@ impl<'a> ElfBuilder<'a> {
             let mut marker_addr = text_start;
             for (line_index, _line) in source_file.lines.iter().enumerate() {
                 let pointer = LinePointer { file_index, line_index };
-                if let &LineLayout { offset, segment: Segment::Text, .. } =
-                    self.layout.get(pointer)
+                if let &crate::layout::LineLayout {
+                    offset,
+                    segment: crate::ast::Segment::Text,
+                    ..
+                } = self.layout.get(pointer)
                 {
                     marker_addr = text_start + offset;
                     break;
@@ -887,11 +508,13 @@ impl<'a> ElfBuilder<'a> {
                             ),
                             Segment::Data => (
                                 data_start + line_layout.offset,
-                                data_section_index.unwrap(),
+                                data_section_index
+                                    .expect("data section should exist if referencing data segment"),
                             ),
                             Segment::Bss => (
                                 bss_start + line_layout.offset,
-                                bss_section_index.unwrap(),
+                                bss_section_index
+                                    .expect("bss section should exist if referencing bss segment"),
                             ),
                         };
                         let name_idx = self.symbol_names.add(name);
@@ -927,9 +550,9 @@ impl<'a> ElfBuilder<'a> {
         if has_data || has_bss {
             let sdata_begin = self.symbol_names.add("__SDATA_BEGIN__");
             let section = if has_data {
-                data_section_index.unwrap()
+                data_section_index.expect("data section should exist")
             } else {
-                bss_section_index.unwrap()
+                bss_section_index.expect("bss section should exist")
             };
             let addr = if has_data { data_start } else { bss_start };
             self.add_symbol(ElfSymbol {
@@ -962,11 +585,11 @@ impl<'a> ElfBuilder<'a> {
                     }
                     Segment::Data => (
                         data_start + line_layout.offset,
-                        data_section_index.unwrap(),
+                        data_section_index.expect("data section should exist"),
                     ),
                     Segment::Bss => (
                         bss_start + line_layout.offset,
-                        bss_section_index.unwrap(),
+                        bss_section_index.expect("bss section should exist"),
                     ),
                 }
             };
@@ -996,9 +619,9 @@ impl<'a> ElfBuilder<'a> {
         // __bss_start
         let bss_start_name = self.symbol_names.add("__bss_start");
         let bss_start_section = if has_bss {
-            bss_section_index.unwrap()
+            bss_section_index.expect("bss section should exist")
         } else if has_data {
-            data_section_index.unwrap()
+            data_section_index.expect("data section should exist")
         } else {
             text_section_index
         };
@@ -1025,9 +648,9 @@ impl<'a> ElfBuilder<'a> {
         // __BSS_END__
         let bss_end_name = self.symbol_names.add("__BSS_END__");
         let bss_end_section = if has_bss {
-            bss_section_index.unwrap()
+            bss_section_index.expect("bss section should exist")
         } else if has_data {
-            data_section_index.unwrap()
+            data_section_index.expect("data section should exist")
         } else {
             text_section_index
         };

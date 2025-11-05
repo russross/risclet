@@ -92,6 +92,18 @@ impl From<String> for AssemblerError {
     }
 }
 
+impl From<&str> for AssemblerError {
+    fn from(s: &str) -> Self {
+        AssemblerError::no_context(s.to_string())
+    }
+}
+
+impl From<AssemblerError> for String {
+    fn from(e: AssemblerError) -> Self {
+        e.with_source_context()
+    }
+}
+
 impl fmt::Display for AssemblerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.with_source_context())
