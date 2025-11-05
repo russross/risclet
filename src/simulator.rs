@@ -108,12 +108,7 @@ fn run_simulator_impl(config: &Config, mut m: Machine) -> Result<(), String> {
         instructions.into_iter().map(Rc::new).collect();
 
     // Unified execution loop for run, debug, and trace modes
-    let sequence = trace(
-        &mut m,
-        &instructions,
-        &addresses,
-        config,
-    );
+    let sequence = trace(&mut m, &instructions, &addresses, config);
 
     // Handle exit codes and errors from trace execution
     if config.mode == Mode::Trace {

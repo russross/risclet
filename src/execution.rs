@@ -503,7 +503,7 @@ fn print_instruction_trace(
 ) {
     let effect_lines = effects.report(hex_mode);
 
-    if effect_lines.len() > 0 && !effect_lines[0].is_empty() {
+    if !effect_lines.is_empty() && !effect_lines[0].is_empty() {
         println!("{}{}", disassembly, effect_lines[0]);
     } else {
         println!("{}", disassembly);
@@ -524,8 +524,8 @@ pub fn trace(
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
     let mut prev_pseudo_index: Option<usize> = None;
-    let echo_in =
-        matches!(config.mode, crate::config::Mode::Debug) && !io::stdin().is_tty();
+    let echo_in = matches!(config.mode, crate::config::Mode::Debug)
+        && !io::stdin().is_tty();
 
     for steps in 1..=config.max_steps {
         if i >= instructions.len() || instructions[i].address != m.pc() {
@@ -544,7 +544,10 @@ pub fn trace(
 
         // Echo stdout for run and debug modes (trace mode handles printing itself)
         if !effects.terminate
-            && matches!(config.mode, crate::config::Mode::Run | crate::config::Mode::Debug)
+            && matches!(
+                config.mode,
+                crate::config::Mode::Run | crate::config::Mode::Debug
+            )
             && let Some(output) = &effects.stdout
         {
             let mut handle = io::stdout().lock();
@@ -578,7 +581,7 @@ pub fn trace(
         // (only print the first instruction of the sequence)
         if matches!(config.mode, crate::config::Mode::Trace) {
             let should_print = if config.verbose_instructions {
-                true  // Always print in verbose mode
+                true // Always print in verbose mode
             } else {
                 prev_pseudo_index != Some(instruction.pseudo_index)
             };
@@ -600,7 +603,12 @@ pub fn trace(
                     None,
                     &m.address_symbols,
                 );
-                print_instruction_trace(&effects, instruction, &disassembly, config.hex_mode);
+                print_instruction_trace(
+                    &effects,
+                    instruction,
+                    &disassembly,
+                    config.hex_mode,
+                );
                 prev_pseudo_index = Some(instruction.pseudo_index);
             }
         }
