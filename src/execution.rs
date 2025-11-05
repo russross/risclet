@@ -494,21 +494,40 @@ pub fn add_local_labels(m: &mut Machine, instructions: &[Instruction]) {
     }
 }
 
+/// Helper function to print a single instruction with its effects
+fn print_instruction_trace(
+    effects: &Effects,
+    _instruction: &Rc<Instruction>,
+    disassembly: &str,
+    hex_mode: bool,
+) {
+    let effect_lines = effects.report(hex_mode);
+
+    if effect_lines.len() > 0 && !effect_lines[0].is_empty() {
+        println!("{}{}", disassembly, effect_lines[0]);
+    } else {
+        println!("{}", disassembly);
+    }
+
+    for line in &effect_lines[1..] {
+        println!("    {}", line);
+    }
+}
+
 pub fn trace(
     m: &mut Machine,
     instructions: &[Rc<Instruction>],
     addresses: &HashMap<u32, usize>,
-    lint: bool,
-    max_steps: usize,
-    mode: &str,
+    config: &crate::config::Config,
 ) -> Vec<Effects> {
     let mut linter = Linter::new(m.get_reg(2) as u32);
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
+    let mut prev_pseudo_index: Option<usize> = None;
     let echo_in =
-        [/* "run", */ "debug"].contains(&mode) && !io::stdin().is_tty();
+        matches!(config.mode, crate::config::Mode::Debug) && !io::stdin().is_tty();
 
-    for steps in 1..=max_steps {
+    for steps in 1..=config.max_steps {
         if i >= instructions.len() || instructions[i].address != m.pc() {
             let Some(&new_i) = addresses.get(&m.pc()) else {
                 if let Some(effects) = sequence.last_mut() {
@@ -523,8 +542,9 @@ pub fn trace(
         let mut effects = m.execute_and_collect_effects(instruction);
         i += 1;
 
+        // Echo stdout for run and debug modes (trace mode handles printing itself)
         if !effects.terminate
-            && ["run", "debug"].contains(&mode)
+            && matches!(config.mode, crate::config::Mode::Run | crate::config::Mode::Debug)
             && let Some(output) = &effects.stdout
         {
             let mut handle = io::stdout().lock();
@@ -533,6 +553,7 @@ pub fn trace(
             }
         }
 
+        // Echo stdin for debug mode only
         if !effects.terminate
             && echo_in
             && let Some(input) = &effects.stdin
@@ -543,12 +564,45 @@ pub fn trace(
             }
         }
 
+        // Perform linting if enabled
         if !effects.terminate
-            && lint
+            && config.lint
             && let Err(msg) =
                 linter.check_instruction(m, instruction, &mut effects)
         {
             effects.error(msg);
+        }
+
+        // For trace mode, print the instruction and effects immediately
+        // Skip instructions that are part of a multi-instruction pseudo-sequence
+        // (only print the first instruction of the sequence)
+        if matches!(config.mode, crate::config::Mode::Trace) {
+            let should_print = if config.verbose_instructions {
+                true  // Always print in verbose mode
+            } else {
+                prev_pseudo_index != Some(instruction.pseudo_index)
+            };
+
+            if should_print {
+                let fields = if config.verbose_instructions {
+                    &instruction.verbose_fields
+                } else {
+                    &instruction.pseudo_fields
+                };
+                let disassembly = crate::riscv::fields_to_string(
+                    fields,
+                    instruction.address,
+                    m.global_pointer,
+                    instruction.length == 2,
+                    config.hex_mode,
+                    config.verbose_instructions,
+                    config.show_addresses,
+                    None,
+                    &m.address_symbols,
+                );
+                print_instruction_trace(&effects, instruction, &disassembly, config.hex_mode);
+                prev_pseudo_index = Some(instruction.pseudo_index);
+            }
         }
 
         let terminate = effects.terminate;
@@ -557,13 +611,13 @@ pub fn trace(
             break;
         }
 
-        if steps == max_steps {
+        if steps == config.max_steps {
             if let Some(last) = sequence.last_mut()
                 && last.other_message.is_none()
             {
-                last.error(format!("stopped after {} steps", max_steps));
+                last.error(format!("stopped after {} steps", config.max_steps));
             }
-        } else if mode != "debug" {
+        } else if !matches!(config.mode, crate::config::Mode::Debug) {
             sequence.clear();
         }
     }
