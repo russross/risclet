@@ -48,6 +48,7 @@ pub struct Tui {
 }
 
 impl Tui {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         machine: Machine,
         instructions: Vec<Rc<Instruction>>,

@@ -1,288 +1,395 @@
+// ELF binary format loading for the RISC-V simulator
+//
+// This module loads ELF executables into memory for simulation.
+// All byte-level parsing is delegated to the elf module's decode methods.
+
+use crate::elf::{
+    ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PT_LOAD,
+    SHT_STRTAB, SHT_SYMTAB, STT_FILE, SYMBOL_ENTRY_SIZE, StringTable,
+};
+use crate::error::Result;
 use crate::{Machine, memory::Segment};
 use std::collections::HashMap;
 
-pub fn load_elf(filename: &str) -> Result<Machine, String> {
+/// Load an ELF file from the filesystem
+pub fn load_elf(filename: &str) -> Result<Machine> {
     let raw = std::fs::read(filename)
-        .map_err(|e| format!("loading {}: {}", filename, e))?;
+        .map_err(|e| format!("failed to read file '{}': {}", filename, e))?;
     load_elf_from_bytes(&raw)
 }
 
-pub fn load_elf_from_memory(raw: &[u8]) -> Result<Machine, String> {
+/// Load an ELF file from a byte slice in memory
+pub fn load_elf_from_memory(raw: &[u8]) -> Result<Machine> {
     load_elf_from_bytes(raw)
 }
 
-pub fn load_elf_from_bytes(raw: &[u8]) -> Result<Machine, String> {
-    if raw.len() < 0x34 {
-        return Err("ELF data is too short".to_string());
-    }
-    if raw[0..4] != *b"\x7fELF" {
-        return Err("ELF data does not have ELF magic number".to_string());
-    }
-    if raw[4] != 1 || raw[5] != 1 || raw[6] != 1 || raw[7] != 0 {
-        return Err("ELF data is not a 32-bit, little-endian, version 1, System V ABI ELF file".to_string());
+/// Load an ELF file from a byte slice
+pub fn load_elf_from_bytes(raw: &[u8]) -> Result<Machine> {
+    // Validate minimum size for ELF header
+    if raw.len() < 52 {
+        return Err("ELF data is too short to contain a valid header".into());
     }
 
-    if u16::from_le_bytes(raw[0x10..0x12].try_into().unwrap()) != 2
-        || u16::from_le_bytes(raw[0x12..0x14].try_into().unwrap()) != 0xf3
-        || u32::from_le_bytes(raw[0x14..0x18].try_into().unwrap()) != 1
-    {
+    // Validate ELF magic number
+    if raw[0..4] != *b"\x7fELF" {
         return Err(
-            "ELF data is not an executable, RISC-V, ELF version 1 file"
-                .to_string(),
+            "ELF data does not have valid ELF magic number (0x7f 'E' 'L' 'F')"
+                .into(),
         );
     }
 
-    // 32-bit ELF header offsets
-    let e_entry = u32::from_le_bytes(raw[0x18..0x1c].try_into().unwrap());
-    let e_phoff =
-        u32::from_le_bytes(raw[0x1c..0x20].try_into().unwrap()) as usize;
-    let e_shoff =
-        u32::from_le_bytes(raw[0x20..0x24].try_into().unwrap()) as usize;
-
-    //let e_flags = u32::from_le_bytes(raw[0x24..0x28].try_into().unwrap());
-    let e_ehsize = u16::from_le_bytes(raw[0x28..0x2a].try_into().unwrap());
-    let e_phentsize =
-        u16::from_le_bytes(raw[0x2a..0x2c].try_into().unwrap()) as usize;
-    let e_phnum =
-        u16::from_le_bytes(raw[0x2c..0x2e].try_into().unwrap()) as usize;
-    let e_shentsize =
-        u16::from_le_bytes(raw[0x2e..0x30].try_into().unwrap()) as usize;
-    let e_shnum =
-        u16::from_le_bytes(raw[0x30..0x32].try_into().unwrap()) as usize;
-    let e_shstrndx =
-        u16::from_le_bytes(raw[0x32..0x34].try_into().unwrap()) as usize;
-
-    if e_phoff == 0 || e_ehsize != 0x34 || e_phentsize != 0x20 || e_phnum < 1 {
-        return Err("ELF data has unexpected RV32 header sizes".to_string());
+    // Validate ELF class (32-bit), data (little-endian), version, and OS/ABI
+    if raw[4] != 1 {
+        return Err("ELF file is not 32-bit (class must be 1)".into());
+    }
+    if raw[5] != 1 {
+        return Err("ELF file is not little-endian (data must be 1)".into());
+    }
+    if raw[6] != 1 {
+        return Err(
+            "ELF file version is not current (version must be 1)".into()
+        );
+    }
+    if raw[7] != 0 {
+        return Err("ELF file OS/ABI is not System V (must be 0)".into());
     }
 
-    // get the loadable segments
-    let mut chunks: Vec<(u32, Vec<u8>)> = Vec::new();
-    for i in 0..e_phnum {
-        // unpack the program header
-        let start = e_phoff + e_phentsize * i;
-        if start + e_phentsize > raw.len() {
-            return Err(
-                "ELF data program header entry out of range".to_string()
-            );
-        }
-        // 32-bit program header
-        let header = &raw[start..start + e_phentsize];
-        let p_type = u32::from_le_bytes(header[0x00..0x04].try_into().unwrap());
-        let p_offset =
-            u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
-        let p_vaddr =
-            u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
-        //let p_paddr = u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
-        let p_filesz =
-            u32::from_le_bytes(header[0x10..0x14].try_into().unwrap());
-        //let p_memsz = u32::from_le_bytes(header[0x14..0x18].try_into().unwrap());
-        //let p_align = u32::from_le_bytes(header[0x18..0x1c].try_into().unwrap());
+    // Decode ELF header
+    let header = ElfHeader::decode(&raw[0..52])?;
 
-        if p_type != 1 {
+    // Validate executable RISC-V file
+    if header.e_type != 2 {
+        return Err(format!(
+            "ELF file is not executable (type={}, expected 2)",
+            header.e_type
+        )
+        .into());
+    }
+    if header.e_machine != 0xf3 {
+        return Err(format!(
+            "ELF file is not RISC-V (machine={:#x}, expected 0xf3)",
+            header.e_machine
+        )
+        .into());
+    }
+    if header.e_version != 1 {
+        return Err(format!(
+            "ELF file version is not 1 (got {})",
+            header.e_version
+        )
+        .into());
+    }
+
+    // Validate header size and entry sizes
+    if header.e_ehsize != 52 {
+        return Err(format!(
+            "unexpected ELF header size: {} (expected 52)",
+            header.e_ehsize
+        )
+        .into());
+    }
+    if header.e_phentsize != 32 {
+        return Err(format!(
+            "unexpected program header entry size: {} (expected 32)",
+            header.e_phentsize
+        )
+        .into());
+    }
+    if header.e_shentsize != 40 {
+        return Err(format!(
+            "unexpected section header entry size: {} (expected 40)",
+            header.e_shentsize
+        )
+        .into());
+    }
+    if header.e_phnum < 1 {
+        return Err("ELF file has no program headers".into());
+    }
+
+    // Load program segments (PT_LOAD only)
+    let mut chunks: Vec<(u32, Vec<u8>)> = Vec::new();
+    for i in 0..header.e_phnum as usize {
+        let offset =
+            header.e_phoff as usize + (i * header.e_phentsize as usize);
+        if offset + header.e_phentsize as usize > raw.len() {
+            return Err(format!(
+                "program header {} out of bounds: offset {} size {}",
+                i, offset, header.e_phentsize
+            )
+            .into());
+        }
+
+        let ph_data = &raw[offset..offset + header.e_phentsize as usize];
+        let ph = ElfProgramHeader::decode(ph_data)?;
+
+        // Only load PT_LOAD segments
+        if ph.p_type != PT_LOAD {
             continue;
         }
-        if (p_offset as usize + p_filesz as usize) > raw.len() {
-            return Err("ELF data program segment out of range".to_string());
+
+        // Validate segment file content is within ELF
+        let seg_end = ph.p_offset as usize + ph.p_filesz as usize;
+        if seg_end > raw.len() {
+            return Err(format!(
+                "program segment {} extends beyond ELF file (offset {} + size {} > {})",
+                i, ph.p_offset, ph.p_filesz, raw.len()
+            )
+            .into());
         }
-        let chunk = (
-            p_vaddr,
-            raw[p_offset as usize..(p_offset as usize + p_filesz as usize)]
-                .to_vec(),
-        );
-        chunks.push(chunk);
+
+        let segment_data = raw[ph.p_offset as usize..seg_end].to_vec();
+        chunks.push((ph.p_vaddr, segment_data));
     }
 
-    // get the section header strings
-    let start = e_shoff + e_shentsize * e_shstrndx;
-    if start + e_shentsize > raw.len() {
-        return Err("ELF data section header string table entry out of range"
-            .to_string());
-    }
-    // 32-bit section header offsets
-    let header = &raw[start..start + e_shentsize];
-    //let sh_name = u32::from_le_bytes(header[0x00..0x04].try_into().unwrap());
-    //let sh_type = u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
-    //let sh_flags = u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
-    //let sh_addr = u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
-    let sh_offset =
-        u32::from_le_bytes(header[0x10..0x14].try_into().unwrap()) as usize;
-    let sh_size =
-        u32::from_le_bytes(header[0x14..0x18].try_into().unwrap()) as usize;
-    //let sh_link = u32::from_le_bytes(header[0x18..0x1c].try_into().unwrap());
-    //let sh_info = u32::from_le_bytes(header[0x1c..0x20].try_into().unwrap());
-    //let sh_addralign = u32::from_le_bytes(header[0x20..0x24].try_into().unwrap());
-    //let sh_entsize = u32::from_le_bytes(header[0x24..0x28].try_into().unwrap());
+    // Load section header string table
+    let shstrtab = load_section_header_string_table(raw, &header)?;
 
-    if sh_offset + sh_size > raw.len() {
-        return Err(
-            "ELF data section header string table out of range".to_string()
-        );
-    }
-
-    // unpack the strings, keyed by offset
-    let mut sh_strs = HashMap::new();
-    let sh_str_raw = &raw[sh_offset..sh_offset + sh_size];
-    let mut start = 0;
-    for (i, &b) in sh_str_raw.iter().enumerate() {
-        if b == 0 {
-            sh_strs.insert(
-                start,
-                String::from_utf8_lossy(&sh_str_raw[start..i]).into_owned(),
-            );
-            start = i + 1;
-        }
-    }
-
-    // read the section headers
-    let (mut strs_raw, mut syms_raw) = (Vec::new(), Vec::new());
+    // Load section header entries and build segments
     let mut segments = Vec::new();
+    let mut strtab: Option<Vec<u8>> = None;
+    let mut symtab: Option<Vec<u8>> = None;
 
-    for i in 0..e_shnum {
-        let start = e_shoff + e_shentsize * i;
-        if start + e_shentsize > raw.len() {
-            return Err("ELF data section header out of range".to_string());
+    for i in 0..header.e_shnum as usize {
+        let offset =
+            header.e_shoff as usize + (i * header.e_shentsize as usize);
+        if offset + header.e_shentsize as usize > raw.len() {
+            return Err(format!(
+                "section header {} out of bounds: offset {} size {}",
+                i, offset, header.e_shentsize
+            )
+            .into());
         }
 
-        // 32-bit section header unpacking
-        let header = &raw[start..start + e_shentsize];
-        let sh_name =
-            u32::from_le_bytes(header[0x00..0x04].try_into().unwrap()) as usize;
-        let sh_type =
-            u32::from_le_bytes(header[0x04..0x08].try_into().unwrap());
-        let sh_flags =
-            u32::from_le_bytes(header[0x08..0x0c].try_into().unwrap());
-        let sh_addr =
-            u32::from_le_bytes(header[0x0c..0x10].try_into().unwrap());
-        let sh_offset =
-            u32::from_le_bytes(header[0x10..0x14].try_into().unwrap()) as usize;
-        let sh_size =
-            u32::from_le_bytes(header[0x14..0x18].try_into().unwrap()) as usize;
-        //let sh_link = u32::from_le_bytes(header[0x18..0x1c].try_into().unwrap());
-        //let sh_info = u32::from_le_bytes(header[0x1c..0x20].try_into().unwrap());
-        //let sh_addralign = u32::from_le_bytes(header[0x20..0x24].try_into().unwrap());
-        //let sh_entsize = u32::from_le_bytes(header[0x24..0x28].try_into().unwrap());
+        let sh_data = &raw[offset..offset + header.e_shentsize as usize];
+        let sh = ElfSectionHeader::decode(sh_data)?;
 
-        // check for unsupported features
-        if sh_type == 0x4
-            || sh_type == 0x5
-            || sh_type == 0x6
-            || sh_type == 0x9
-            || sh_type == 0xb
-            || sh_type == 0xe
-            || sh_type == 0xf
-            || sh_type == 0x10
-            || sh_type == 0x11
-        {
-            return Err(
-                "ELF data contains unsupported section type".to_string()
-            );
+        // Get section name
+        let section_name = shstrtab.get_string(sh.sh_name as usize).ok();
+
+        // Check for unsupported section types
+        if is_unsupported_section_type(sh.sh_type) {
+            return Err(format!(
+                "ELF file contains unsupported section type: {:#x}",
+                sh.sh_type
+            )
+            .into());
         }
 
-        if (sh_type == 1 || sh_type == 8) && (sh_flags & 0x2) != 0 {
-            // in-memory section; see if we have loadable data
+        // Load allocatable sections (PROGBITS or NOBITS with SHF_ALLOC)
+        if (sh.sh_type == 1 || sh.sh_type == 8) && (sh.sh_flags & 0x2) != 0 {
+            // Find initialization data from program segments
             let mut init = Vec::new();
-            for &(p_vaddr, ref seg_raw) in &chunks {
-                if p_vaddr <= sh_addr
-                    && sh_addr < p_vaddr + seg_raw.len() as u32
+            for (p_vaddr, seg_data) in &chunks {
+                if *p_vaddr <= sh.sh_addr
+                    && sh.sh_addr < p_vaddr + seg_data.len() as u32
                 {
-                    let start_idx = (sh_addr - p_vaddr) as usize;
-                    let end_idx = start_idx + sh_size;
-                    init = seg_raw[start_idx..end_idx].to_vec();
+                    let start_idx = (sh.sh_addr - p_vaddr) as usize;
+                    let end_idx =
+                        (start_idx + sh.sh_size as usize).min(seg_data.len());
+                    init = seg_data[start_idx..end_idx].to_vec();
+                    break;
                 }
             }
+
             segments.push(Segment::new(
-                sh_addr,
-                sh_addr + sh_size as u32,
-                (sh_flags & 0x1) != 0,
-                (sh_flags & 0x4) != 0,
+                sh.sh_addr,
+                sh.sh_addr + sh.sh_size,
+                (sh.sh_flags & 0x1) != 0, // writable
+                (sh.sh_flags & 0x4) != 0, // executable
                 init,
             ));
-        } else if sh_strs.get(&sh_name) == Some(&String::from(".strtab"))
-            && sh_type == 3
+        }
+        // Load string table
+        else if matches!(section_name.as_deref(), Some(".strtab"))
+            && sh.sh_type == SHT_STRTAB
         {
-            if sh_offset + sh_size > raw.len() {
-                return Err("ELF data string table out of range".to_string());
+            if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
+                return Err(format!(
+                    ".strtab section extends beyond ELF file: offset {} + size {} > {}",
+                    sh.sh_offset, sh.sh_size, raw.len()
+                )
+                .into());
             }
-            strs_raw = raw[sh_offset..sh_offset + sh_size].to_vec();
-        } else if sh_strs.get(&sh_name) == Some(&String::from(".symtab"))
-            && sh_type == 2
+            strtab = Some(
+                raw[sh.sh_offset as usize
+                    ..(sh.sh_offset as usize + sh.sh_size as usize)]
+                    .to_vec(),
+            );
+        }
+        // Load symbol table
+        else if matches!(section_name.as_deref(), Some(".symtab"))
+            && sh.sh_type == SHT_SYMTAB
         {
-            if sh_offset + sh_size > raw.len() {
-                return Err("ELF data symbol table out of range".to_string());
+            if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
+                return Err(format!(
+                    ".symtab section extends beyond ELF file: offset {} + size {} > {}",
+                    sh.sh_offset, sh.sh_size, raw.len()
+                )
+                .into());
             }
-            syms_raw = raw[sh_offset..sh_offset + sh_size].to_vec();
+            symtab = Some(
+                raw[sh.sh_offset as usize
+                    ..(sh.sh_offset as usize + sh.sh_size as usize)]
+                    .to_vec(),
+            );
         }
     }
 
-    if strs_raw.is_empty() {
-        return Err("ELF data: no string table found".to_string());
-    }
-    if syms_raw.is_empty() {
-        return Err("ELF data: no symbol table found".to_string());
-    }
+    let strtab = strtab.ok_or_else(|| {
+        "ELF file does not contain .strtab section".to_string()
+    })?;
+    let symtab = symtab.ok_or_else(|| {
+        "ELF file does not contain .symtab section".to_string()
+    })?;
 
-    // parse the symbol table
-    let mut address_symbols: HashMap<u32, String> = HashMap::new();
-    let mut other_symbols: HashMap<String, u32> = HashMap::new();
-    let mut global_pointer: u32 = 0;
-    // 32-bit ELF symbol table entries are 16 bytes
-    const SYMBOL_SIZE: usize = 16;
+    // Parse symbol table
+    let (address_symbols, other_symbols, global_pointer) =
+        parse_symbol_table(&strtab, &symtab)?;
 
-    for start in (0..syms_raw.len()).step_by(SYMBOL_SIZE) {
-        if start + SYMBOL_SIZE > syms_raw.len() {
-            return Err("ELF data symbol table entry out of range".to_string());
-        }
-        // 32-bit symbol entry format:
-        let symbol = &syms_raw[start..start + SYMBOL_SIZE];
-        let st_name =
-            u32::from_le_bytes(symbol[0x00..0x04].try_into().unwrap()) as usize;
-        let st_value =
-            u32::from_le_bytes(symbol[0x04..0x08].try_into().unwrap());
-        let _st_size =
-            u32::from_le_bytes(symbol[0x08..0x0c].try_into().unwrap());
-        let st_info = symbol[0x0c];
-        //let st_other = symbol[0x0d];
-        let st_shndx =
-            u16::from_le_bytes(symbol[0x0e..0x10].try_into().unwrap());
-
-        let mut end = st_name;
-        while end < strs_raw.len() && strs_raw[end] != 0 {
-            end += 1;
-        }
-        if end >= strs_raw.len() {
-            return Err("ELF data symbol name out of range".to_string());
-        }
-        let name =
-            String::from_utf8_lossy(&strs_raw[st_name..end]).into_owned();
-
-        if name.is_empty() || st_info == 4 {
-            // skip section entries and object file names
-            continue;
-        } else if name == "__global_pointer$" {
-            // keep global pointer
-            global_pointer = st_value;
-            address_symbols.insert(st_value, name);
-            continue;
-        } else if name.starts_with('$') || name.starts_with("__") {
-            // skip internal names
-            continue;
-        }
-
-        // sort into text, data/bss, and other symbols
-        if st_shndx > 0 {
-            address_symbols.insert(st_value, name);
-        } else {
-            other_symbols.insert(name, st_value);
-        }
-    }
-
-    // allocate address space
+    // Create machine
     Ok(Machine::new(
         segments,
-        e_entry,
+        header.e_entry,
         global_pointer,
         address_symbols,
         other_symbols,
     ))
+}
+
+/// Load the section header string table
+fn load_section_header_string_table(
+    raw: &[u8],
+    header: &ElfHeader,
+) -> Result<StringTable> {
+    let shstrndx = header.e_shstrndx as usize;
+    if shstrndx == 0 {
+        // No section header string table
+        return Ok(StringTable::new());
+    }
+
+    let offset =
+        header.e_shoff as usize + (shstrndx * header.e_shentsize as usize);
+    if offset + header.e_shentsize as usize > raw.len() {
+        return Err(format!(
+            "section header string table entry out of bounds: offset {} size {}",
+            offset, header.e_shentsize
+        )
+        .into());
+    }
+
+    let sh_data = &raw[offset..offset + header.e_shentsize as usize];
+    let sh = ElfSectionHeader::decode(sh_data)?;
+
+    if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
+        return Err(format!(
+            "section header string table out of bounds: offset {} + size {} > {}",
+            sh.sh_offset, sh.sh_size, raw.len()
+        )
+        .into());
+    }
+
+    let strtab_data = &raw
+        [sh.sh_offset as usize..(sh.sh_offset as usize + sh.sh_size as usize)];
+    let mut strtab = StringTable::new();
+
+    // Rebuild string table from raw data
+    let mut offset = 0;
+    while offset < strtab_data.len() {
+        let mut end = offset;
+        while end < strtab_data.len() && strtab_data[end] != 0 {
+            end += 1;
+        }
+
+        if offset < end {
+            let s =
+                String::from_utf8_lossy(&strtab_data[offset..end]).into_owned();
+            strtab.add(&s);
+        }
+
+        offset = end + 1;
+    }
+
+    Ok(strtab)
+}
+
+/// Check if a section type is unsupported
+fn is_unsupported_section_type(sh_type: u32) -> bool {
+    matches!(sh_type, 0x4 | 0x5 | 0x6 | 0x9 | 0xb | 0xe | 0xf | 0x10 | 0x11)
+}
+
+/// Type alias for symbol table data: (address_symbols, other_symbols, global_pointer)
+type SymbolTableData = (HashMap<u32, String>, HashMap<String, u32>, u32);
+
+/// Parse the symbol table and return symbol maps
+fn parse_symbol_table(strtab: &[u8], symtab: &[u8]) -> Result<SymbolTableData> {
+    let mut address_symbols: HashMap<u32, String> = HashMap::new();
+    let mut other_symbols: HashMap<String, u32> = HashMap::new();
+    let mut global_pointer: u32 = 0;
+
+    for i in (0..symtab.len()).step_by(SYMBOL_ENTRY_SIZE) {
+        if i + SYMBOL_ENTRY_SIZE > symtab.len() {
+            return Err(format!(
+                "symbol table entry {} out of bounds: offset {} size {}",
+                i / SYMBOL_ENTRY_SIZE,
+                i,
+                SYMBOL_ENTRY_SIZE
+            )
+            .into());
+        }
+
+        let sym_data = &symtab[i..i + SYMBOL_ENTRY_SIZE];
+        let sym = ElfSymbol::decode(sym_data)?;
+
+        // Extract symbol name from string table
+        let name = get_symbol_name(strtab, sym.st_name as usize)?;
+
+        // Skip empty names and FILE symbols
+        if name.is_empty() || sym.st_info == STT_FILE {
+            continue;
+        }
+
+        // Track global pointer
+        if name == "__global_pointer$" {
+            global_pointer = sym.st_value;
+            address_symbols.insert(sym.st_value, name);
+            continue;
+        }
+
+        // Skip internal symbols
+        if name.starts_with('$') || name.starts_with("__") {
+            continue;
+        }
+
+        // Categorize symbol
+        if sym.st_shndx > 0 {
+            address_symbols.insert(sym.st_value, name);
+        } else {
+            other_symbols.insert(name, sym.st_value);
+        }
+    }
+
+    Ok((address_symbols, other_symbols, global_pointer))
+}
+
+/// Extract a null-terminated string from the string table
+fn get_symbol_name(strtab: &[u8], offset: usize) -> Result<String> {
+    if offset >= strtab.len() {
+        return Err(format!(
+            "symbol name offset {} out of bounds (table size: {})",
+            offset,
+            strtab.len()
+        )
+        .into());
+    }
+
+    let mut end = offset;
+    while end < strtab.len() && strtab[end] != 0 {
+        end += 1;
+    }
+
+    if end >= strtab.len() {
+        return Err("unterminated symbol name in string table".into());
+    }
+
+    Ok(String::from_utf8_lossy(&strtab[offset..end]).into_owned())
 }

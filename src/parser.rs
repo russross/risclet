@@ -829,7 +829,7 @@ impl<'a> Parser<'a> {
                     return Err(AssemblerError::from_context(
                         format!("Invalid fence ordering bit: {}", ch),
                         self.location(),
-                    ))
+                    ));
                 }
             }
         }

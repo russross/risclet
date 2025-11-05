@@ -1,6 +1,7 @@
 use crate::riscv::{
-    Op, RA, SP, ZERO, get_funct3, get_funct7, get_fence_pred, get_fence_succ,
-    get_imm_b, get_imm_i, get_imm_j, get_imm_s, get_imm_u, get_rd, get_rs1, get_rs2,
+    Op, RA, SP, ZERO, get_fence_pred, get_fence_succ, get_funct3, get_funct7,
+    get_imm_b, get_imm_i, get_imm_j, get_imm_s, get_imm_u, get_rd, get_rs1,
+    get_rs2,
 };
 
 pub struct InstructionDecoder;

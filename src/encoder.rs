@@ -1246,9 +1246,9 @@ fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
             // Bits [14:12]: 000 (funct3)
             // Bits [11:7]: 00000 (rd, reserved)
             // Bits [6:0]: 0001111 (opcode = 0x0F)
-            let fm = 0b1000u32;    // FENCE.TSO
-            let pred = 0x3u32;     // rw (bits 0,1 set in 4-bit domain encoding)
-            let succ = 0x3u32;     // rw
+            let fm = 0b1000u32; // FENCE.TSO
+            let pred = 0x3u32; // rw (bits 0,1 set in 4-bit domain encoding)
+            let succ = 0x3u32; // rw
             (fm << 28) | (pred << 24) | (succ << 20) | 0x0F
         }
         SpecialOp::FenceI => {
