@@ -70,16 +70,9 @@ fn main() {
         }
 
         Mode::Run | Mode::Debug | Mode::Disassemble | Mode::Trace => {
-            if let Err(e) = run_simulator(&config) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
-
-        Mode::Default => {
-            // Default mode: assemble if needed, then debug
+            // Check if we have .s files to assemble first
             if !config.input_files.is_empty() {
-                // We have .s files - assemble them in-memory
+                // We have .s files - assemble them in-memory, then run simulator
                 let elf_bytes = match assemble_to_memory(&config) {
                     Ok(bytes) => bytes,
                     Err(e) => {
@@ -94,12 +87,18 @@ fn main() {
                     std::process::exit(1);
                 }
             } else {
-                // No .s files - just debug a.out
+                // No .s files - load executable and run simulator
                 if let Err(e) = run_simulator(&config) {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
             }
+        }
+
+        Mode::Default => {
+            // This mode should no longer be used, but keep for compatibility
+            eprintln!("Error: Default mode is deprecated");
+            std::process::exit(1);
         }
     }
 }

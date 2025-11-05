@@ -16,18 +16,8 @@ pub struct RegisterValue {
 #[derive(Clone)]
 pub enum SyscallInfo {
     Exit(i32),
-    Write {
-        fd: i32,
-        buf_addr: u32,
-        count: i32,
-        data: Vec<u8>,
-    },
-    Read {
-        fd: i32,
-        buf_addr: u32,
-        count: i32,
-        data: Vec<u8>,
-    },
+    Write { fd: i32, buf_addr: u32, count: i32, data: Vec<u8> },
+    Read { fd: i32, buf_addr: u32, count: i32, data: Vec<u8> },
 }
 
 #[derive(Clone)]
@@ -85,27 +75,47 @@ impl Effects {
                 }
                 SyscallInfo::Write { buf_addr, count, data, .. } => {
                     if hex_mode {
-                        lines.push(format!("write(1, 0x{:x}, 0x{:x})", buf_addr, count));
+                        lines.push(format!(
+                            "write(1, 0x{:x}, 0x{:x})",
+                            buf_addr, count
+                        ));
                     } else {
-                        lines.push(format!("write(1, 0x{:x}, {})", buf_addr, count));
+                        lines.push(format!(
+                            "write(1, 0x{:x}, {})",
+                            buf_addr, count
+                        ));
                     }
                     let msg = String::from_utf8_lossy(data).into_owned();
                     lines.push(format!(
                         "a0 <- {}",
-                        if hex_mode { format!("0x{:x}", data.len()) } else { data.len().to_string() }
+                        if hex_mode {
+                            format!("0x{:x}", data.len())
+                        } else {
+                            data.len().to_string()
+                        }
                     ));
                     lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
                 }
                 SyscallInfo::Read { buf_addr, count, data, .. } => {
                     if hex_mode {
-                        lines.push(format!("read(0, 0x{:x}, 0x{:x})", buf_addr, count));
+                        lines.push(format!(
+                            "read(0, 0x{:x}, 0x{:x})",
+                            buf_addr, count
+                        ));
                     } else {
-                        lines.push(format!("read(0, 0x{:x}, {})", buf_addr, count));
+                        lines.push(format!(
+                            "read(0, 0x{:x}, {})",
+                            buf_addr, count
+                        ));
                     }
                     let msg = String::from_utf8_lossy(data).into_owned();
                     lines.push(format!(
                         "a0 <- {}",
-                        if hex_mode { format!("0x{:x}", data.len()) } else { data.len().to_string() }
+                        if hex_mode {
+                            format!("0x{:x}", data.len())
+                        } else {
+                            data.len().to_string()
+                        }
                     ));
                     lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
                 }

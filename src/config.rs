@@ -75,7 +75,7 @@ const MAX_STEPS_DEFAULT: usize = 100_000_000;
 /// Parse command-line arguments - unified entry point
 pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
     if args.is_empty() {
-        // Default mode: auto-detect *.s files or a.out
+        // No arguments: auto-detect *.s files or a.out, run mode
         return parse_default_mode(&[]);
     }
 
@@ -92,8 +92,9 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
             std::process::exit(0);
         }
         _ => {
-            // No recognized subcommand - try default mode with these args
-            parse_default_mode(args)
+            // No recognized subcommand - treat as run mode with positional args
+            // This allows: risclet foo.s, risclet a.out, risclet --hex, etc.
+            parse_simulator_mode(args, Mode::Run)
         }
     }
 }
@@ -232,18 +233,25 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
     })
 }
 
-/// Parse arguments for simulator modes (run, debug, disassemble)
+/// Parse arguments for simulator modes (run, debug, disassemble, trace)
 fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
-    let mut executable = "a.out".to_string();
-    let mut lint = false; // Changed default to false
+    let mut executable = String::new();
+    let mut lint = false;
     let mut max_steps = MAX_STEPS_DEFAULT;
     let mut hex_mode = false;
-    let mut show_addresses = mode == Mode::Disassemble || mode == Mode::Trace; // Default to true for disassemble and trace
+    let mut show_addresses = mode == Mode::Disassemble || mode == Mode::Trace;
     let mut verbose_instructions = false;
+    let mut verbose = false;
+    let mut text_start = 0x10000u32;
+    let mut relax = Relax::all();
+    let mut input_files = Vec::new();
+    let mut has_explicit_executable = false;
     let mut i = 0;
 
     while i < args.len() {
-        match args[i].as_str() {
+        let arg = &args[i];
+
+        match arg.as_str() {
             "-e" | "--executable" => {
                 i += 1;
                 if i >= args.len() {
@@ -253,6 +261,7 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                     ));
                 }
                 executable = args[i].clone();
+                has_explicit_executable = true;
             }
             "-l" | "--lint" => {
                 i += 1;
@@ -282,104 +291,96 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
             "--no-show-addresses" => show_addresses = false,
             "--verbose-instructions" => verbose_instructions = true,
             "--no-verbose-instructions" => verbose_instructions = false,
+            "-v" | "--verbose" => verbose = true,
+            "-t" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Error: -t requires an argument".to_string());
+                }
+                text_start = parse_address(&args[i])?;
+            }
+            "--no-relax" => relax = Relax::none(),
+            "--relax-gp" => relax.gp = true,
+            "--no-relax-gp" => relax.gp = false,
+            "--relax-pseudo" => relax.pseudo = true,
+            "--no-relax-pseudo" => relax.pseudo = false,
+            "--relax-compressed" => relax.compressed = true,
+            "--no-relax-compressed" => relax.compressed = false,
             "-h" | "--help" => {
                 return Err(print_simulator_help(&mode));
             }
             _ => {
-                return Err(format!("Error: unknown option: {}", args[i]));
+                if arg.starts_with("--dump-") {
+                    return Err("Error: dump options (--dump-*) are not allowed with simulator subcommands (run/debug/disassemble/trace)".to_string());
+                } else if arg.starts_with('-') {
+                    return Err(format!("Error: unknown option: {}", arg));
+                } else {
+                    // Positional argument: could be .s file or executable
+                    input_files.push(arg.clone());
+                }
             }
         }
         i += 1;
     }
 
+    // Validate: cannot have both -e and positional file arguments
+    if has_explicit_executable && !input_files.is_empty() {
+        return Err("Error: cannot specify both -e/--executable and positional file arguments".to_string());
+    }
+
+    // Determine input type and set appropriate fields
+    if !input_files.is_empty() {
+        // Check if all files are .s files or all are executables
+        let s_files: Vec<_> =
+            input_files.iter().filter(|f| f.ends_with(".s")).collect();
+        let non_s_files: Vec<_> =
+            input_files.iter().filter(|f| !f.ends_with(".s")).collect();
+
+        if !s_files.is_empty() && !non_s_files.is_empty() {
+            return Err("Error: cannot mix .s files and executables as positional arguments".to_string());
+        }
+
+        if !s_files.is_empty() {
+            // All are .s files - will assemble in memory
+            // input_files stays as-is for assembler
+        } else if non_s_files.len() == 1 {
+            // Single executable
+            executable = input_files[0].clone();
+            input_files.clear();
+        } else {
+            // Multiple non-.s files
+            return Err("Error: can only specify one executable as a positional argument".to_string());
+        }
+    } else if executable.is_empty() {
+        // No files specified - try auto-detection
+        input_files = find_assembly_files()?;
+        if input_files.is_empty() {
+            executable = "a.out".to_string();
+        }
+    }
+
     Ok(Config {
         mode,
-        verbose: false,
+        verbose,
         max_steps,
         executable,
         lint,
         hex_mode,
         show_addresses,
         verbose_instructions,
-        input_files: Vec::new(),
+        input_files,
         output_file: "a.out".to_string(),
-        text_start: 0x10000,
+        text_start,
         dump: dump::DumpConfig::new(),
-        relax: Relax::all(),
+        relax,
     })
 }
 
-/// Parse default mode: auto-detect *.s files or a.out
+/// Parse default mode: auto-detect *.s files or a.out, default to run mode
 fn parse_default_mode(args: &[String]) -> Result<Config, String> {
-    let mut lint = false;
-    let mut max_steps = MAX_STEPS_DEFAULT;
-    let mut hex_mode = false;
-    let mut show_addresses = false;
-    let mut verbose_instructions = false;
-    let mut i = 0;
-
-    // Parse allowed options for default mode
-    while i < args.len() {
-        match args[i].as_str() {
-            "-l" | "--lint" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(format!(
-                        "Error: {} requires an argument",
-                        args[i - 1]
-                    ));
-                }
-                lint = args[i].to_lowercase() == "true";
-            }
-            "-s" | "--steps" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(format!(
-                        "Error: {} requires an argument",
-                        args[i - 1]
-                    ));
-                }
-                max_steps = args[i].parse::<usize>().map_err(|_| {
-                    format!("Error: invalid number of steps: {}", args[i])
-                })?;
-            }
-            "--hex" => hex_mode = true,
-            "--no-hex" => hex_mode = false,
-            "--show-addresses" => show_addresses = true,
-            "--no-show-addresses" => show_addresses = false,
-            "--verbose-instructions" => verbose_instructions = true,
-            "--no-verbose-instructions" => verbose_instructions = false,
-            "-h" | "--help" => {
-                return Err(print_main_help());
-            }
-            _ => {
-                return Err(format!(
-                    "Error: unknown option in default mode: {}",
-                    args[i]
-                ));
-            }
-        }
-        i += 1;
-    }
-
-    // Auto-detect: look for *.s files in current directory
-    let input_files = find_assembly_files()?;
-
-    Ok(Config {
-        mode: Mode::Default,
-        verbose: false,
-        max_steps,
-        executable: "a.out".to_string(),
-        lint,
-        hex_mode,
-        show_addresses,
-        verbose_instructions,
-        input_files,
-        output_file: "a.out".to_string(),
-        text_start: 0x10000,
-        dump: dump::DumpConfig::new(),
-        relax: Relax::all(),
-    })
+    // Default mode is now just Run mode with file auto-detection
+    // Just delegate to parse_simulator_mode with Mode::Run
+    parse_simulator_mode(args, Mode::Run)
 }
 
 /// Find assembly files in current directory, or check for a.out
@@ -418,37 +419,53 @@ fn find_assembly_files() -> Result<Vec<String>, String> {
 
 /// Print main help message
 fn print_main_help() -> String {
-    "Usage: risclet [subcommand] [options]
+    "Usage: risclet [subcommand] [files...] [options]
 
-Default Mode (no subcommand):
-  Auto-assembles *.s files in current directory and launches debugger
-  OR loads a.out if no *.s files found and launches debugger
-
-  Allowed options:
-    -l, --lint <true|false>       Enable ABI checks (default: false)
-    -s, --steps <count>           Max execution steps (default: 100000000)
-    --hex / --no-hex              Display values in hexadecimal
-    --show-addresses              Show addresses in disassembly
-    --verbose-instructions        Show strict instructions (not pseudo)
-    -h, --help                    Show this help
+Default behavior (no subcommand):
+  - With no arguments: auto-detects *.s files in current directory or a.out, then runs
+  - With .s files: assembles them in-memory and runs
+  - With executable: runs the executable
+  Default subcommand is 'run'
 
 Subcommands:
-  assemble      Assemble RISC-V source files to executable
-  run           Run a RISC-V executable and exit
-  disassemble   Disassemble a RISC-V executable
+  assemble      Assemble RISC-V source files to executable on disk
+  run           Run executable or .s files and exit (default if no subcommand)
+  debug         Debug executable or .s files with interactive TUI
+  disassemble   Disassemble executable or .s files
   trace         Execute and print each instruction with effects
-  debug         Debug a RISC-V executable with interactive TUI
   help, -h      Show this help message
   -v, --version Show version information
 
+File Arguments:
+  - One or more .s files: assembles in-memory, then runs/debugs/etc.
+  - One executable (no .s extension): runs/debugs/disassembles that file
+  - No files: auto-detects *.s files in current directory, or uses a.out
+
+Common Options (all modes):
+  -l, --lint <true|false>       Enable ABI checks (default: false)
+  -s, --steps <count>           Max execution steps (default: 100000000)
+  --hex / --no-hex              Display values in hexadecimal
+  --show-addresses              Show addresses in disassembly
+  --verbose-instructions        Show strict instructions (not pseudo)
+  -h, --help                    Show this help
+
+Assembler Options (when using .s files):
+  -v, --verbose                 Show assembly statistics
+  -t <address>                  Set text start address (default: 0x10000)
+  --no-relax                    Disable all relaxations
+  --relax-gp / --no-relax-gp    GP-relative optimization
+  --relax-pseudo / --no-relax-pseudo    call/tail optimization
+  --relax-compressed / --no-relax-compressed    RV32C compression
+
 Examples:
-  risclet                          # Auto-detect and debug
-  risclet --lint true              # Auto-detect with linting enabled
-  risclet assemble -o a.out prog.s
-  risclet run -e a.out
-  risclet debug -e a.out --hex
-  risclet disassemble -e a.out
-  risclet trace -e a.out
+  risclet                          # Auto-detect *.s or a.out, run
+  risclet prog.s                   # Assemble and run prog.s
+  risclet prog.s lib.s             # Assemble both files and run
+  risclet a.out                    # Run a.out
+  risclet debug prog.s --hex       # Assemble and debug with hex display
+  risclet trace a.out --lint true  # Trace a.out with linting
+  risclet disassemble prog.s       # Assemble and disassemble
+  risclet assemble -o prog prog.s  # Assemble to disk as 'prog'
 
 Use 'risclet <subcommand> --help' for subcommand-specific help."
         .to_string()
@@ -524,44 +541,114 @@ fn print_simulator_help(mode: &Mode) -> String {
     };
 
     let mut help =
-        format!("Usage: risclet {} [options]\n\nOptions:\n", mode_str);
+        format!("Usage: risclet {} [files...] [options]\n\n", mode_str);
+
+    help.push_str("File Arguments:\n");
+    help.push_str("  One or more .s files          Assemble in-memory, then ");
+    help.push_str(mode_str);
+    help.push('\n');
+    help.push_str("  One executable (no .s ext)    ");
+    help.push_str(if mode == &Mode::Run {
+        "Run"
+    } else if mode == &Mode::Debug {
+        "Debug"
+    } else if mode == &Mode::Disassemble {
+        "Disassemble"
+    } else {
+        "Trace"
+    });
+    help.push_str(" the executable\n");
     help.push_str(
-        "  -e, --executable <path>       Path to executable (default: a.out)\n",
+        "  No files                      Auto-detect *.s or use a.out\n",
     );
+    help.push_str(
+        "  -e, --executable <path>       Explicitly specify executable\n",
+    );
+    help.push('\n');
+
+    help.push_str("Simulator Options:\n");
     help.push_str(
         "  -l, --lint <true|false>       Enable ABI checks (default: false)\n",
     );
     help.push_str("  -s, --steps <count>           Max execution steps (default: 100000000)\n");
 
-    if mode == &Mode::Debug || mode == &Mode::Disassemble || mode == &Mode::Trace {
+    if mode == &Mode::Debug
+        || mode == &Mode::Disassemble
+        || mode == &Mode::Trace
+    {
         help.push_str(
             "  --hex / --no-hex              Display values in hexadecimal\n",
         );
         if mode == &Mode::Debug {
-            help.push_str(
-                "  --show-addresses              Show addresses in disassembly\n",
-            );
-            help.push_str(
-                "  --no-show-addresses           Hide addresses in disassembly (default)\n",
-            );
+            help.push_str("  --show-addresses              Show addresses in disassembly\n");
+            help.push_str("  --no-show-addresses           Hide addresses in disassembly (default)\n");
         } else {
-            help.push_str(
-                "  --show-addresses              Show addresses in disassembly (default)\n",
-            );
-            help.push_str(
-                "  --no-show-addresses           Hide addresses in disassembly\n",
-            );
+            help.push_str("  --show-addresses              Show addresses in disassembly (default)\n");
+            help.push_str("  --no-show-addresses           Hide addresses in disassembly\n");
         }
         help.push_str("  --verbose-instructions        Show strict instructions (not pseudo)\n");
         help.push_str("  --no-verbose-instructions     Show pseudo-instructions (default)\n");
     }
 
+    help.push('\n');
+    help.push_str("Assembler Options (when using .s files):\n");
+    help.push_str("  -v, --verbose                 Show assembly statistics\n");
+    help.push_str("  -t <address>                  Set text start address (default: 0x10000)\n");
+    help.push_str("  --no-relax                    Disable all relaxations\n");
+    help.push_str("  --relax-gp / --no-relax-gp    GP-relative optimization\n");
+    help.push_str(
+        "  --relax-pseudo / --no-relax-pseudo    call/tail optimization\n",
+    );
+    help.push_str(
+        "  --relax-compressed / --no-relax-compressed    RV32C compression\n",
+    );
+
+    help.push('\n');
+    help.push_str("Other:\n");
     help.push_str("  -h, --help                    Show this help\n");
 
     if mode == &Mode::Debug {
         help.push_str("\nInteractive Controls (in debugger):\n");
         help.push_str("  Press '?' in the debugger for keyboard shortcuts\n");
         help.push_str("  Key toggles: x (hex), v (verbose), a (addresses), r/o/s/d (panels)\n");
+    }
+
+    help.push_str("\nExamples:\n");
+    help.push_str(&format!(
+        "  risclet {} prog.s             # Assemble and {}\n",
+        mode_str, mode_str
+    ));
+    help.push_str(&format!(
+        "  risclet {} a.out              # {} a.out\n",
+        mode_str,
+        if mode == &Mode::Run {
+            "Run"
+        } else if mode == &Mode::Debug {
+            "Debug"
+        } else if mode == &Mode::Disassemble {
+            "Disassemble"
+        } else {
+            "Trace"
+        }
+    ));
+    help.push_str(&format!(
+        "  risclet {} -e binary          # {} using -e flag\n",
+        mode_str,
+        if mode == &Mode::Run {
+            "Run"
+        } else if mode == &Mode::Debug {
+            "Debug"
+        } else if mode == &Mode::Disassemble {
+            "Disassemble"
+        } else {
+            "Trace"
+        }
+    ));
+    if mode != &Mode::Run {
+        help.push_str(&format!(
+            "  risclet {} prog.s --hex       # With hex display\n",
+            mode_str
+        ));
     }
 
     help
