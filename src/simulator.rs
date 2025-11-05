@@ -107,21 +107,33 @@ fn run_simulator_impl(config: &Config, mut m: Machine) -> Result<(), String> {
     let instructions: Vec<Rc<Instruction>> =
         instructions.into_iter().map(Rc::new).collect();
 
-    let mode_str = match config.mode {
-        Mode::Run => "run",
-        Mode::Debug | Mode::Default => "debug",
-        Mode::Disassemble => "disassemble",
-        _ => "run",
-    };
-
+    // Unified execution loop for run, debug, and trace modes
     let sequence = trace(
         &mut m,
         &instructions,
         &addresses,
-        config.lint,
-        config.max_steps,
-        mode_str,
+        config,
     );
+
+    // Handle exit codes and errors from trace execution
+    if config.mode == Mode::Trace {
+        if let Some(effects) = sequence.last() {
+            if let (Op::Ecall, Some(msg)) =
+                (&effects.instruction.op, &effects.other_message)
+                && msg.starts_with("exit(")
+                && msg.ends_with(")")
+            {
+                let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
+                std::process::exit(n);
+            }
+
+            if let Some(msg) = &effects.other_message {
+                eprintln!("{}", msg);
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
 
     if config.mode == Mode::Debug || config.mode == Mode::Default {
         m.reset();

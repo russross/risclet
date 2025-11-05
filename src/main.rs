@@ -69,7 +69,7 @@ fn main() {
             }
         }
 
-        Mode::Run | Mode::Debug | Mode::Disassemble => {
+        Mode::Run | Mode::Debug | Mode::Disassemble | Mode::Trace => {
             if let Err(e) = run_simulator(&config) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);

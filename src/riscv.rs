@@ -1,5 +1,6 @@
 use super::*;
 use crate::decoder::InstructionDecoder;
+use crate::trace::SyscallInfo;
 use std::collections::HashMap;
 
 pub fn get_funct3(inst: i32) -> i32 {
@@ -939,13 +940,6 @@ impl Op {
                 match m.get(17) {
                     63 => {
                         // read system call
-                        m.current_effect_mut().unwrap().other_message =
-                            Some(format!(
-                                "read({}, 0x{:x}, {})",
-                                m.get(10),
-                                m.get(11),
-                                m.get(12)
-                            ));
                         let fd = m.get(A0);
                         let buf_addr = m.get(A1) as u32;
                         let count = m.get(A2);
@@ -969,18 +963,18 @@ impl Op {
                         m.store(buf_addr, &read_buffer)?;
                         m.set(A0, read_buffer.len() as i32);
                         m.stdin_mut().extend_from_slice(&read_buffer);
+                        m.current_effect_mut().unwrap().syscall =
+                            Some(SyscallInfo::Read {
+                                fd,
+                                buf_addr,
+                                count,
+                                data: read_buffer.clone(),
+                            });
                         m.current_effect_mut().unwrap().stdin =
                             Some(read_buffer);
                     }
                     64 => {
                         // write system call
-                        m.current_effect_mut().unwrap().other_message =
-                            Some(format!(
-                                "write({}, 0x{:x}, {})",
-                                m.get(A0),
-                                m.get(A1),
-                                m.get(A2)
-                            ));
                         let fd = m.get(A0);
                         let buf_addr = m.get(11) as u32;
                         let count = m.get(12);
@@ -1000,12 +994,21 @@ impl Op {
                         m.write_stdout(&write_buffer)?;
                         m.set(A0, write_buffer.len() as i32);
                         m.stdout_mut().extend_from_slice(&write_buffer);
+                        m.current_effect_mut().unwrap().syscall =
+                            Some(SyscallInfo::Write {
+                                fd,
+                                buf_addr,
+                                count,
+                                data: write_buffer.clone(),
+                            });
                         m.current_effect_mut().unwrap().stdout =
                             Some(write_buffer);
                     }
                     93 => {
                         // exit system call
                         let status = m.get(A0) & 0xff;
+                        m.current_effect_mut().unwrap().syscall =
+                            Some(SyscallInfo::Exit(status));
                         return Err(format!("exit({})", status));
                     }
                     syscall => {

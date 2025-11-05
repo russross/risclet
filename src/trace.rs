@@ -14,6 +14,23 @@ pub struct RegisterValue {
 }
 
 #[derive(Clone)]
+pub enum SyscallInfo {
+    Exit(i32),
+    Write {
+        fd: i32,
+        buf_addr: u32,
+        count: i32,
+        data: Vec<u8>,
+    },
+    Read {
+        fd: i32,
+        buf_addr: u32,
+        count: i32,
+        data: Vec<u8>,
+    },
+}
+
+#[derive(Clone)]
 pub struct Effects {
     pub instruction: Rc<crate::Instruction>,
 
@@ -24,6 +41,7 @@ pub struct Effects {
     pub mem_write: Option<(MemoryValue, MemoryValue)>,
     pub stdin: Option<Vec<u8>>,
     pub stdout: Option<Vec<u8>>,
+    pub syscall: Option<SyscallInfo>,
     pub other_message: Option<String>,
     pub terminate: bool,
     pub function_start: Option<u32>,
@@ -41,6 +59,7 @@ impl Effects {
             mem_write: None,
             stdin: None,
             stdout: None,
+            syscall: None,
             other_message: None,
             terminate: false,
             function_start: None,
@@ -56,36 +75,65 @@ impl Effects {
     pub fn report(&self, hex_mode: bool) -> Vec<String> {
         use crate::riscv::R;
 
-        let mut parts = Vec::new();
-        if let Some((_, RegisterValue { register: rd, value: val })) =
-            self.reg_write
-        {
-            if hex_mode {
-                parts.push(format!("{} <- 0x{:x}", R[rd], val));
-            } else {
-                parts.push(format!("{} <- {}", R[rd], val));
-            }
-        }
-        if self.pc.1 != self.pc.0 + self.instruction.length {
-            if hex_mode {
-                parts.push(format!("pc <- 0x{:x}", self.pc.1));
-            } else {
-                parts.push(format!("pc <- {}", self.pc.1));
-            }
-        }
+        let mut lines = Vec::new();
 
-        let mut lines = vec![parts.join(", ")];
+        // Handle syscalls specially - they replace normal output formatting
+        if let Some(syscall) = &self.syscall {
+            match syscall {
+                SyscallInfo::Exit(status) => {
+                    lines.push(format!("exit({})", status));
+                }
+                SyscallInfo::Write { buf_addr, count, data, .. } => {
+                    if hex_mode {
+                        lines.push(format!("write(1, 0x{:x}, 0x{:x})", buf_addr, count));
+                    } else {
+                        lines.push(format!("write(1, 0x{:x}, {})", buf_addr, count));
+                    }
+                    let msg = String::from_utf8_lossy(data).into_owned();
+                    lines.push(format!(
+                        "a0 <- {}",
+                        if hex_mode { format!("0x{:x}", data.len()) } else { data.len().to_string() }
+                    ));
+                    lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
+                }
+                SyscallInfo::Read { buf_addr, count, data, .. } => {
+                    if hex_mode {
+                        lines.push(format!("read(0, 0x{:x}, 0x{:x})", buf_addr, count));
+                    } else {
+                        lines.push(format!("read(0, 0x{:x}, {})", buf_addr, count));
+                    }
+                    let msg = String::from_utf8_lossy(data).into_owned();
+                    lines.push(format!(
+                        "a0 <- {}",
+                        if hex_mode { format!("0x{:x}", data.len()) } else { data.len().to_string() }
+                    ));
+                    lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
+                }
+            }
+        } else {
+            // Normal instruction effect reporting
+            let mut parts = Vec::new();
+            if let Some((_, RegisterValue { register: rd, value: val })) =
+                self.reg_write
+            {
+                if hex_mode {
+                    parts.push(format!("{} <- 0x{:x}", R[rd], val));
+                } else {
+                    parts.push(format!("{} <- {}", R[rd], val));
+                }
+            }
+            if self.pc.1 != self.pc.0 + self.instruction.length {
+                if hex_mode {
+                    parts.push(format!("pc <- 0x{:x}", self.pc.1));
+                } else {
+                    parts.push(format!("pc <- {}", self.pc.1));
+                }
+            }
+            lines.push(parts.join(", "));
+        }
 
         if let Some(msg) = &self.other_message {
             lines.push(msg.clone());
-        }
-        if let Some(stdin) = &self.stdin {
-            let msg = String::from_utf8_lossy(stdin).into_owned();
-            lines.push(format!("{:?}", msg));
-        }
-        if let Some(stdout) = &self.stdout {
-            let msg = String::from_utf8_lossy(stdout).into_owned();
-            lines.push(format!("{:?}", msg));
         }
 
         lines

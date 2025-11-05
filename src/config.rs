@@ -17,6 +17,8 @@ pub enum Mode {
     Debug,
     /// Disassemble mode: print disassembly and exit
     Disassemble,
+    /// Trace mode: execute and print each instruction with effects
+    Trace,
 }
 
 /// Complete unified configuration for risclet
@@ -83,6 +85,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
         "run" => parse_simulator_mode(&args[1..], Mode::Run),
         "debug" => parse_simulator_mode(&args[1..], Mode::Debug),
         "disassemble" => parse_simulator_mode(&args[1..], Mode::Disassemble),
+        "trace" => parse_simulator_mode(&args[1..], Mode::Trace),
         "-h" | "--help" | "help" => Err(print_main_help()),
         "-v" | "--version" => {
             println!("risclet 0.4.0");
@@ -235,7 +238,7 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
     let mut lint = false; // Changed default to false
     let mut max_steps = MAX_STEPS_DEFAULT;
     let mut hex_mode = false;
-    let mut show_addresses = false;
+    let mut show_addresses = mode == Mode::Disassemble || mode == Mode::Trace; // Default to true for disassemble and trace
     let mut verbose_instructions = false;
     let mut i = 0;
 
@@ -433,6 +436,7 @@ Subcommands:
   assemble      Assemble RISC-V source files to executable
   run           Run a RISC-V executable and exit
   disassemble   Disassemble a RISC-V executable
+  trace         Execute and print each instruction with effects
   debug         Debug a RISC-V executable with interactive TUI
   help, -h      Show this help message
   -v, --version Show version information
@@ -444,6 +448,7 @@ Examples:
   risclet run -e a.out
   risclet debug -e a.out --hex
   risclet disassemble -e a.out
+  risclet trace -e a.out
 
 Use 'risclet <subcommand> --help' for subcommand-specific help."
         .to_string()
@@ -514,6 +519,7 @@ fn print_simulator_help(mode: &Mode) -> String {
         Mode::Run => "run",
         Mode::Debug => "debug",
         Mode::Disassemble => "disassemble",
+        Mode::Trace => "trace",
         _ => "simulator",
     };
 
@@ -527,16 +533,25 @@ fn print_simulator_help(mode: &Mode) -> String {
     );
     help.push_str("  -s, --steps <count>           Max execution steps (default: 100000000)\n");
 
-    if mode == &Mode::Debug || mode == &Mode::Disassemble {
+    if mode == &Mode::Debug || mode == &Mode::Disassemble || mode == &Mode::Trace {
         help.push_str(
             "  --hex / --no-hex              Display values in hexadecimal\n",
         );
-        help.push_str(
-            "  --show-addresses              Show addresses in disassembly\n",
-        );
-        help.push_str(
-            "  --no-show-addresses           Hide addresses in disassembly\n",
-        );
+        if mode == &Mode::Debug {
+            help.push_str(
+                "  --show-addresses              Show addresses in disassembly\n",
+            );
+            help.push_str(
+                "  --no-show-addresses           Hide addresses in disassembly (default)\n",
+            );
+        } else {
+            help.push_str(
+                "  --show-addresses              Show addresses in disassembly (default)\n",
+            );
+            help.push_str(
+                "  --no-show-addresses           Hide addresses in disassembly\n",
+            );
+        }
         help.push_str("  --verbose-instructions        Show strict instructions (not pseudo)\n");
         help.push_str("  --no-verbose-instructions     Show pseudo-instructions (default)\n");
     }
