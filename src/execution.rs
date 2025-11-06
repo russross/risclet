@@ -387,18 +387,11 @@ impl Machine {
     }
 
     pub fn write_stdout(&mut self, data: &[u8]) -> Result<(), String> {
-        #[cfg(test)]
-        {
-            self.stdout_buffer.extend_from_slice(data);
-            Ok(())
-        }
-        #[cfg(not(test))]
-        {
-            let mut handle = io::stdout().lock();
-            handle
-                .write_all(data)
-                .map_err(|e| format!("write syscall error: {}", e))
-        }
+        // Just record the data; printing is handled by the trace function
+        // (which respects the execution mode: run/debug echo immediately,
+        // trace mode prints only from effects report)
+        self.state.stdout_mut().extend_from_slice(data);
+        Ok(())
     }
 
     pub fn set_reservation(&mut self, addr: u32) {
