@@ -1,4 +1,5 @@
 use crate::memory::MemoryLayout;
+use crate::riscv::R;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -63,8 +64,6 @@ impl Effects {
     }
 
     pub fn report(&self, hex_mode: bool) -> Vec<String> {
-        use crate::riscv::R;
-
         let mut lines = Vec::new();
 
         // Handle syscalls specially - they replace normal output formatting

@@ -1,6 +1,7 @@
+use crate::config::Config;
 use crate::linter::Linter;
 use crate::memory::{CpuState, MemoryManager, Segment};
-use crate::riscv::{Field, Op};
+use crate::riscv::{Field, Op, fields_to_string};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
 use crossterm::tty::IsTty;
 use std::collections::{HashMap, HashSet};
@@ -518,12 +519,13 @@ pub fn trace(
     m: &mut Machine,
     instructions: &[Rc<Instruction>],
     addresses: &HashMap<u32, usize>,
-    config: &crate::config::Config,
+    config: &Config,
 ) -> Vec<Effects> {
     let mut linter = Linter::new(m.get_reg(2) as u32);
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
     let mut prev_pseudo_index: Option<usize> = None;
+    let mut pending_pseudo_effects: Vec<Effects> = Vec::new();
     let echo_in = matches!(config.mode, crate::config::Mode::Debug)
         && !io::stdin().is_tty();
 
@@ -576,23 +578,12 @@ pub fn trace(
             effects.error(msg);
         }
 
-        // For trace mode, print the instruction and effects immediately
-        // Skip instructions that are part of a multi-instruction pseudo-sequence
-        // (only print the first instruction of the sequence)
+        // For trace mode, handle pseudo-instruction printing
         if matches!(config.mode, crate::config::Mode::Trace) {
-            let should_print = if config.verbose_instructions {
-                true // Always print in verbose mode
-            } else {
-                prev_pseudo_index != Some(instruction.pseudo_index)
-            };
-
-            if should_print {
-                let fields = if config.verbose_instructions {
-                    &instruction.verbose_fields
-                } else {
-                    &instruction.pseudo_fields
-                };
-                let disassembly = crate::riscv::fields_to_string(
+            if config.verbose_instructions {
+                // In verbose mode, print each instruction immediately
+                let fields = &instruction.verbose_fields;
+                let disassembly = fields_to_string(
                     fields,
                     instruction.address,
                     m.global_pointer,
@@ -609,7 +600,39 @@ pub fn trace(
                     &disassembly,
                     config.hex_mode,
                 );
-                prev_pseudo_index = Some(instruction.pseudo_index);
+            } else {
+                // In non-verbose mode, accumulate effects for pseudo-sequences
+                let current_pseudo_index = instruction.pseudo_index;
+
+                if prev_pseudo_index != Some(current_pseudo_index) {
+                    // We've moved to a new pseudo-instruction; print the accumulated effects
+                    if !pending_pseudo_effects.is_empty() {
+                        let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
+                        let first_inst = &pending_pseudo_effects[0].instruction;
+                        let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+                        let disassembly = fields_to_string(
+                            fields,
+                            first_inst.address,
+                            m.global_pointer,
+                            first_inst.length == 2,
+                            config.hex_mode,
+                            config.verbose_instructions,
+                            config.show_addresses,
+                            None,
+                            &m.address_symbols,
+                        );
+                        print_instruction_trace(
+                            &merged_effects,
+                            first_inst,
+                            &disassembly,
+                            config.hex_mode,
+                        );
+                        pending_pseudo_effects.clear();
+                    }
+                    prev_pseudo_index = Some(current_pseudo_index);
+                }
+
+                pending_pseudo_effects.push(effects.clone());
             }
         }
 
@@ -630,5 +653,69 @@ pub fn trace(
         }
     }
 
+    // Print any remaining pending pseudo effects at the end
+    if matches!(config.mode, crate::config::Mode::Trace)
+        && !config.verbose_instructions
+        && !pending_pseudo_effects.is_empty()
+    {
+        let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
+        let first_inst = &pending_pseudo_effects[0].instruction;
+        let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+        let disassembly = fields_to_string(
+            fields,
+            first_inst.address,
+            m.global_pointer,
+            first_inst.length == 2,
+            config.hex_mode,
+            config.verbose_instructions,
+            config.show_addresses,
+            None,
+            &m.address_symbols,
+        );
+        print_instruction_trace(
+            &merged_effects,
+            first_inst,
+            &disassembly,
+            config.hex_mode,
+        );
+    }
+
     sequence
+}
+
+/// Merge effects from multiple instructions in a pseudo-sequence into a single effect
+/// showing the combined result
+fn merge_pseudo_effects(effects_list: &[Effects]) -> Effects {
+    if effects_list.is_empty() {
+        panic!("merge_pseudo_effects called with empty list");
+    }
+
+    let mut merged = effects_list[0].clone();
+
+    // Keep only the final register write (from the last instruction that wrote a register)
+    for effects in &effects_list[1..] {
+        if effects.reg_write.is_some() {
+            merged.reg_write = effects.reg_write.clone();
+        }
+        if effects.mem_read.is_some() {
+            merged.mem_read = effects.mem_read.clone();
+        }
+        if effects.mem_write.is_some() {
+            merged.mem_write = effects.mem_write.clone();
+        }
+        // Update PC to the final PC from the last instruction
+        merged.pc.1 = effects.pc.1;
+    }
+
+    // Only adjust pc.0 for actual multi-instruction sequences.
+    // For single instructions (including branches/jumps), keep the original PC values
+    // so that branches and jumps correctly show as PC changes.
+    if effects_list.len() > 1 {
+        // Adjust pc.0 so that the sequential PC calculation (pc.0 + instruction.length)
+        // equals the final PC, preventing the report() method from showing an "unexpected" PC change
+        // for pseudo-instruction sequences that execute sequentially.
+        merged.pc.0 = merged.pc.1 - merged.instruction.length;
+    }
+
+    merged
 }

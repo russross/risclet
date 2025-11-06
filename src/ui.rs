@@ -795,10 +795,10 @@ impl Tui {
             (
                 &stack_colors,
                 start,
-                self.machine.stack_start(),
-                self.machine.stack_end(),
-                mr_start,
-                mr_start + mr_size as u32,
+                self.machine.stack_start() as i64,
+                self.machine.stack_end() as i64,
+                mr_start as i64,
+                mr_start as i64 + mr_size as i64,
             )
         } else {
             pane.label("Data");
@@ -813,17 +813,17 @@ impl Tui {
             (
                 &self.data_colors,
                 start,
-                self.machine.data_start(),
-                self.machine.data_end(),
-                mr_start,
-                mr_start + mr_size as u32,
+                self.machine.data_start() as i64,
+                self.machine.data_end() as i64,
+                mr_start as i64,
+                mr_start as i64 + mr_size as i64,
             )
         };
 
         // render each memory line
         let mut current_region = 0;
-        for i in 0..pane.height as u32 {
-            let addr = mem_start + (start as u32 + i) * 8;
+        for i in 0..pane.height as i64 {
+            let addr = mem_start + (start + i) * 8;
 
             // gather the bytes and colors to print
             let mut addr_to_print = None;
@@ -838,7 +838,7 @@ impl Tui {
 
                 // did we just hit a region label/stack frame boundary?
                 while current_region + 1 < colors.len()
-                    && colors[current_region + 1].0 <= j
+                    && colors[current_region + 1].0 as i64 <= j
                 {
                     current_region += 1;
                 }
@@ -854,7 +854,7 @@ impl Tui {
                     next_color = Colors::new(bg, fg);
                 }
 
-                if let Ok(byte) = self.machine.load_u8(j) {
+                if let Ok(byte) = self.machine.load_u8(j as u32) {
                     bytes[(j - addr) as usize] = (Some(byte as u8), next_color);
                 }
             }
