@@ -166,6 +166,42 @@ impl Machine {
         Ok(())
     }
 
+    /// Extract syscall signature for display before ecall execution
+    /// Returns a string like "write(1, 0x1234, 5)" or None if not a recognized syscall
+    pub fn ecall_signature_for_display(&self, hex_mode: bool) -> Option<String> {
+        let syscall_num = self.get_reg(17); // a7
+        match syscall_num {
+            63 => {
+                // read syscall
+                let fd = self.get_reg(10); // a0
+                let buf_addr = self.get_reg(11) as u32; // a1
+                let count = self.get_reg(12); // a2
+                Some(if hex_mode {
+                    format!("read({}, 0x{:x}, 0x{:x})", fd, buf_addr, count)
+                } else {
+                    format!("read({}, 0x{:x}, {})", fd, buf_addr, count)
+                })
+            }
+            64 => {
+                // write syscall
+                let fd = self.get_reg(10); // a0
+                let buf_addr = self.get_reg(11) as u32; // a1
+                let count = self.get_reg(12); // a2
+                Some(if hex_mode {
+                    format!("write({}, 0x{:x}, 0x{:x})", fd, buf_addr, count)
+                } else {
+                    format!("write({}, 0x{:x}, {})", fd, buf_addr, count)
+                })
+            }
+            93 => {
+                // exit syscall
+                let status = self.get_reg(10) & 0xff; // a0
+                Some(format!("exit({})", status))
+            }
+            _ => None, // unsupported syscall
+        }
+    }
+
     pub fn execute_and_collect_effects(
         &mut self,
         instruction: &Rc<Instruction>,
@@ -541,6 +577,75 @@ pub fn trace(
         }
 
         let instruction = &instructions[i];
+
+        // Special handling for ecall in trace mode: need to print before execution,
+        // but also need to flush any pending pseudo effects first (in pseudo-mode)
+        let is_ecall = matches!(instruction.op, Op::Ecall);
+        if is_ecall && matches!(config.mode, crate::config::Mode::Trace) && !config.verbose_instructions {
+            // In pseudo-mode with ecall: flush pending effects before printing ecall line
+            if !pending_pseudo_effects.is_empty() {
+                let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
+                let first_inst = &pending_pseudo_effects[0].instruction;
+                let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+                let disassembly = fields_to_string(
+                    fields,
+                    first_inst.address,
+                    m.global_pointer,
+                    first_inst.length == 2,
+                    config.hex_mode,
+                    config.verbose_instructions,
+                    config.show_addresses,
+                    None,
+                    &m.address_symbols,
+                );
+                print_instruction_trace(
+                    &merged_effects,
+                    first_inst,
+                    &disassembly,
+                    config.hex_mode,
+                );
+                pending_pseudo_effects.clear();
+            }
+
+            // Now print ecall line with syscall signature before execution
+            let fields = &instruction.verbose_fields;
+            let disassembly = fields_to_string(
+                fields,
+                instruction.address,
+                m.global_pointer,
+                instruction.length == 2,
+                config.hex_mode,
+                config.verbose_instructions,
+                config.show_addresses,
+                None,
+                &m.address_symbols,
+            );
+            if let Some(syscall_sig) = m.ecall_signature_for_display(config.hex_mode) {
+                println!("{}{}", disassembly, syscall_sig);
+            } else {
+                println!("{}", disassembly);
+            }
+        } else if is_ecall && matches!(config.mode, crate::config::Mode::Trace) && config.verbose_instructions {
+            // In verbose-mode with ecall: just print ecall line before execution
+            let fields = &instruction.verbose_fields;
+            let disassembly = fields_to_string(
+                fields,
+                instruction.address,
+                m.global_pointer,
+                instruction.length == 2,
+                config.hex_mode,
+                config.verbose_instructions,
+                config.show_addresses,
+                None,
+                &m.address_symbols,
+            );
+            if let Some(syscall_sig) = m.ecall_signature_for_display(config.hex_mode) {
+                println!("{}{}", disassembly, syscall_sig);
+            } else {
+                println!("{}", disassembly);
+            }
+        }
+
         let mut effects = m.execute_and_collect_effects(instruction);
         i += 1;
 
@@ -582,57 +687,77 @@ pub fn trace(
         if matches!(config.mode, crate::config::Mode::Trace) {
             if config.verbose_instructions {
                 // In verbose mode, print each instruction immediately
-                let fields = &instruction.verbose_fields;
-                let disassembly = fields_to_string(
-                    fields,
-                    instruction.address,
-                    m.global_pointer,
-                    instruction.length == 2,
-                    config.hex_mode,
-                    config.verbose_instructions,
-                    config.show_addresses,
-                    None,
-                    &m.address_symbols,
-                );
-                print_instruction_trace(
-                    &effects,
-                    instruction,
-                    &disassembly,
-                    config.hex_mode,
-                );
-            } else {
-                // In non-verbose mode, accumulate effects for pseudo-sequences
-                let current_pseudo_index = instruction.pseudo_index;
-
-                if prev_pseudo_index != Some(current_pseudo_index) {
-                    // We've moved to a new pseudo-instruction; print the accumulated effects
-                    if !pending_pseudo_effects.is_empty() {
-                        let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
-                        let first_inst = &pending_pseudo_effects[0].instruction;
-                        let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
-                        let disassembly = fields_to_string(
-                            fields,
-                            first_inst.address,
-                            m.global_pointer,
-                            first_inst.length == 2,
-                            config.hex_mode,
-                            config.verbose_instructions,
-                            config.show_addresses,
-                            None,
-                            &m.address_symbols,
-                        );
-                        print_instruction_trace(
-                            &merged_effects,
-                            first_inst,
-                            &disassembly,
-                            config.hex_mode,
-                        );
-                        pending_pseudo_effects.clear();
+                // For ecall, we already printed the instruction with syscall signature before execution,
+                // so only print the follow-up effect lines (not the first line with syscall signature)
+                if is_ecall {
+                    let effect_lines = effects.report(config.hex_mode);
+                    for line in &effect_lines[1..] {
+                        println!("    {}", line);
                     }
-                    prev_pseudo_index = Some(current_pseudo_index);
+                } else {
+                    let fields = &instruction.verbose_fields;
+                    let disassembly = fields_to_string(
+                        fields,
+                        instruction.address,
+                        m.global_pointer,
+                        instruction.length == 2,
+                        config.hex_mode,
+                        config.verbose_instructions,
+                        config.show_addresses,
+                        None,
+                        &m.address_symbols,
+                    );
+                    print_instruction_trace(
+                        &effects,
+                        instruction,
+                        &disassembly,
+                        config.hex_mode,
+                    );
                 }
+            } else {
+                // In non-verbose mode, ecall is already handled in the before-execution section
+                // (pending effects were flushed and ecall line was printed)
+                // So we only need to print the follow-up effect lines for ecall
+                if is_ecall {
+                    let effect_lines = effects.report(config.hex_mode);
+                    for line in &effect_lines[1..] {
+                        println!("    {}", line);
+                    }
+                    prev_pseudo_index = Some(instruction.pseudo_index);
+                } else {
+                    // Normal pseudo-instruction accumulation for non-ecall
+                    let current_pseudo_index = instruction.pseudo_index;
 
-                pending_pseudo_effects.push(effects.clone());
+                    if prev_pseudo_index != Some(current_pseudo_index) {
+                        // We've moved to a new pseudo-instruction; print the accumulated effects
+                        if !pending_pseudo_effects.is_empty() {
+                            let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
+                            let first_inst = &pending_pseudo_effects[0].instruction;
+                            let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+                            let disassembly = fields_to_string(
+                                fields,
+                                first_inst.address,
+                                m.global_pointer,
+                                first_inst.length == 2,
+                                config.hex_mode,
+                                config.verbose_instructions,
+                                config.show_addresses,
+                                None,
+                                &m.address_symbols,
+                            );
+                            print_instruction_trace(
+                                &merged_effects,
+                                first_inst,
+                                &disassembly,
+                                config.hex_mode,
+                            );
+                            pending_pseudo_effects.clear();
+                        }
+                        prev_pseudo_index = Some(current_pseudo_index);
+                    }
+
+                    pending_pseudo_effects.push(effects.clone());
+                }
             }
         }
 
