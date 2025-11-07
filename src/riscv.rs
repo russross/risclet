@@ -1793,6 +1793,118 @@ pub fn get_pseudo_sequence(
             ))
         }
 
+        // tail: auipc t1, hi + jalr zero, t1, lo
+        (Op::Auipc { rd: 6, imm: imm1 }, Op::Jalr { rd: ZERO, rs1: 6, offset: imm2 }) => {
+            Some((
+                2,
+                vec![Field::Opcode("tail"), Field::PCRelAddr(imm1 + imm2)],
+            ))
+        }
+
+        // lb rd, symbol: auipc rd, hi + lb rd, lo(rd)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Lb { rd: rd2, rs1: rs2, offset: imm2 },
+        ) if rd1 == rd2 && rd2 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("lb"),
+                Field::Reg(*rd1),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // lh rd, symbol: auipc rd, hi + lh rd, lo(rd)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Lh { rd: rd2, rs1: rs2, offset: imm2 },
+        ) if rd1 == rd2 && rd2 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("lh"),
+                Field::Reg(*rd1),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // lw rd, symbol: auipc rd, hi + lw rd, lo(rd)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Lw { rd: rd2, rs1: rs2, offset: imm2 },
+        ) if rd1 == rd2 && rd2 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("lw"),
+                Field::Reg(*rd1),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // lbu rd, symbol: auipc rd, hi + lbu rd, lo(rd)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Lbu { rd: rd2, rs1: rs2, offset: imm2 },
+        ) if rd1 == rd2 && rd2 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("lbu"),
+                Field::Reg(*rd1),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // lhu rd, symbol: auipc rd, hi + lhu rd, lo(rd)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Lhu { rd: rd2, rs1: rs2, offset: imm2 },
+        ) if rd1 == rd2 && rd2 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("lhu"),
+                Field::Reg(*rd1),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // sb rs, symbol, temp: auipc temp, hi + sb rs, lo(temp)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Sb { rs1: rs2, rs2: data_reg, offset: imm2 },
+        ) if rd1 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("sb"),
+                Field::Reg(*data_reg),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // sh rs, symbol, temp: auipc temp, hi + sh rs, lo(temp)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Sh { rs1: rs2, rs2: data_reg, offset: imm2 },
+        ) if rd1 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("sh"),
+                Field::Reg(*data_reg),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
+        // sw rs, symbol, temp: auipc temp, hi + sw rs, lo(temp)
+        (
+            Op::Auipc { rd: rd1, imm: imm1 },
+            Op::Sw { rs1: rs2, rs2: data_reg, offset: imm2 },
+        ) if rd1 == rs2 => Some((
+            2,
+            vec![
+                Field::Opcode("sw"),
+                Field::Reg(*data_reg),
+                Field::PCRelAddr(imm1 + imm2),
+            ],
+        )),
+
         _ => None,
     }
 }
