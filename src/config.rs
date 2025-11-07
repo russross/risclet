@@ -32,7 +32,7 @@ pub struct Config {
 
     // Simulator/debugger options
     pub executable: String,
-    pub lint: bool,
+    pub check_abi: bool,
 
     // Display options (for debug/disassemble modes)
     pub hex_mode: bool,
@@ -221,7 +221,7 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
         verbose,
         max_steps: MAX_STEPS_DEFAULT,
         executable: "a.out".to_string(),
-        lint: false,
+        check_abi: false,
         hex_mode: false,
         show_addresses: false,
         verbose_instructions: false,
@@ -236,7 +236,7 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
 /// Parse arguments for simulator modes (run, debug, disassemble, trace)
 fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
     let mut executable = String::new();
-    let mut lint = false;
+    let mut check_abi = false;
     let mut max_steps = MAX_STEPS_DEFAULT;
     let mut hex_mode = false;
     let mut show_addresses = mode == Mode::Disassemble || mode == Mode::Trace;
@@ -263,15 +263,11 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                 executable = args[i].clone();
                 has_explicit_executable = true;
             }
-            "-l" | "--lint" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(format!(
-                        "Error: {} requires an argument",
-                        args[i - 1]
-                    ));
-                }
-                lint = args[i].to_lowercase() == "true";
+            "--check-abi" => {
+                check_abi = true;
+            }
+            "--no-check-abi" => {
+                check_abi = false;
             }
             "-s" | "--steps" => {
                 i += 1;
@@ -364,7 +360,7 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
         verbose,
         max_steps,
         executable,
-        lint,
+        check_abi,
         hex_mode,
         show_addresses,
         verbose_instructions,
@@ -442,7 +438,7 @@ File Arguments:
   - No files: auto-detects *.s files in current directory, or uses a.out
 
 Common Options (all modes):
-  -l, --lint <true|false>       Enable ABI checks (default: false)
+  --check-abi / --no-check-abi  Enable ABI checking (default: false)
   -s, --steps <count>           Max execution steps (default: 100000000)
   --hex / --no-hex              Display values in hexadecimal
   --show-addresses              Show addresses in disassembly
@@ -462,9 +458,9 @@ Examples:
   risclet prog.s                   # Assemble and run prog.s
   risclet prog.s lib.s             # Assemble both files and run
   risclet a.out                    # Run a.out
-  risclet debug prog.s --hex       # Assemble and debug with hex display
-  risclet trace a.out --lint true  # Trace a.out with linting
-  risclet disassemble prog.s       # Assemble and disassemble
+  risclet debug prog.s --hex            # Assemble and debug with hex display
+  risclet trace a.out --check-abi       # Trace a.out with ABI checking
+  risclet disassemble prog.s            # Assemble and disassemble
   risclet assemble -o prog prog.s  # Assemble to disk as 'prog'
 
 Use 'risclet <subcommand> --help' for subcommand-specific help."
@@ -568,7 +564,7 @@ fn print_simulator_help(mode: &Mode) -> String {
 
     help.push_str("Simulator Options:\n");
     help.push_str(
-        "  -l, --lint <true|false>       Enable ABI checks (default: false)\n",
+        "  --check-abi / --no-check-abi  Enable ABI checking (default: false)\n",
     );
     help.push_str("  -s, --steps <count>           Max execution steps (default: 100000000)\n");
 

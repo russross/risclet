@@ -678,9 +678,9 @@ pub fn trace(
             }
         }
 
-        // Perform linting if enabled
+        // Perform ABI checking if enabled
         if !effects.terminate
-            && config.lint
+            && config.check_abi
             && let Err(msg) =
                 linter.check_instruction(m, instruction, &mut effects)
         {
