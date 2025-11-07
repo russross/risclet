@@ -16,7 +16,7 @@ use crate::ast::{
     SpecialOp, UTypeOp,
 };
 use crate::config::Config;
-use crate::error::{AssemblerError, Result};
+use crate::error::{RiscletError, Result};
 use crate::expressions::{EvaluatedValue, SymbolValues, eval_expr};
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::SymbolLinks;
@@ -160,7 +160,7 @@ fn encode_bss_line(
             let size =
                 require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(".space size cannot be negative: {}", size),
                     line.location.clone(),
                 ));
@@ -183,7 +183,7 @@ fn encode_bss_line(
                 Directive::Balign(_) => ".balign",
                 _ => "directive",
             };
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 format!(
                     "{} not allowed in .bss segment (only .space is allowed)",
                     dir_name
@@ -191,7 +191,7 @@ fn encode_bss_line(
                 line.location.clone(),
             ))
         }
-        LineContent::Instruction(_) => Err(AssemblerError::from_context(
+        LineContent::Instruction(_) => Err(RiscletError::from_context(
             "Instructions not allowed in .bss segment (only .space is allowed)"
                 .to_string(),
             line.location.clone(),
@@ -499,7 +499,7 @@ fn encode_i_type_family(
     let imm_to_encode = match op {
         ITypeOp::Slli | ITypeOp::Srli | ITypeOp::Srai => {
             if !(0..32).contains(&imm) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "Shift amount {} out of range (must be 0-31 for RV32)",
                         imm
@@ -713,7 +713,7 @@ fn encode_u_type_family(
 
     // Validate immediate fits in 20 bits (unsigned)
     if !(0..=0xFFFFF).contains(&imm) {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!(
                 "Immediate {} out of range for U-type (must fit in 20 bits)",
                 imm
@@ -1228,7 +1228,7 @@ fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
             // Bits [6:0]: 0001111 (opcode = 0x0F)
             // Validate pred bit 4 must be 0 (only 4 bits used)
             if (*pred & 0x10) != 0 {
-                return Err(AssemblerError::no_context(
+                return Err(RiscletError::no_context(
                     "fence: pred bit 4 (reserved) must be 0".to_string(),
                 ));
             }
@@ -1378,7 +1378,7 @@ fn encode_directive(
             let size =
                 require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(".space size cannot be negative: {}", size),
                     line.location.clone(),
                 ));
@@ -1398,7 +1398,7 @@ fn encode_directive(
             let alignment =
                 require_integer(val, ".balign directive", &line.location)?;
             if alignment <= 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         ".balign alignment must be positive: {}",
                         alignment
@@ -1910,7 +1910,7 @@ fn encode_compressed_inst(
         ) => Ok(encode_c_xor(*rd_prime, *rs2_prime)),
         (CompressedOp::CAddi, EvaluatedCompressedOperands::CI { rd, imm }) => {
             if !fits_signed(*imm as i64, 6) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.addi immediate {} out of range (must fit in 6-bit signed)",
                         imm
@@ -1922,7 +1922,7 @@ fn encode_compressed_inst(
         }
         (CompressedOp::CLi, EvaluatedCompressedOperands::CI { rd, imm }) => {
             if !fits_signed(*imm as i64, 6) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.li immediate {} out of range (must fit in 6-bit signed)",
                         imm
@@ -1934,13 +1934,13 @@ fn encode_compressed_inst(
         }
         (CompressedOp::CLui, EvaluatedCompressedOperands::CI { rd, imm }) => {
             if *rd == Register::X2 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     "c.lui cannot use sp (x2) as destination".to_string(),
                     location.clone(),
                 ));
             }
             if !fits_signed(*imm as i64, 6) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.lui immediate {} out of range (must fit in 6-bit signed)",
                         imm
@@ -1955,7 +1955,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CIW { rd_prime, imm },
         ) => {
             if *imm == 0 || *imm % 4 != 0 || *imm < 0 || *imm > 1020 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.addi4spn immediate {} must be non-zero, multiple of 4, and 4-1020",
                         imm
@@ -1970,7 +1970,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CI { rd: _, imm },
         ) => {
             if *imm == 0 || *imm % 16 != 0 || !fits_signed(*imm as i64, 10) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.addi16sp immediate {} must be non-zero, multiple of 16, and fit in 10 bits",
                         imm
@@ -1985,7 +1985,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CI { rd, imm: shamt },
         ) => {
             if *shamt <= 0 || *shamt >= 32 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.slli shift amount {} out of range (must be 1-31)",
                         shamt
@@ -2000,7 +2000,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CBImm { rd_prime, imm: shamt },
         ) => {
             if *shamt <= 0 || *shamt >= 32 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.srli shift amount {} out of range (must be 1-31)",
                         shamt
@@ -2015,7 +2015,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CBImm { rd_prime, imm: shamt },
         ) => {
             if *shamt <= 0 || *shamt >= 32 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.srai shift amount {} out of range (must be 1-31)",
                         shamt
@@ -2030,7 +2030,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CBImm { rd_prime, imm },
         ) => {
             if !fits_signed(*imm as i64, 6) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.andi immediate {} out of range (must fit in 6-bit signed)",
                         imm
@@ -2045,7 +2045,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CL { rd_prime, rs1_prime, offset },
         ) => {
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.lw offset {} must be 0-124 and 4-byte aligned",
                         offset
@@ -2060,7 +2060,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CIStackLoad { rd, offset },
         ) => {
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.lwsp offset {} must be 0-252 and 4-byte aligned",
                         offset
@@ -2075,7 +2075,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CS { rs2_prime, rs1_prime, offset },
         ) => {
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.sw offset {} must be 0-124 and 4-byte aligned",
                         offset
@@ -2090,7 +2090,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CSSStackStore { rs2, offset },
         ) => {
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.swsp offset {} must be 0-252 and 4-byte aligned",
                         offset
@@ -2105,7 +2105,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CBBranch { rs1_prime, offset },
         ) => {
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.beqz offset {} must be -256 to 254 and even",
                         offset
@@ -2120,7 +2120,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CBBranch { rs1_prime, offset },
         ) => {
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.bnez offset {} must be -256 to 254 and even",
                         offset
@@ -2135,7 +2135,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CJOpnd { offset },
         ) => {
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.j offset {} must be -2048 to 2046 and even",
                         offset
@@ -2150,7 +2150,7 @@ fn encode_compressed_inst(
             EvaluatedCompressedOperands::CJOpnd { offset },
         ) => {
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "c.jal offset {} must be -2048 to 2046 and even",
                         offset
@@ -2167,7 +2167,7 @@ fn encode_compressed_inst(
             CompressedOp::CJalr,
             EvaluatedCompressedOperands::CRSingle { rs1 },
         ) => Ok(encode_c_jalr(*rs1)),
-        _ => Err(AssemblerError::from_context(
+        _ => Err(RiscletError::from_context(
             format!("Invalid compressed instruction operands for {:?}", op),
             location.clone(),
         )),
@@ -2466,7 +2466,7 @@ fn require_integer(
 ) -> Result<i64> {
     match val {
         EvaluatedValue::Integer(i) => Ok(i as i64),
-        EvaluatedValue::Address(_) => Err(AssemblerError::from_context(
+        EvaluatedValue::Address(_) => Err(RiscletError::from_context(
             format!("{} must be an Integer, got Address", context),
             location.clone(),
         )),
@@ -2480,7 +2480,7 @@ fn require_address(
 ) -> Result<u32> {
     match val {
         EvaluatedValue::Address(a) => Ok(a),
-        EvaluatedValue::Integer(_) => Err(AssemblerError::from_context(
+        EvaluatedValue::Integer(_) => Err(RiscletError::from_context(
             format!("{} must be an Address, got Integer", context),
             location.clone(),
         )),
@@ -2489,7 +2489,7 @@ fn require_address(
 
 fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
     if !fits_signed(imm, 12) {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!(
                 "Immediate {} out of range for I-type (must fit in 12-bit signed)",
                 imm
@@ -2502,13 +2502,13 @@ fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
 
 fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!("Branch offset {} must be even", offset),
             location.clone(),
         ));
     }
     if !fits_signed(offset, 13) {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!(
                 "Branch offset {} out of range (must fit in 13-bit signed)",
                 offset
@@ -2521,13 +2521,13 @@ fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
 
 fn check_j_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!("Jump offset {} must be even", offset),
             location.clone(),
         ));
     }
     if !fits_signed(offset, 21) {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!(
                 "Jump offset {} out of range (must fit in 21-bit signed)",
                 offset
@@ -2540,7 +2540,7 @@ fn check_j_imm(offset: i64, location: &Location) -> Result<()> {
 
 fn check_u_imm(imm: u32, location: &Location) -> Result<()> {
     if imm > 0xFFFFF {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!(
                 "Immediate {} out of range for U-type (must fit in 20 bits)",
                 imm

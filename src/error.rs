@@ -1,6 +1,6 @@
 // error.rs
 //
-// This file defines the AssemblerError type for the RISC-V assembler.
+// This file defines the RiscletError type for the RISC-V assembler.
 // It provides error handling with location and source context.
 
 use crate::ast::{LinePointer, Location, Source};
@@ -12,14 +12,14 @@ use std::result::Result as StdResult;
 
 /// An error type for the assembler, including location and message, with context formatting.
 #[derive(Debug, Clone)]
-pub struct AssemblerError {
+pub struct RiscletError {
     pub location: Option<Location>,
     pub message: String,
 }
 
-impl AssemblerError {
+impl RiscletError {
     pub fn from_context(message: String, location: Location) -> Self {
-        AssemblerError { location: Some(location), message }
+        RiscletError { location: Some(location), message }
     }
 
     pub fn from_source_pointer(
@@ -31,11 +31,11 @@ impl AssemblerError {
             [pointer.line_index]
             .location
             .clone();
-        AssemblerError { location: Some(location), message }
+        RiscletError { location: Some(location), message }
     }
 
     pub fn no_context(message: String) -> Self {
-        AssemblerError { location: None, message }
+        RiscletError { location: None, message }
     }
 
     pub fn with_source_context(&self) -> String {
@@ -81,35 +81,35 @@ impl AssemblerError {
     }
 }
 
-impl From<std::io::Error> for AssemblerError {
+impl From<std::io::Error> for RiscletError {
     fn from(e: std::io::Error) -> Self {
-        AssemblerError::no_context(format!("IO error: {}", e))
+        RiscletError::no_context(format!("IO error: {}", e))
     }
 }
 
-impl From<String> for AssemblerError {
+impl From<String> for RiscletError {
     fn from(s: String) -> Self {
-        AssemblerError::no_context(s)
+        RiscletError::no_context(s)
     }
 }
 
-impl From<&str> for AssemblerError {
+impl From<&str> for RiscletError {
     fn from(s: &str) -> Self {
-        AssemblerError::no_context(s.to_string())
+        RiscletError::no_context(s.to_string())
     }
 }
 
-impl From<AssemblerError> for String {
-    fn from(e: AssemblerError) -> Self {
+impl From<RiscletError> for String {
+    fn from(e: RiscletError) -> Self {
         e.with_source_context()
     }
 }
 
-impl fmt::Display for AssemblerError {
+impl fmt::Display for RiscletError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.with_source_context())
     }
 }
 
-// Type alias for Result with AssemblerError
-pub type Result<T> = StdResult<T, AssemblerError>;
+// Type alias for Result with RiscletError
+pub type Result<T> = StdResult<T, RiscletError>;

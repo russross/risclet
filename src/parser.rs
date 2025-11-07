@@ -4,7 +4,7 @@ use crate::ast::{
     LoadStoreOp, Location, MemoryOrdering, NumericLabelRef, OperatorOp,
     PseudoOp, RTypeOp, Register, SpecialOp, Token, UTypeOp,
 };
-use crate::error::{AssemblerError, Result};
+use crate::error::{RiscletError, Result};
 
 pub struct Parser<'a> {
     tokens: &'a [Token],
@@ -42,13 +42,13 @@ impl<'a> Parser<'a> {
                 self.next();
                 Ok(())
             } else {
-                Err(AssemblerError::from_context(
+                Err(RiscletError::from_context(
                     format!("Expected {:?}, found {:?}", expected, t),
                     self.location(),
                 ))
             }
         } else {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 format!("Expected {:?}, found EOF", expected),
                 self.location(),
             ))
@@ -61,7 +61,7 @@ impl<'a> Parser<'a> {
         if let Some(Token::Identifier(s)) = self.next() {
             Ok(s)
         } else {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 "Expected identifier".to_string(),
                 self.location(),
             ))
@@ -74,7 +74,7 @@ impl<'a> Parser<'a> {
         if let Some(Token::Register(r)) = self.next() {
             Ok(r)
         } else {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 "Expected register".to_string(),
                 self.location(),
             ))
@@ -301,13 +301,13 @@ impl<'a> Parser<'a> {
                     self.next();
                     Ok(Expression::CurrentAddress) // .
                 }
-                _ => Err(AssemblerError::from_context(
+                _ => Err(RiscletError::from_context(
                     "Expected operand".to_string(),
                     self.location(),
                 )),
             }
         } else {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 "Expected operand".to_string(),
                 self.location(),
             ))
@@ -363,7 +363,7 @@ impl<'a> Parser<'a> {
             lines.push(Line { location, content: c });
         }
         if lines.is_empty() {
-            return Err(AssemblerError::from_context(
+            return Err(RiscletError::from_context(
                 "Empty line".to_string(),
                 self.location(),
             ));
@@ -457,7 +457,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 "Expected directive".to_string(),
                 self.location(),
             ))
@@ -748,7 +748,7 @@ impl<'a> Parser<'a> {
                     return self.parse_atomic(op, ordering);
                 }
 
-                Err(AssemblerError::from_context(
+                Err(RiscletError::from_context(
                     format!("Unknown instruction {}", opcode),
                     self.location(),
                 ))
@@ -826,7 +826,7 @@ impl<'a> Parser<'a> {
                 'r' => bits |= 0x02, // read (bit 1)
                 'w' => bits |= 0x01, // write (bit 0)
                 _ => {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!("Invalid fence ordering bit: {}", ch),
                         self.location(),
                     ));
@@ -1065,7 +1065,7 @@ impl<'a> Parser<'a> {
             "addi16sp" => {
                 let rd = self.parse_register()?;
                 if rd != Register::X2 {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         "c.addi16sp requires sp (x2) as rd".to_string(),
                         self.location(),
                     ));
@@ -1081,7 +1081,7 @@ impl<'a> Parser<'a> {
             "addi4spn" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.addi4spn requires rd in compressed register set, got {}",
                             rd
@@ -1092,7 +1092,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let base = self.parse_register()?;
                 if base != Register::X2 {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         "c.addi4spn requires sp (x2) as base register"
                             .to_string(),
                         self.location(),
@@ -1127,7 +1127,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::OpenParen)?;
                 let base = self.parse_register()?;
                 if base != Register::X2 {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         "c.lwsp requires sp as base register".to_string(),
                         self.location(),
                     ));
@@ -1150,7 +1150,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::OpenParen)?;
                 let base = self.parse_register()?;
                 if base != Register::X2 {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         "c.swsp requires sp as base register".to_string(),
                         self.location(),
                     ));
@@ -1169,7 +1169,7 @@ impl<'a> Parser<'a> {
             "lw" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}",
                             rd
@@ -1182,7 +1182,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::OpenParen)?;
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
                             rs1
@@ -1205,7 +1205,7 @@ impl<'a> Parser<'a> {
             "sw" => {
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}",
                             rs2
@@ -1218,7 +1218,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::OpenParen)?;
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
                             rs1
@@ -1241,7 +1241,7 @@ impl<'a> Parser<'a> {
             "and" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.and requires rd in compressed register set, got {}",
                             rd
@@ -1252,7 +1252,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.and requires rs2 in compressed register set, got {}",
                             rs2
@@ -1269,7 +1269,7 @@ impl<'a> Parser<'a> {
             "or" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.or requires rd in compressed register set, got {}",
                             rd
@@ -1280,7 +1280,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.or requires rs2 in compressed register set, got {}",
                             rs2
@@ -1297,7 +1297,7 @@ impl<'a> Parser<'a> {
             "xor" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.xor requires rd in compressed register set, got {}",
                             rd
@@ -1308,7 +1308,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.xor requires rs2 in compressed register set, got {}",
                             rs2
@@ -1325,7 +1325,7 @@ impl<'a> Parser<'a> {
             "sub" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.sub requires rd in compressed register set, got {}",
                             rd
@@ -1336,7 +1336,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
                 if !rs2.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.sub requires rs2 in compressed register set, got {}",
                             rs2
@@ -1354,7 +1354,7 @@ impl<'a> Parser<'a> {
             "srli" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.srli requires rd in compressed register set, got {}",
                             rd
@@ -1376,7 +1376,7 @@ impl<'a> Parser<'a> {
             "srai" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.srai requires rd in compressed register set, got {}",
                             rd
@@ -1398,7 +1398,7 @@ impl<'a> Parser<'a> {
             "andi" => {
                 let rd = self.parse_register()?;
                 if !rd.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.andi requires rd in compressed register set, got {}",
                             rd
@@ -1421,7 +1421,7 @@ impl<'a> Parser<'a> {
             "beqz" => {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.beqz requires rs1 in compressed register set, got {}",
                             rs1
@@ -1443,7 +1443,7 @@ impl<'a> Parser<'a> {
             "bnez" => {
                 let rs1 = self.parse_register()?;
                 if !rs1.is_compressed_register() {
-                    return Err(AssemblerError::from_context(
+                    return Err(RiscletError::from_context(
                         format!(
                             "c.bnez requires rs1 in compressed register set, got {}",
                             rs1
@@ -1484,7 +1484,7 @@ impl<'a> Parser<'a> {
             "ebreak" => (CompressedOp::CEbreak, CompressedOperands::None),
 
             _ => {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!("Unknown compressed instruction: c.{}", op),
                     self.location(),
                 ));
@@ -1505,7 +1505,7 @@ pub fn parse(tokens: &[Token], file: String, line: usize) -> Result<Vec<Line>> {
             .iter()
             .map(|t| format!("{:?}", t))
             .collect();
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!("Unexpected tokens after parsing: {}", remaining.join(" ")),
             Location { file: file.clone(), line },
         ));

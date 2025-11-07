@@ -8,7 +8,7 @@
 use crate::ast::{
     Directive, Expression, LineContent, LinePointer, Location, Source,
 };
-use crate::error::{AssemblerError, Result};
+use crate::error::{RiscletError, Result};
 use crate::layout::Layout;
 use crate::symbols::{SymbolDefinition, SymbolLinks, SymbolReference};
 use std::collections::HashMap;
@@ -136,7 +136,7 @@ fn eval_symbol(
         let cycle_chain: Vec<String> =
             cycle_stack.iter().map(|k| k.symbol.clone()).collect();
         let line = source.get_line(key.pointer)?;
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!(
                 "Circular reference in symbol '{}': {} -> {}",
                 key.symbol,
@@ -182,7 +182,7 @@ fn eval_symbol(
             eval_expr(expr, address, refs, symbol_values, source, key.pointer)?
         }
         _ => {
-            return Err(AssemblerError::from_context(
+            return Err(RiscletError::from_context(
                 format!(
                     "Symbol '{}' definition points to invalid line",
                     key.symbol
@@ -227,14 +227,14 @@ pub fn eval_expr(
         Expression::Identifier(name) => {
             // Find symbol in refs, then look up in symbol_values
             let sym_ref = refs.iter().find(|r| r.outgoing_name == *name).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!("Unresolved symbol '{}' (internal error - should have been caught earlier)", name),
                     location.clone(),
                 )
             })?;
 
             symbol_values.get(&sym_ref.definition).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!(
                         "Symbol '{}' not resolved (internal error - should have been resolved in forward phase)",
                         name
@@ -256,7 +256,7 @@ pub fn eval_expr(
                 .iter()
                 .find(|r| r.outgoing_name == label_name)
                 .ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!(
                         "Unresolved numeric label '{}' (internal error)",
                         nlr
@@ -266,7 +266,7 @@ pub fn eval_expr(
             })?;
 
             symbol_values.get(&sym_ref.definition).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!(
                         "Numeric label '{}' not resolved (internal error)",
                         label_name
@@ -304,7 +304,7 @@ pub fn eval_expr(
             let lhs_int = require_integer(lhs_val, "multiplication", location)?;
             let rhs_int = require_integer(rhs_val, "multiplication", location)?;
             let result = lhs_int.checked_mul(rhs_int).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!(
                         "Arithmetic overflow in multiplication: {} * {}",
                         lhs_int, rhs_int
@@ -323,13 +323,13 @@ pub fn eval_expr(
             let lhs_int = require_integer(lhs_val, "division", location)?;
             let rhs_int = require_integer(rhs_val, "division", location)?;
             if rhs_int == 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     "Division by zero".to_string(),
                     location.clone(),
                 ));
             }
             let result = lhs_int.checked_div(rhs_int).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!(
                         "Arithmetic overflow in division: {} / {}",
                         lhs_int, rhs_int
@@ -348,13 +348,13 @@ pub fn eval_expr(
             let lhs_int = require_integer(lhs_val, "modulo", location)?;
             let rhs_int = require_integer(rhs_val, "modulo", location)?;
             if rhs_int == 0 {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     "Modulo by zero".to_string(),
                     location.clone(),
                 ));
             }
             let result = lhs_int.checked_rem(rhs_int).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!(
                         "Arithmetic overflow in modulo: {} % {}",
                         lhs_int, rhs_int
@@ -374,7 +374,7 @@ pub fn eval_expr(
             let rhs_int = require_integer(rhs_val, "left shift", location)?;
 
             if !(0..32).contains(&rhs_int) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!("Invalid shift amount {} (must be 0..32)", rhs_int),
                     location.clone(),
                 ));
@@ -382,7 +382,7 @@ pub fn eval_expr(
 
             let result =
                 lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
-                    AssemblerError::from_context(
+                    RiscletError::from_context(
                         format!(
                             "Arithmetic overflow in left shift: {} << {}",
                             lhs_int, rhs_int
@@ -402,7 +402,7 @@ pub fn eval_expr(
             let rhs_int = require_integer(rhs_val, "right shift", location)?;
 
             if !(0..32).contains(&rhs_int) {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!("Invalid shift amount {} (must be 0..32)", rhs_int),
                     location.clone(),
                 ));
@@ -450,7 +450,7 @@ pub fn eval_expr(
                 eval_expr(expr, address, refs, symbol_values, source, pointer)?;
             let int = require_integer(val, "negation", location)?;
             let result = int.checked_neg().ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!("Arithmetic overflow in negation: -{}", int),
                     location.clone(),
                 )
@@ -476,7 +476,7 @@ pub fn checked_add(
     match (lhs, rhs) {
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_add(rhs_i).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!("Integer overflow: {} + {}", lhs, rhs),
                     location.clone(),
                 )
@@ -495,7 +495,7 @@ pub fn checked_add(
                         "overflow" // Result too large for u32
                     };
 
-                    AssemblerError::from_context(
+                    RiscletError::from_context(
                         format!("Address {}: {} + {}", error_type, lhs, rhs),
                         location.clone(),
                     )
@@ -504,7 +504,7 @@ pub fn checked_add(
             Ok(EvaluatedValue::Address(result))
         }
         (EvaluatedValue::Address(_), EvaluatedValue::Address(_)) => {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 format!(
                     "Type error: cannot add Address + Address: {} + {}",
                     lhs, rhs
@@ -524,7 +524,7 @@ pub fn checked_sub(
     match (lhs, rhs) {
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_sub(rhs_i).ok_or_else(|| {
-                AssemblerError::from_context(
+                RiscletError::from_context(
                     format!("Integer wraparound: {} - {}", lhs, rhs),
                     location.clone(),
                 )
@@ -542,7 +542,7 @@ pub fn checked_sub(
                         "overflow" // Result too large for u32
                     };
 
-                    AssemblerError::from_context(
+                    RiscletError::from_context(
                         format!("Address {}: {} - {}", error_type, lhs, rhs),
                         location.clone(),
                     )
@@ -555,7 +555,7 @@ pub fn checked_sub(
             let result: i32 = {
                 let sum: i64 = i64::from(lhs_a) - i64::from(rhs_a);
                 sum.try_into().map_err(|_| {
-                    AssemblerError::from_context(
+                    RiscletError::from_context(
                         format!("Integer out of range: {} - {}", lhs, rhs),
                         location.clone(),
                     )
@@ -564,7 +564,7 @@ pub fn checked_sub(
             Ok(EvaluatedValue::Integer(result))
         }
         (EvaluatedValue::Integer(_), EvaluatedValue::Address(_)) => {
-            Err(AssemblerError::from_context(
+            Err(RiscletError::from_context(
                 "Type error in subtraction: cannot compute Integer - Address"
                     .to_string(),
                 location.clone(),
@@ -581,7 +581,7 @@ fn require_integer(
 ) -> Result<i32> {
     match value {
         EvaluatedValue::Integer(i) => Ok(i),
-        EvaluatedValue::Address(_) => Err(AssemblerError::from_context(
+        EvaluatedValue::Address(_) => Err(RiscletError::from_context(
             format!(
                 "Type error in {}: expected Integer, got Address",
                 operation
