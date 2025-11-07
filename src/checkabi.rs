@@ -71,7 +71,7 @@ impl CheckABI {
         for read in &effects.reg_reads {
             let x = read.register;
             if !self.valid[x] || self.registers[x].is_none() {
-                return Err(format!("{} is uninitialized", R[x]));
+                return Err(format!("Cannot use uninitialized {}", R[x]));
             }
 
             // save-only values can be moved to other registers
@@ -86,7 +86,7 @@ impl CheckABI {
 
                     _ => {
                         return Err(format!(
-                            "the value in {} can only be saved to memory; it is not a valid input",
+                            "{} can only be stored, not used as input",
                             R[x]
                         ));
                     }
@@ -114,7 +114,7 @@ impl CheckABI {
 
             // sp must be aligned on 16-byte address
             if x == 2 && m.get_reg(x) & 0xf != 0 {
-                return Err("sp must always be a multiple of 16".to_string());
+                return Err("Stack pointer must be 16-byte aligned".to_string());
             }
         }
 
@@ -132,16 +132,15 @@ impl CheckABI {
                 let Some((_, RegisterValue { register: RA, .. })) =
                     effects.reg_write
                 else {
-                    return Err(format!(
-                        "{} did not use ra for return address",
-                        op_name
-                    ));
+                    return Err(
+                        "Return address must be stored in ra".to_string()
+                    );
                 };
 
                 // must call named function
                 let (_, target_pc) = effects.pc;
                 if !m.address_symbols.contains_key(&target_pc) {
-                    return Err(format!("{} to unlabeled address", op_name));
+                    return Err("Cannot jump to unlabeled address".to_string());
                 }
                 let name = &m.address_symbols[&target_pc];
 
@@ -176,7 +175,7 @@ impl CheckABI {
                     for &x in A_REGS.iter().take(arg_count) {
                         if !self.valid[x] {
                             return Err(format!(
-                                "argument in {} is uninitialized",
+                                "Function argument {} is uninitialized",
                                 R[x]
                             ));
                         }
@@ -212,7 +211,7 @@ impl CheckABI {
                 for x in [1, 3, 4] {
                     if self.registers[x] != self.at_entry[x] {
                         return Err(format!(
-                            "{} is not same value as when function called",
+                            "{} must be preserved across function call",
                             R[x]
                         ));
                     }
@@ -222,7 +221,7 @@ impl CheckABI {
                 for &x in &S_REGS {
                     if self.registers[x] != self.at_entry[x] {
                         return Err(format!(
-                            "{} is not same value as when function called",
+                            "{} must be preserved across function call",
                             R[x]
                         ));
                     }
@@ -230,7 +229,7 @@ impl CheckABI {
 
                 // sp must have the same address, but not necessarily the same value number
                 if m.get_reg(2) as u32 != self.at_entry_sp {
-                    return Err("sp is not same value as when function called"
+                    return Err("Stack pointer must be restored before return"
                         .to_string());
                 }
 
@@ -251,7 +250,7 @@ impl CheckABI {
                     self.at_entry_sp = at_entry_sp;
                 } else {
                     return Err(
-                        "ret with no stack frame to return to".to_string()
+                        "Unexpected return: no matching function call".to_string()
                     );
                 }
 
@@ -289,7 +288,7 @@ impl CheckABI {
 
                 if addr & alignment != 0 {
                     return Err(format!(
-                        "{}-byte memory write at unaligned address 0x{:x}",
+                        "Unaligned {}-byte memory write at 0x{:x}",
                         alignment + 1,
                         addr
                     ));
@@ -327,7 +326,7 @@ impl CheckABI {
                 };
                 if addr & alignment != 0 {
                     return Err(format!(
-                        "{}-byte memory read from unaligned address 0x{:x}",
+                        "Unaligned {}-byte memory read at 0x{:x}",
                         alignment + 1,
                         addr
                     ));
@@ -342,7 +341,7 @@ impl CheckABI {
                     for address in addr..addr + (size as u32) {
                         match self.memory.get(&address) {
                             None => return Err(
-                                "reading data that was only partially written"
+                                "Cannot read: incomplete write before this read"
                                     .to_string(),
                             ),
                             Some(ValueInMemory {
@@ -351,12 +350,12 @@ impl CheckABI {
                             }) => {
                                 if *mem_n != n {
                                     return Err(
-                                        "reading data from multiple writes"
+                                        "Cannot read: data spans multiple separate writes"
                                             .to_string(),
                                     );
                                 }
                                 if *mem_size != size {
-                                    return Err("reading data with different size than when written".to_string());
+                                    return Err("Read size mismatches original write size".to_string());
                                 }
                             }
                         }
@@ -368,7 +367,7 @@ impl CheckABI {
                     let n = self.new_n();
                     for address in addr..addr + (size as u32) {
                         if self.memory.contains_key(&address) {
-                            return Err("reading data that is only partially from a previous write".to_string());
+                            return Err("Cannot read: overlaps partially with previous write".to_string());
                         }
                         self.memory.insert(address, ValueInMemory { n, size });
                     }
@@ -391,7 +390,7 @@ impl CheckABI {
                             && val.size != 1
                         {
                             return Err(
-                                "write syscall on non-byte data".to_string()
+                                "Syscall write requires byte-level data".to_string()
                             );
                         }
                     }
@@ -408,7 +407,7 @@ impl CheckABI {
                             && val.size != 1
                         {
                             return Err(
-                                "read syscall overwriting non-byte data"
+                                "Syscall read would overwrite non-byte data"
                                     .to_string(),
                             );
                         }
