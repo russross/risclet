@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, Mode};
 use crate::linter::Linter;
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
@@ -168,7 +168,10 @@ impl Machine {
 
     /// Extract syscall signature for display before ecall execution
     /// Returns a string like "write(1, 0x1234, 5)" or None if not a recognized syscall
-    pub fn ecall_signature_for_display(&self, hex_mode: bool) -> Option<String> {
+    pub fn ecall_signature_for_display(
+        &self,
+        hex_mode: bool,
+    ) -> Option<String> {
         let syscall_num = self.get_reg(17); // a7
         match syscall_num {
             63 => {
@@ -555,8 +558,7 @@ pub fn trace(
     let mut i = 0;
     let mut prev_pseudo_index: Option<usize> = None;
     let mut pending_pseudo_effects: Vec<Effects> = Vec::new();
-    let echo_in = matches!(config.mode, crate::config::Mode::Debug)
-        && !io::stdin().is_tty();
+    let echo_in = matches!(config.mode, Mode::Debug) && !io::stdin().is_tty();
 
     for steps in 1..=config.max_steps {
         if i >= instructions.len() || instructions[i].address != m.pc() {
@@ -574,12 +576,17 @@ pub fn trace(
         // Special handling for ecall in trace mode: need to print before execution,
         // but also need to flush any pending pseudo effects first (in pseudo-mode)
         let is_ecall = matches!(instruction.op, Op::Ecall);
-        if is_ecall && matches!(config.mode, crate::config::Mode::Trace) && !config.verbose_instructions {
+        if is_ecall
+            && matches!(config.mode, Mode::Trace)
+            && !config.verbose_instructions
+        {
             // In pseudo-mode with ecall: flush pending effects before printing ecall line
             if !pending_pseudo_effects.is_empty() {
-                let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
+                let merged_effects =
+                    merge_pseudo_effects(&pending_pseudo_effects);
                 let first_inst = &pending_pseudo_effects[0].instruction;
-                let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+                let fields =
+                    &instructions[addresses[&first_inst.address]].pseudo_fields;
                 let disassembly = fields_to_string(
                     fields,
                     first_inst.address,
@@ -613,12 +620,17 @@ pub fn trace(
                 None,
                 &m.address_symbols,
             );
-            if let Some(syscall_sig) = m.ecall_signature_for_display(config.hex_mode) {
+            if let Some(syscall_sig) =
+                m.ecall_signature_for_display(config.hex_mode)
+            {
                 println!("{}{}", disassembly, syscall_sig);
             } else {
                 println!("{}", disassembly);
             }
-        } else if is_ecall && matches!(config.mode, crate::config::Mode::Trace) && config.verbose_instructions {
+        } else if is_ecall
+            && matches!(config.mode, Mode::Trace)
+            && config.verbose_instructions
+        {
             // In verbose-mode with ecall: just print ecall line before execution
             let fields = &instruction.verbose_fields;
             let disassembly = fields_to_string(
@@ -632,7 +644,9 @@ pub fn trace(
                 None,
                 &m.address_symbols,
             );
-            if let Some(syscall_sig) = m.ecall_signature_for_display(config.hex_mode) {
+            if let Some(syscall_sig) =
+                m.ecall_signature_for_display(config.hex_mode)
+            {
                 println!("{}{}", disassembly, syscall_sig);
             } else {
                 println!("{}", disassembly);
@@ -644,10 +658,7 @@ pub fn trace(
 
         // Echo stdout for run and debug modes (trace mode handles printing itself)
         if !effects.terminate
-            && matches!(
-                config.mode,
-                crate::config::Mode::Run | crate::config::Mode::Debug
-            )
+            && matches!(config.mode, Mode::Run | Mode::Debug)
             && let Some(output) = &effects.stdout
         {
             let mut handle = io::stdout().lock();
@@ -677,7 +688,7 @@ pub fn trace(
         }
 
         // For trace mode, handle pseudo-instruction printing
-        if matches!(config.mode, crate::config::Mode::Trace) {
+        if matches!(config.mode, Mode::Trace) {
             if config.verbose_instructions {
                 // In verbose mode, print each instruction immediately
                 // For ecall, we already printed the instruction with syscall signature before execution,
@@ -724,9 +735,13 @@ pub fn trace(
                     if prev_pseudo_index != Some(current_pseudo_index) {
                         // We've moved to a new pseudo-instruction; print the accumulated effects
                         if !pending_pseudo_effects.is_empty() {
-                            let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
-                            let first_inst = &pending_pseudo_effects[0].instruction;
-                            let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+                            let merged_effects =
+                                merge_pseudo_effects(&pending_pseudo_effects);
+                            let first_inst =
+                                &pending_pseudo_effects[0].instruction;
+                            let fields = &instructions
+                                [addresses[&first_inst.address]]
+                                .pseudo_fields;
                             let disassembly = fields_to_string(
                                 fields,
                                 first_inst.address,
@@ -766,19 +781,20 @@ pub fn trace(
             {
                 last.error(format!("stopped after {} steps", config.max_steps));
             }
-        } else if !matches!(config.mode, crate::config::Mode::Debug) {
+        } else if !matches!(config.mode, Mode::Debug) {
             sequence.clear();
         }
     }
 
     // Print any remaining pending pseudo effects at the end
-    if matches!(config.mode, crate::config::Mode::Trace)
+    if matches!(config.mode, Mode::Trace)
         && !config.verbose_instructions
         && !pending_pseudo_effects.is_empty()
     {
         let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
         let first_inst = &pending_pseudo_effects[0].instruction;
-        let fields = &instructions[addresses[&first_inst.address]].pseudo_fields;
+        let fields =
+            &instructions[addresses[&first_inst.address]].pseudo_fields;
         let disassembly = fields_to_string(
             fields,
             first_inst.address,

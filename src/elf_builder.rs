@@ -15,7 +15,7 @@ use crate::elf::{
     make_st_info,
 };
 use crate::error::Result;
-use crate::layout::Layout;
+use crate::layout::{Layout, LineLayout};
 use crate::symbols::SymbolLinks;
 
 // ============================================================================
@@ -462,11 +462,8 @@ impl<'a> ElfBuilder<'a> {
             let mut marker_addr = text_start;
             for (line_index, _line) in source_file.lines.iter().enumerate() {
                 let pointer = LinePointer { file_index, line_index };
-                if let &crate::layout::LineLayout {
-                    offset,
-                    segment: crate::ast::Segment::Text,
-                    ..
-                } = self.layout.get(pointer)
+                if let &LineLayout { offset, segment: Segment::Text, .. } =
+                    self.layout.get(pointer)
                 {
                     marker_addr = text_start + offset;
                     break;

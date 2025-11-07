@@ -1,3 +1,4 @@
+use crate::Instruction;
 use crate::memory::MemoryLayout;
 use crate::riscv::R;
 use std::rc::Rc;
@@ -23,7 +24,7 @@ pub enum SyscallInfo {
 
 #[derive(Clone)]
 pub struct Effects {
-    pub instruction: Rc<crate::Instruction>,
+    pub instruction: Rc<Instruction>,
 
     pub pc: (u32, u32),
     pub reg_reads: Vec<RegisterValue>,
@@ -40,7 +41,7 @@ pub struct Effects {
 }
 
 impl Effects {
-    pub fn new(instruction: &Rc<crate::Instruction>) -> Self {
+    pub fn new(instruction: &Rc<Instruction>) -> Self {
         Effects {
             instruction: instruction.clone(),
             pc: (0, 0),
