@@ -33,7 +33,7 @@ use crate::ast::{
     CompressedOperands, Directive, Expression, Instruction, Line, LineContent,
     LinePointer, Location, PseudoOp, Source, SourceFile,
 };
-use crate::error::AssemblerError;
+use crate::error::RiscletError;
 use std::collections::HashMap;
 
 // ==============================================================================
@@ -154,7 +154,7 @@ type LinkFileResult = (
 /// - Build a unified global symbols table
 /// - Resolve remaining references using global symbols
 /// - Report errors for duplicate globals and undefined symbols
-pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
+pub fn link_symbols(source: &Source) -> Result<SymbolLinks, RiscletError> {
     let mut globals: HashMap<String, GlobalDefinition> = HashMap::new();
     let mut all_unresolved: Vec<UnresolvedReference> = Vec::new();
     let mut line_refs: Vec<Vec<Vec<SymbolReference>>> = Vec::new();
@@ -176,7 +176,7 @@ pub fn link_symbols(source: &Source) -> Result<SymbolLinks, AssemblerError> {
                     .lines[existing.declaration_pointer.line_index]
                     .location
                     .to_string();
-                return Err(AssemblerError::from_source_pointer(
+                return Err(RiscletError::from_source_pointer(
                     format!(
                         "Duplicate global symbol: {} (previously declared at {})",
                         global_def.symbol, old_location
@@ -232,7 +232,7 @@ fn flush_numeric_labels(
     locations: &[Location],
     definitions: &mut HashMap<String, LinePointer>,
     unresolved: &mut Vec<UnresolvedReference>,
-) -> Result<(), AssemblerError> {
+) -> Result<(), RiscletError> {
     // Remove all backward numeric label definitions (e.g., "1b", "2b")
     definitions.retain(|symbol, _| is_numeric_backward_ref(symbol).is_none());
 
@@ -244,7 +244,7 @@ fn flush_numeric_labels(
         let unref = unresolved.remove(pos);
         let error_location =
             locations[unref.referencing_pointer.line_index].clone();
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!("Unresolved numeric label reference: {}", unref.symbol),
             error_location,
         ));
@@ -269,7 +269,7 @@ fn flush_numeric_labels(
 fn link_file(
     file_index: usize,
     file: &SourceFile,
-) -> Result<LinkFileResult, AssemblerError> {
+) -> Result<LinkFileResult, RiscletError> {
     // Precompute locations for error reporting
     let locations: Vec<Location> =
         file.lines.iter().map(|line| line.location.clone()).collect();
@@ -383,7 +383,7 @@ fn process_symbol_references(
     definitions: &HashMap<String, LinePointer>,
     unresolved: &mut Vec<UnresolvedReference>,
     outgoing_refs: &mut Vec<SymbolReference>,
-) -> Result<(), AssemblerError> {
+) -> Result<(), RiscletError> {
     let symbols = extract_references_from_line(line);
 
     for symbol in symbols {
@@ -400,7 +400,7 @@ fn process_symbol_references(
                     definition,
                 });
             } else {
-                return Err(AssemblerError::from_context(
+                return Err(RiscletError::from_context(
                     format!(
                         "Unresolved backward numeric label reference: {}",
                         symbol
@@ -448,7 +448,7 @@ fn process_symbol_definitions(
     unresolved: &mut Vec<UnresolvedReference>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
     patches: &mut Vec<(usize, SymbolReference)>,
-) -> Result<Option<String>, AssemblerError> {
+) -> Result<Option<String>, RiscletError> {
     match &line.content {
         LineContent::Label(label) => {
             if label.parse::<u32>().is_ok() {
@@ -493,7 +493,7 @@ fn process_numeric_label(
     unresolved: &mut Vec<UnresolvedReference>,
     definitions: &mut HashMap<String, LinePointer>,
     patches: &mut Vec<(usize, SymbolReference)>,
-) -> Result<Option<String>, AssemblerError> {
+) -> Result<Option<String>, RiscletError> {
     let forward_symbol = format!("{}f", label);
     let backward_symbol = format!("{}b", label);
 
@@ -531,13 +531,13 @@ fn process_regular_label(
     definitions: &mut HashMap<String, LinePointer>,
     unresolved: &mut Vec<UnresolvedReference>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
-) -> Result<Option<String>, AssemblerError> {
+) -> Result<Option<String>, RiscletError> {
     // Non-numeric labels flush all numeric label scopes
     flush_numeric_labels(locations, definitions, unresolved)?;
 
     // Check for duplicate label
     if definitions.contains_key(label) {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!("Duplicate label: {}", label),
             line_location.clone(),
         ));
@@ -561,10 +561,10 @@ fn process_equ_definition(
     line_location: &Location,
     definitions: &mut HashMap<String, LinePointer>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
-) -> Result<Option<String>, AssemblerError> {
+) -> Result<Option<String>, RiscletError> {
     // .equ cannot define numeric labels
     if name.parse::<u32>().is_ok() {
-        return Err(AssemblerError::from_context(
+        return Err(RiscletError::from_context(
             format!("Numeric label cannot be defined in .equ: {}", name),
             line_location.clone(),
         ));
@@ -615,11 +615,11 @@ fn process_global_declarations(
     line_location: &Location,
     definitions: &HashMap<String, LinePointer>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
-) -> Result<(), AssemblerError> {
+) -> Result<(), RiscletError> {
     for symbol in symbols {
         // Cannot declare numeric labels as global
         if symbol.parse::<u32>().is_ok() {
-            return Err(AssemblerError::from_context(
+            return Err(RiscletError::from_context(
                 format!("Numeric label cannot be declared global: {}", symbol),
                 line_location.clone(),
             ));
@@ -627,7 +627,7 @@ fn process_global_declarations(
 
         // Cannot declare the same symbol global twice
         if unfinalized_globals.contains_key(symbol) {
-            return Err(AssemblerError::from_context(
+            return Err(RiscletError::from_context(
                 format!("Symbol already declared global: {}", symbol),
                 line_location.clone(),
             ));
@@ -650,14 +650,14 @@ fn process_global_declarations(
 fn finalize_globals(
     unfinalized_globals: HashMap<String, UnfinalizedGlobal>,
     file: &SourceFile,
-) -> Result<Vec<GlobalDefinition>, AssemblerError> {
+) -> Result<Vec<GlobalDefinition>, RiscletError> {
     let mut global_definitions = Vec::new();
 
     for (symbol, ug) in unfinalized_globals {
         let Some(definition_pointer) = ug.definition else {
             let decl_location =
                 file.lines[ug.declaration_pointer.line_index].location.clone();
-            return Err(AssemblerError::from_context(
+            return Err(RiscletError::from_context(
                 format!("Global symbol declared but not defined: {}", symbol),
                 decl_location,
             ));
@@ -850,7 +850,7 @@ fn link_cross_file(
     source: &Source,
     globals: &HashMap<String, GlobalDefinition>,
     unresolved: Vec<UnresolvedReference>,
-) -> Result<Vec<(usize, usize, SymbolReference)>, AssemblerError> {
+) -> Result<Vec<(usize, usize, SymbolReference)>, RiscletError> {
     let mut cross_file_refs = Vec::new();
 
     for unref in unresolved {
@@ -869,7 +869,7 @@ fn link_cross_file(
             // Symbol is truly undefined
             let file = &source.files[unref.referencing_pointer.file_index];
             let line = &file.lines[unref.referencing_pointer.line_index];
-            return Err(AssemblerError::from_context(
+            return Err(RiscletError::from_context(
                 format!("Undefined symbol: {}", unref.symbol),
                 line.location.clone(),
             ));

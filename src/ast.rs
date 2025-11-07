@@ -4,7 +4,7 @@
 // for the RISC-V 32 assembler. Each structure and enum represents a specific component
 // of the assembly language syntax and is designed to be directly filled by the parser.
 
-use crate::error::{AssemblerError, Result};
+use crate::error::{RiscletError, Result};
 use std::fmt;
 
 // ==============================================================================
@@ -62,7 +62,7 @@ impl Source {
             .get(pointer.file_index)
             .and_then(|file| file.lines.get(pointer.line_index))
             .ok_or_else(|| {
-                AssemblerError::no_context(format!(
+                RiscletError::no_context(format!(
                     "Internal error: invalid line pointer [{}:{}]",
                     pointer.file_index, pointer.line_index
                 ))
