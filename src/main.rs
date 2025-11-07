@@ -11,7 +11,7 @@ mod decoder;
 mod elf_loader;
 mod execution;
 mod isa_tests;
-mod linter;
+mod checkabi;
 mod memory;
 mod riscv;
 mod simulator;
