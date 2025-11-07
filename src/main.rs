@@ -40,6 +40,8 @@ mod expressions_tests;
 #[cfg(test)]
 mod parser_tests;
 #[cfg(test)]
+mod riscv_tests;
+#[cfg(test)]
 mod symbols_tests;
 #[cfg(test)]
 mod tokenizer_tests;
