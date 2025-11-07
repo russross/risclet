@@ -73,7 +73,8 @@ fn run_simulator_impl(config: &Config, mut m: Machine) -> Result<(), String> {
     if config.mode == Mode::Disassemble {
         let mut prev = usize::MAX;
         for instruction in &instructions {
-            if !config.verbose_instructions && instruction.pseudo_index == prev {
+            if !config.verbose_instructions && instruction.pseudo_index == prev
+            {
                 continue;
             } else {
                 prev = instruction.pseudo_index;

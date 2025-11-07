@@ -8,6 +8,7 @@ use crate::symbols::BUILTIN_FILE_NAME;
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead};
+use std::result::Result as StdResult;
 
 /// An error type for the assembler, including location and message, with context formatting.
 #[derive(Debug, Clone)]
@@ -49,7 +50,7 @@ impl AssemblerError {
                 let reader = io::BufReader::new(file);
                 let lines: Vec<String> = reader
                     .lines()
-                    .collect::<std::result::Result<_, _>>()
+                    .collect::<StdResult<_, _>>()
                     .unwrap_or_default();
                 let line_num = location.line;
                 let start = line_num.saturating_sub(3);
@@ -111,4 +112,4 @@ impl fmt::Display for AssemblerError {
 }
 
 // Type alias for Result with AssemblerError
-pub type Result<T> = std::result::Result<T, AssemblerError>;
+pub type Result<T> = StdResult<T, AssemblerError>;

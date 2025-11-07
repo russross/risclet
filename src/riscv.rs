@@ -1794,12 +1794,13 @@ pub fn get_pseudo_sequence(
         }
 
         // tail: auipc t1, hi + jalr zero, t1, lo
-        (Op::Auipc { rd: 6, imm: imm1 }, Op::Jalr { rd: ZERO, rs1: 6, offset: imm2 }) => {
-            Some((
-                2,
-                vec![Field::Opcode("tail"), Field::PCRelAddr(imm1 + imm2)],
-            ))
-        }
+        (
+            Op::Auipc { rd: 6, imm: imm1 },
+            Op::Jalr { rd: ZERO, rs1: 6, offset: imm2 },
+        ) => Some((
+            2,
+            vec![Field::Opcode("tail"), Field::PCRelAddr(imm1 + imm2)],
+        )),
 
         // lb rd, symbol: auipc rd, hi + lb rd, lo(rd)
         (
