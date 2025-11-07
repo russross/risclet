@@ -1,5 +1,5 @@
 use crate::config::{Config, Mode};
-use crate::linter::Linter;
+use crate::checkabi::CheckABI;
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
@@ -553,7 +553,7 @@ pub fn trace(
     addresses: &HashMap<u32, usize>,
     config: &Config,
 ) -> Vec<Effects> {
-    let mut linter = Linter::new(m.get_reg(2) as u32);
+    let mut abi = CheckABI::new(m.get_reg(2) as u32);
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
     let mut prev_pseudo_index: Option<usize> = None;
@@ -682,7 +682,7 @@ pub fn trace(
         if !effects.terminate
             && config.check_abi
             && let Err(msg) =
-                linter.check_instruction(m, instruction, &mut effects)
+                abi.check_instruction(m, instruction, &mut effects)
         {
             effects.error(msg);
         }

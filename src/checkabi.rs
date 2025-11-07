@@ -16,7 +16,7 @@ struct ValueInMemory {
     size: usize,
 }
 
-pub struct Linter {
+pub struct CheckABI {
     memory: HashMap<u32, ValueInMemory>,
 
     stack: Vec<FunctionRegisters>,
@@ -29,7 +29,7 @@ pub struct Linter {
     next_n: usize,
 }
 
-impl Linter {
+impl CheckABI {
     pub fn new(at_entry_sp: u32) -> Self {
         let mut at_entry = [None; 32];
         for (n, elt) in at_entry.iter_mut().enumerate() {

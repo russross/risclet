@@ -1,4 +1,3 @@
 *.o
+*.md
 target
-CLAUDE.md
-AGENTS.md
