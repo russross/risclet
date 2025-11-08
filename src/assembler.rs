@@ -107,7 +107,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
     let mut elf_builder = ElfBuilder::new(&layout, text_bytes, data_bytes);
 
     // Build symbol table
-    elf_builder.build_symbol_table(source, symbol_links);
+    elf_builder.build_symbol_table(source, symbol_links)?;
 
     // Checkpoint: dump ELF if requested
     if should_dump_phase(config, Phase::Elf) {
