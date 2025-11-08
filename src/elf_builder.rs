@@ -410,7 +410,7 @@ impl<'a> ElfBuilder<'a> {
         &mut self,
         source: &Source,
         symbol_links: &SymbolLinks,
-    ) {
+    ) -> Result<()> {
         // Infer has_data and has_bss from layout
         let has_data = self.layout.data_size > 0;
         let has_bss = self.layout.bss_size > 0;
@@ -504,16 +504,24 @@ impl<'a> ElfBuilder<'a> {
                                 text_start + line_layout.offset,
                                 text_section_index,
                             ),
-                            Segment::Data => (
-                                data_start + line_layout.offset,
-                                data_section_index
-                                    .expect("data section should exist if referencing data segment"),
-                            ),
-                            Segment::Bss => (
-                                bss_start + line_layout.offset,
-                                bss_section_index
-                                    .expect("bss section should exist if referencing bss segment"),
-                            ),
+                            Segment::Data => {
+                                let idx = data_section_index.ok_or_else(|| {
+                                    RiscletError::internal(
+                                        "Layout indicates data segment exists but no data section was created. \
+                                         This indicates a bug in the assembler.".to_string()
+                                    )
+                                })?;
+                                (data_start + line_layout.offset, idx)
+                            }
+                            Segment::Bss => {
+                                let idx = bss_section_index.ok_or_else(|| {
+                                    RiscletError::internal(
+                                        "Layout indicates bss segment exists but no bss section was created. \
+                                         This indicates a bug in the assembler.".to_string()
+                                    )
+                                })?;
+                                (bss_start + line_layout.offset, idx)
+                            }
                         };
                         let name_idx = self.symbol_names.add(name);
 
@@ -548,9 +556,19 @@ impl<'a> ElfBuilder<'a> {
         if has_data || has_bss {
             let sdata_begin = self.symbol_names.add("__SDATA_BEGIN__");
             let section = if has_data {
-                data_section_index.expect("data section should exist")
+                data_section_index.ok_or_else(|| {
+                    RiscletError::internal(
+                        "Layout has data size > 0 but data_section_index is None. \
+                         This indicates a bug in the assembler.".to_string()
+                    )
+                })?
             } else {
-                bss_section_index.expect("bss section should exist")
+                bss_section_index.ok_or_else(|| {
+                    RiscletError::internal(
+                        "Layout has bss size > 0 but bss_section_index is None. \
+                         This indicates a bug in the assembler.".to_string()
+                    )
+                })?
             };
             let addr = if has_data { data_start } else { bss_start };
             self.add_symbol(ElfSymbol {
@@ -581,14 +599,24 @@ impl<'a> ElfBuilder<'a> {
                     Segment::Text => {
                         (text_start + line_layout.offset, text_section_index)
                     }
-                    Segment::Data => (
-                        data_start + line_layout.offset,
-                        data_section_index.expect("data section should exist"),
-                    ),
-                    Segment::Bss => (
-                        bss_start + line_layout.offset,
-                        bss_section_index.expect("bss section should exist"),
-                    ),
+                    Segment::Data => {
+                        let idx = data_section_index.ok_or_else(|| {
+                            RiscletError::internal(
+                                "Global symbol references data segment but no data section was created. \
+                                 This indicates a bug in the assembler.".to_string()
+                            )
+                        })?;
+                        (data_start + line_layout.offset, idx)
+                    }
+                    Segment::Bss => {
+                        let idx = bss_section_index.ok_or_else(|| {
+                            RiscletError::internal(
+                                "Global symbol references bss segment but no bss section was created. \
+                                 This indicates a bug in the assembler.".to_string()
+                            )
+                        })?;
+                        (bss_start + line_layout.offset, idx)
+                    }
                 }
             };
 
@@ -616,13 +644,24 @@ impl<'a> ElfBuilder<'a> {
 
         // __bss_start
         let bss_start_name = self.symbol_names.add("__bss_start");
-        let bss_start_section = if has_bss {
-            bss_section_index.expect("bss section should exist")
-        } else if has_data {
-            data_section_index.expect("data section should exist")
-        } else {
-            text_section_index
-        };
+        let bss_start_section =
+            if has_bss {
+                bss_section_index.ok_or_else(|| {
+                    RiscletError::internal(
+                    "Layout has bss size > 0 but bss_section_index is None. \
+                     This indicates a bug in the assembler.".to_string()
+                )
+                })?
+            } else if has_data {
+                data_section_index.ok_or_else(|| {
+                    RiscletError::internal(
+                    "Layout has data size > 0 but data_section_index is None. \
+                     This indicates a bug in the assembler.".to_string()
+                )
+                })?
+            } else {
+                text_section_index
+            };
         self.add_symbol(ElfSymbol {
             st_name: bss_start_name,
             st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
@@ -645,13 +684,24 @@ impl<'a> ElfBuilder<'a> {
 
         // __BSS_END__
         let bss_end_name = self.symbol_names.add("__BSS_END__");
-        let bss_end_section = if has_bss {
-            bss_section_index.expect("bss section should exist")
-        } else if has_data {
-            data_section_index.expect("data section should exist")
-        } else {
-            text_section_index
-        };
+        let bss_end_section =
+            if has_bss {
+                bss_section_index.ok_or_else(|| {
+                    RiscletError::internal(
+                    "Layout has bss size > 0 but bss_section_index is None. \
+                     This indicates a bug in the assembler.".to_string()
+                )
+                })?
+            } else if has_data {
+                data_section_index.ok_or_else(|| {
+                    RiscletError::internal(
+                    "Layout has data size > 0 but data_section_index is None. \
+                     This indicates a bug in the assembler.".to_string()
+                )
+                })?
+            } else {
+                text_section_index
+            };
         self.add_symbol(ElfSymbol {
             st_name: bss_end_name,
             st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
@@ -682,5 +732,7 @@ impl<'a> ElfBuilder<'a> {
             st_value: end_bss,
             st_size: 0,
         });
+
+        Ok(())
     }
 }

@@ -147,7 +147,11 @@ impl Machine {
     }
 
     pub fn set(&mut self, reg: usize, value: i32) {
-        if let Some(effects) = &mut self.current_effect {
+        // Don't record effects for writes to the zero register (x0),
+        // since the RegisterFile silently ignores them
+        if reg != 0
+            && let Some(effects) = &mut self.current_effect
+        {
             assert!(effects.reg_write.is_none());
             let old_val = self.state.get_reg(reg);
             effects.reg_write = Some((

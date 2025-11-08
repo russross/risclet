@@ -122,6 +122,7 @@ impl Effects {
                     lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
                 }
             }
+            // Don't add error message when syscall is already reported
         } else {
             // Normal instruction effect reporting
             let mut parts = Vec::new();
@@ -142,10 +143,10 @@ impl Effects {
                 }
             }
             lines.push(parts.join(", "));
-        }
 
-        if let Some(error) = &self.other_message {
-            lines.push(error.message());
+            if let Some(error) = &self.other_message {
+                lines.push(error.message());
+            }
         }
 
         lines
