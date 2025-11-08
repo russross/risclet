@@ -919,94 +919,27 @@ impl Tui {
         }
     }
 
+    #[rustfmt::skip]
     fn render_help(&mut self, pane: &mut Pane) {
         pane.label("Help");
 
-        writeln!(
-            pane,
-            " To move the cursor without stepping:                          "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   ↑/up arrow       : move cursor up one instruction           "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   ↓/down arrow     : move cursor down one instruction         "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   PgUp/Fn-↑        : move cursor up one page                  "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   PgDown/Fn-↓      : move cursor down one page                "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "                                                               "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            " To step forward/rewind through program:                       "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   →/right arrow    : step forward one instruction             "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   ←/left arrow     : rewind one instruction                   "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   end key/Fn-→     : fast forward to end of current function  "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   home key/Fn-←    : rewind to start of current function      "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   enter/return     : fast forward to instruction under cursor "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   backspace/delete : rewind to instruction under cursor       "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "                                                               "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            " To toggle what is displayed:                                  "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   (r)egister pane, (o)utput pane, (s)tack pane, (d)ata pane   "
-        )
-        .unwrap();
-        writeln!(
-            pane,
-            "   (v)erbose mode, show (a)ddresses, use he(x)adecimal         "
-        )
-        .unwrap();
+        writeln!(pane, " To move the cursor without stepping:                          ").unwrap();
+        writeln!(pane, "   ↑/up arrow       : move cursor up one instruction           ").unwrap();
+        writeln!(pane, "   ↓/down arrow     : move cursor down one instruction         ").unwrap();
+        writeln!(pane, "   PgUp/Fn-↑        : move cursor up one page                  ").unwrap();
+        writeln!(pane, "   PgDown/Fn-↓      : move cursor down one page                ").unwrap();
+        writeln!(pane, "                                                               ").unwrap();
+        writeln!(pane, " To step forward/rewind through program:                       ").unwrap();
+        writeln!(pane, "   →/right arrow    : step forward one instruction             ").unwrap();
+        writeln!(pane, "   ←/left arrow     : rewind one instruction                   ").unwrap();
+        writeln!(pane, "   end key/Fn-→     : fast forward to end of current function  ").unwrap();
+        writeln!(pane, "   home key/Fn-←    : rewind to start of current function      ").unwrap();
+        writeln!(pane, "   enter/return     : fast forward to instruction under cursor ").unwrap();
+        writeln!(pane, "   backspace/delete : rewind to instruction under cursor       ").unwrap();
+        writeln!(pane, "                                                               ").unwrap();
+        writeln!(pane, " To toggle what is displayed:                                  ").unwrap();
+        writeln!(pane, "   (r)egister pane, (o)utput pane, (s)tack pane, (d)ata pane   ").unwrap();
+        writeln!(pane, "   (v)erbose mode, show (a)ddresses, use he(x)adecimal         ").unwrap();
     }
 }
 

@@ -405,6 +405,27 @@ nop
     assert_instructions_match(source, expected);
 }
 
+#[test]
+fn test_bgtu_bleu_pseudos() {
+    let source = r#"
+.text
+bgtu x1, x2, target
+bleu x3, x4, target
+target:
+nop
+"#;
+
+    // bgtu x1, x2, target should desugar to bltu x2, x1, target
+    // bleu x3, x4, target should desugar to bgeu x4, x3, target
+    let expected = &[
+        0x63, 0x64, 0x11, 0x00, // bltu x2,x1,8 <target>
+        0x63, 0x72, 0x32, 0x00, // bgeu x4,x3,4 <target>
+        0x13, 0x00, 0x00, 0x00, // nop
+    ];
+
+    assert_instructions_match(source, expected);
+}
+
 // ============================================================================
 // Jump and U-Type Instruction Tests
 // ============================================================================

@@ -714,6 +714,22 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expression()?;
                 Ok(Instruction::BType(BTypeOp::Bge, rs2, rs1, Box::new(expr)))
             }
+            "bgtu" => {
+                let rs1 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(BTypeOp::Bltu, rs2, rs1, Box::new(expr)))
+            }
+            "bleu" => {
+                let rs1 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let expr = self.parse_expression()?;
+                Ok(Instruction::BType(BTypeOp::Bgeu, rs2, rs1, Box::new(expr)))
+            }
             "j" => {
                 let expr = self.parse_expression()?;
                 Ok(Instruction::JType(
