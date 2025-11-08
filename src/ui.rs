@@ -13,8 +13,9 @@ use crossterm::{
     tty::IsTty,
 };
 
+use crate::config::Config;
 use crate::execution::{Instruction, Machine};
-use crate::riscv::{fields_to_string, Op, R, RA, SP, ZERO};
+use crate::riscv::{Op, R, RA, SP, ZERO, fields_to_string};
 use crate::trace::Effects;
 
 macro_rules! serr {
@@ -39,27 +40,22 @@ pub struct Tui {
     data_colors: Vec<(u32, Colors)>,
     pastels: Vec<Colors>,
 
-    hex_mode: bool,
+    config: Config,
     show_registers: bool,
     show_output: bool,
     show_stack: bool,
     show_data: bool,
     show_help: bool,
-    verbose: bool,
-    show_addresses: bool,
 }
 
 impl Tui {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         machine: Machine,
         instructions: Vec<Rc<Instruction>>,
         addresses: HashMap<u32, usize>,
         pseudo_addresses: HashMap<usize, usize>,
         sequence: Vec<Effects>,
-        hex_mode: bool,
-        show_addresses: bool,
-        verbose: bool,
+        config: &Config,
     ) -> Result<Self, String> {
         // make sure stdout is connected to a tty
         if !io::stdout().is_tty() {
@@ -134,14 +130,12 @@ impl Tui {
             data_colors,
             pastels,
 
-            hex_mode,
+            config: config.clone(),
             show_registers: true,
             show_output: true,
             show_stack: true,
             show_data: true,
             show_help: false,
-            verbose,
-            show_addresses,
         })
     }
 
@@ -170,7 +164,7 @@ impl Tui {
 
             // cursor motion
             KeyCode::Up => {
-                if self.verbose {
+                if self.config.verbose_instructions {
                     self.cursor_index = self.cursor_index.saturating_sub(1);
                 } else {
                     let pseudo = self.instructions[self.cursor_index]
@@ -180,7 +174,7 @@ impl Tui {
                 }
             }
             KeyCode::Down => {
-                if self.verbose {
+                if self.config.verbose_instructions {
                     self.cursor_index = (self.cursor_index + 1)
                         .min(self.instructions.len() - 1);
                 } else {
@@ -192,7 +186,7 @@ impl Tui {
                 }
             }
             KeyCode::PageUp => {
-                if self.verbose {
+                if self.config.verbose_instructions {
                     self.cursor_index = self
                         .cursor_index
                         .saturating_sub(source_height as usize);
@@ -204,7 +198,7 @@ impl Tui {
                 }
             }
             KeyCode::PageDown => {
-                if self.verbose {
+                if self.config.verbose_instructions {
                     self.cursor_index = min(
                         self.cursor_index + source_height as usize,
                         self.instructions.len() - 1,
@@ -364,7 +358,7 @@ impl Tui {
             }
 
             KeyCode::Char('x') => {
-                self.hex_mode = !self.hex_mode;
+                self.config.hex_mode = !self.config.hex_mode;
             }
 
             KeyCode::Char('r') => {
@@ -384,11 +378,12 @@ impl Tui {
             }
 
             KeyCode::Char('v') => {
-                self.verbose = !self.verbose;
+                self.config.verbose_instructions =
+                    !self.config.verbose_instructions;
             }
 
             KeyCode::Char('a') => {
-                self.show_addresses = !self.show_addresses;
+                self.config.show_addresses = !self.config.show_addresses;
             }
 
             KeyCode::Char('q') => {
@@ -603,7 +598,7 @@ impl Tui {
         let pc_i = self.addresses[&effects.instruction.address];
 
         // set the top label/status line
-        let label = if self.hex_mode {
+        let label = if self.config.hex_mode {
             format!(
                 "Step {}/{} PC:0x{:x}",
                 self.sequence_index + 1,
@@ -637,15 +632,16 @@ impl Tui {
             None
         };
 
-        let (length, pc_index, cursor_index) = if self.verbose {
-            (self.instructions.len(), pc_i, self.cursor_index)
-        } else {
-            (
-                self.instructions.last().unwrap().pseudo_index + 1,
-                effects.instruction.pseudo_index,
-                self.instructions[self.cursor_index].pseudo_index,
-            )
-        };
+        let (length, pc_index, cursor_index) =
+            if self.config.verbose_instructions {
+                (self.instructions.len(), pc_i, self.cursor_index)
+            } else {
+                (
+                    self.instructions.last().unwrap().pseudo_index + 1,
+                    effects.instruction.pseudo_index,
+                    self.instructions[self.cursor_index].pseudo_index,
+                )
+            };
         let (start, end) = calc_range(length, cursor_index, pane.height);
 
         for i in start..end {
@@ -657,7 +653,7 @@ impl Tui {
                 break;
             }
 
-            let index = if self.verbose {
+            let index = if self.config.verbose_instructions {
                 i as usize
             } else {
                 self.pseudo_addresses[&(i as usize)]
@@ -683,7 +679,8 @@ impl Tui {
             };
 
             let mut line: Vec<char> = fields_to_string(
-                if self.verbose {
+                &self.config,
+                if self.config.verbose_instructions {
                     &inst.verbose_fields
                 } else {
                     &inst.pseudo_fields
@@ -691,9 +688,6 @@ impl Tui {
                 addr,
                 self.machine.global_pointer,
                 inst.length == 2,
-                self.hex_mode,
-                self.verbose,
-                self.show_addresses,
                 arrow,
                 &self.machine.address_symbols,
             )
@@ -720,7 +714,7 @@ impl Tui {
 
         // draw the side-effects label
         let mut side_effects =
-            self.sequence[self.sequence_index].report(self.hex_mode);
+            self.sequence[self.sequence_index].report(self.config.hex_mode);
         side_effects.truncate(2);
         if side_effects[0].is_empty() {
             side_effects.remove(0);
@@ -745,7 +739,7 @@ impl Tui {
                 let val = self
                     .machine
                     .get(R.iter().position(|&r_str| r_str == reg).unwrap());
-                if self.hex_mode && !(0..=9).contains(&val) {
+                if self.config.hex_mode && !(0..=9).contains(&val) {
                     write!(pane, "{}:0x{:x} ", reg, val).unwrap();
                 } else {
                     write!(pane, "{}:{:} ", reg, val).unwrap();

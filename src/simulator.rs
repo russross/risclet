@@ -3,7 +3,7 @@
 // Provides the RISC-V simulation and debugging functionality
 
 use crate::config::{Config, Mode};
-use crate::elf_loader::{load_elf, ElfInput};
+use crate::elf_loader::{ElfInput, load_elf};
 use crate::execution::{Instruction, add_local_labels, trace};
 use crate::riscv::{Op, fields_to_string, get_pseudo_sequence};
 use crate::ui::Tui;
@@ -79,13 +79,11 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<(), String> {
             println!(
                 "{}",
                 fields_to_string(
+                    config,
                     fields,
                     instruction.address,
                     m.global_pointer,
                     instruction.length == 2,
-                    config.hex_mode,
-                    config.verbose_instructions,
-                    config.show_addresses,
                     None,
                     &m.address_symbols
                 )
@@ -129,9 +127,7 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<(), String> {
             addresses,
             pseudo_addresses,
             sequence,
-            config.hex_mode,
-            config.show_addresses,
-            config.verbose_instructions,
+            config,
         )?;
         tui.main_loop()?;
         return Ok(());

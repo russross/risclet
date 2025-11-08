@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
 use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
-use crate::error::{RiscletError, Result};
+use crate::error::{Result, RiscletError};
 use crate::expressions::eval_symbol_values;
 use crate::layout::Layout;
 use crate::parser::parse;
@@ -29,9 +29,8 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
         .map_err(|e| RiscletError::no_context(e.to_string()))?;
 
     // Set executable permissions (0755)
-    let metadata = file
-        .metadata()
-        .map_err(|e| RiscletError::no_context(e.to_string()))?;
+    let metadata =
+        file.metadata().map_err(|e| RiscletError::no_context(e.to_string()))?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&config.output_file, permissions)

@@ -22,6 +22,7 @@ pub enum Mode {
 }
 
 /// Complete unified configuration for risclet
+#[derive(Clone)]
 pub struct Config {
     // Mode
     pub mode: Mode,

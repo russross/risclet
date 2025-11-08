@@ -244,9 +244,8 @@ impl CheckABI {
                     self.save_only = save_only;
                     self.at_entry_sp = at_entry_sp;
                 } else {
-                    return Err(
-                        "Unexpected return: no matching function call".to_string()
-                    );
+                    return Err("Unexpected return: no matching function call"
+                        .to_string());
                 }
 
                 // invalidate t and a1+ registers
@@ -385,7 +384,8 @@ impl CheckABI {
                             && val.size != 1
                         {
                             return Err(
-                                "Syscall write requires byte-level data".to_string()
+                                "Syscall write requires byte-level data"
+                                    .to_string(),
                             );
                         }
                     }

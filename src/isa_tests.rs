@@ -5,7 +5,9 @@ mod riscv_isa_tests {
     const MAX_STEPS: usize = 100000;
 
     fn run_test_binary(binary: &[u8]) -> Result<i32, String> {
-        let mut machine = crate::elf_loader::load_elf(crate::elf_loader::ElfInput::Bytes(binary))?;
+        let mut machine = crate::elf_loader::load_elf(
+            crate::elf_loader::ElfInput::Bytes(binary),
+        )?;
 
         for _step in 0..MAX_STEPS {
             let pc = machine.pc();
