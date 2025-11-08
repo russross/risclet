@@ -46,9 +46,9 @@ mod symbols_tests;
 #[cfg(test)]
 mod tokenizer_tests;
 
-use assembler::{assemble_to_memory, drive_assembler};
-use config::{Mode, parse_cli_args};
-use simulator::{run_simulator, run_simulator_from_memory};
+use crate::assembler::{assemble_to_memory, drive_assembler};
+use crate::config::{Mode, parse_cli_args};
+use crate::simulator::run_simulator;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -84,13 +84,13 @@ fn main() {
                 };
 
                 // Pass in-memory ELF to simulator
-                if let Err(e) = run_simulator_from_memory(&config, &elf_bytes) {
+                if let Err(e) = run_simulator(&config, ElfInput::Bytes(&elf_bytes)) {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
             } else {
                 // No .s files - load executable and run simulator
-                if let Err(e) = run_simulator(&config) {
+                if let Err(e) = run_simulator(&config, ElfInput::File(&config.executable)) {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }

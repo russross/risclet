@@ -1,7 +1,8 @@
+use std::rc::Rc;
+
 use crate::Instruction;
 use crate::memory::MemoryLayout;
 use crate::riscv::R;
-use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct MemoryValue {

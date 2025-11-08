@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use crate::execution::{Instruction, Machine};
 use crate::riscv::{A_REGS, Op, R, RA, S_REGS, SP, T_REGS, ZERO};
 use crate::trace::{Effects, MemoryValue, RegisterValue};
-use std::collections::HashMap;
-use std::rc::Rc;
 
 struct FunctionRegisters {
     at_entry: [Option<usize>; 32],
@@ -122,12 +123,6 @@ impl CheckABI {
         match instruction.op {
             // function call
             Op::Jal { rd: 1..32, .. } | Op::Jalr { rd: 1..32, .. } => {
-                let op_name = if matches!(instruction.op, Op::Jal { .. }) {
-                    "jal"
-                } else {
-                    "jalr"
-                };
-
                 // must use ra for return address
                 let Some((_, RegisterValue { register: RA, .. })) =
                     effects.reg_write

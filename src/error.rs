@@ -3,12 +3,13 @@
 // This file defines the RiscletError type for the RISC-V assembler.
 // It provides error handling with location and source context.
 
-use crate::ast::{LinePointer, Location, Source};
-use crate::symbols::BUILTIN_FILE_NAME;
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead};
 use std::result::Result as StdResult;
+
+use crate::ast::{LinePointer, Location, Source};
+use crate::symbols::BUILTIN_FILE_NAME;
 
 /// An error type for the assembler, including location and message, with context formatting.
 #[derive(Debug, Clone)]

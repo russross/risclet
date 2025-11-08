@@ -1,5 +1,3 @@
-use super::riscv::*;
-use super::*;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::{self, Write};
@@ -14,6 +12,10 @@ use crossterm::{
     style::{Color, Colors, Print, SetColors},
     tty::IsTty,
 };
+
+use crate::execution::{Instruction, Machine};
+use crate::riscv::{fields_to_string, Op, R, RA, SP, ZERO};
+use crate::trace::Effects;
 
 macro_rules! serr {
     ($expr:expr) => {

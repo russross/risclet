@@ -1,7 +1,8 @@
-use super::*;
-use crate::decoder::InstructionDecoder;
-use crate::trace::SyscallInfo;
 use std::collections::HashMap;
+
+use crate::decoder::InstructionDecoder;
+use crate::execution::{Instruction, Machine};
+use crate::trace::SyscallInfo;
 
 pub fn get_funct3(inst: i32) -> i32 {
     (inst >> 12) & 0x07
