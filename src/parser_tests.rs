@@ -333,8 +333,8 @@ fn test_parse_error_leftover_tokens() {
     assert!(result.is_err(), "Should fail with leftover tokens");
     let err = result.unwrap_err();
     assert!(
-        err.message.contains("Unexpected tokens"),
-        "Error should mention unexpected tokens: {}",
+        err.message().contains("Extra tokens after instruction"),
+        "Error should mention extra tokens: {}",
         err
     );
 }

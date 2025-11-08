@@ -24,17 +24,16 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
 
     // Write to output file
     let mut file = File::create(&config.output_file)
-        .map_err(|e| RiscletError::no_context(e.to_string()))?;
-    file.write_all(&elf_bytes)
-        .map_err(|e| RiscletError::no_context(e.to_string()))?;
+        .map_err(|e| RiscletError::io(e.to_string()))?;
+    file.write_all(&elf_bytes).map_err(|e| RiscletError::io(e.to_string()))?;
 
     // Set executable permissions (0755)
     let metadata =
-        file.metadata().map_err(|e| RiscletError::no_context(e.to_string()))?;
+        file.metadata().map_err(|e| RiscletError::io(e.to_string()))?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&config.output_file, permissions)
-        .map_err(|e| RiscletError::no_context(e.to_string()))?;
+        .map_err(|e| RiscletError::io(e.to_string()))?;
 
     // Default: silent on success
     Ok(())
@@ -52,7 +51,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
         dump_ast(config, source);
         if is_terminal_phase(config, Phase::Parse) {
             println!("\n(No output file generated)");
-            return Err(RiscletError::no_context(
+            return Err(RiscletError::io(
                 "Dump mode: no ELF generated".to_string(),
             ));
         }
@@ -69,7 +68,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
         dump_symbols(config, source, symbol_links);
         if is_terminal_phase(config, Phase::SymbolLinking) {
             println!("\n(No output file generated)");
-            return Err(RiscletError::no_context(
+            return Err(RiscletError::io(
                 "Dump mode: no ELF generated".to_string(),
             ));
         }
@@ -96,7 +95,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
         && is_terminal_phase(config, Phase::Relaxation)
     {
         println!("\n(No output file generated)");
-        return Err(RiscletError::no_context(
+        return Err(RiscletError::io(
             "Dump mode: no ELF generated".to_string(),
         ));
     }
@@ -115,7 +114,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
         dump_elf(config, &elf_builder);
         if is_terminal_phase(config, Phase::Elf) {
             println!("\n(No output file generated)");
-            return Err(RiscletError::no_context(
+            return Err(RiscletError::io(
                 "Dump mode: no ELF generated".to_string(),
             ));
         }
@@ -125,7 +124,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
     // If any dump options were used, we skip generating ELF
     if config.dump.has_dumps() {
         println!("\n(No output file generated)");
-        return Err(RiscletError::no_context(
+        return Err(RiscletError::io(
             "Dump mode: no ELF generated".to_string(),
         ));
     }
@@ -138,9 +137,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
             let pointer = g.definition_pointer;
             Ok(layout.get_line_address(pointer))
         } else {
-            Err(RiscletError::no_context(
-                "_start symbol not defined".to_string(),
-            ))
+            Err(RiscletError::io("_start symbol not defined".to_string()))
         }
     }?;
 
@@ -235,7 +232,7 @@ pub fn relaxation_loop(
         // (The encoder already updated source.lines[].size)
     }
 
-    Err(RiscletError::no_context(format!(
+    Err(RiscletError::io(format!(
         "Failed to converge after {} iterations - possible cyclic size dependencies",
         MAX_ITERATIONS
     )))
@@ -305,10 +302,7 @@ pub fn process_files(files: &[String]) -> Result<Source> {
 /// Process a single source file
 fn process_file(file_path: &str) -> Result<SourceFile> {
     let file = File::open(file_path).map_err(|e| {
-        RiscletError::no_context(format!(
-            "could not open file '{}': {}",
-            file_path, e
-        ))
+        RiscletError::io(format!("could not open file '{}': {}", file_path, e))
     })?;
     let reader = io::BufReader::new(file);
 
@@ -316,7 +310,7 @@ fn process_file(file_path: &str) -> Result<SourceFile> {
 
     for (line_num, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| {
-            RiscletError::no_context(format!(
+            RiscletError::io(format!(
                 "could not read file '{}': {}",
                 file_path, e
             ))

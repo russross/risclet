@@ -1642,7 +1642,8 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("undefined_func")
-                && err.contains("declared but not defined"),
+                && err.contains("declared global")
+                && err.contains("never defined"),
             "Error should mention symbol and reason: {}",
             err
         );
@@ -1750,7 +1751,7 @@ mod tests {
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("func") && err.contains("already declared global"),
+            err.contains("func") && err.contains("more than once"),
             "Error should mention symbol: {}",
             err
         );
@@ -1813,7 +1814,8 @@ mod tests {
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("undefined_func") && err.contains("Undefined"),
+            err.contains("undefined_func")
+                && err.contains("used but never defined"),
             "Error should mention undefined symbol: {}",
             err
         );

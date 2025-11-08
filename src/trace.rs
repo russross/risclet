@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::Instruction;
+use crate::error::RiscletError;
 use crate::memory::MemoryLayout;
 use crate::riscv::R;
 
@@ -35,7 +36,7 @@ pub struct Effects {
     pub stdin: Option<Vec<u8>>,
     pub stdout: Option<Vec<u8>>,
     pub syscall: Option<SyscallInfo>,
-    pub other_message: Option<String>,
+    pub other_message: Option<RiscletError>,
     pub terminate: bool,
     pub function_start: Option<u32>,
     pub function_end: Option<u32>,
@@ -60,8 +61,8 @@ impl Effects {
         }
     }
 
-    pub fn error(&mut self, msg: String) {
-        self.other_message = Some(msg);
+    pub fn error(&mut self, error: RiscletError) {
+        self.other_message = Some(error);
         self.terminate = true;
     }
 
@@ -143,8 +144,8 @@ impl Effects {
             lines.push(parts.join(", "));
         }
 
-        if let Some(msg) = &self.other_message {
-            lines.push(msg.clone());
+        if let Some(error) = &self.other_message {
+            lines.push(error.message());
         }
 
         lines

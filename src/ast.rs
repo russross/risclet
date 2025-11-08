@@ -62,7 +62,7 @@ impl Source {
             .get(pointer.file_index)
             .and_then(|file| file.lines.get(pointer.line_index))
             .ok_or_else(|| {
-                RiscletError::no_context(format!(
+                RiscletError::internal(format!(
                     "Internal error: invalid line pointer [{}:{}]",
                     pointer.file_index, pointer.line_index
                 ))

@@ -161,7 +161,7 @@ fn encode_bss_line(
                 require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
                 return Err(RiscletError::from_context(
-                    format!(".space size cannot be negative: {}", size),
+                    format!(".space size must be non-negative, got {}", size),
                     line.location.clone(),
                 ));
             }
@@ -185,14 +185,14 @@ fn encode_bss_line(
             };
             Err(RiscletError::from_context(
                 format!(
-                    "{} not allowed in .bss segment (only .space is allowed)",
+                    "{} cannot be used in .bss segment (only .space and labels are allowed)",
                     dir_name
                 ),
                 line.location.clone(),
             ))
         }
         LineContent::Instruction(_) => Err(RiscletError::from_context(
-            "Instructions not allowed in .bss segment (only .space is allowed)"
+            "Instructions cannot be used in .bss segment (only .space and labels are allowed)"
                 .to_string(),
             line.location.clone(),
         )),
@@ -715,7 +715,7 @@ fn encode_u_type_family(
     if !(0..=0xFFFFF).contains(&imm) {
         return Err(RiscletError::from_context(
             format!(
-                "Immediate {} out of range for U-type (must fit in 20 bits)",
+                "U-type immediate must be in range 0 to 1048575 (20 bits), got {}",
                 imm
             ),
             location.clone(),
@@ -1228,8 +1228,9 @@ fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
             // Bits [6:0]: 0001111 (opcode = 0x0F)
             // Validate pred bit 4 must be 0 (only 4 bits used)
             if (*pred & 0x10) != 0 {
-                return Err(RiscletError::no_context(
-                    "fence: pred bit 4 (reserved) must be 0".to_string(),
+                return Err(RiscletError::execution_error(
+                    "fence instruction: predecessor bit 4 (reserved) must be 0"
+                        .to_string(),
                 ));
             }
             let fm_bits = 0u32; // Standard fence at bits [31:28]
@@ -1379,7 +1380,7 @@ fn encode_directive(
                 require_integer(val, ".space directive", &line.location)?;
             if size < 0 {
                 return Err(RiscletError::from_context(
-                    format!(".space size cannot be negative: {}", size),
+                    format!(".space size must be non-negative, got {}", size),
                     line.location.clone(),
                 ));
             }
@@ -1912,7 +1913,7 @@ fn encode_compressed_inst(
             if !fits_signed(*imm as i64, 6) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.addi immediate {} out of range (must fit in 6-bit signed)",
+                        "c.addi immediate must be in range -32 to 31 (6-bit signed), got {} (must fit in 6-bit signed)",
                         imm
                     ),
                     location.clone(),
@@ -1942,7 +1943,7 @@ fn encode_compressed_inst(
             if !fits_signed(*imm as i64, 6) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.lui immediate {} out of range (must fit in 6-bit signed)",
+                        "c.lui immediate must be in range -32 to 31 (6-bit signed), got {} (must fit in 6-bit signed)",
                         imm
                     ),
                     location.clone(),
@@ -1957,7 +1958,7 @@ fn encode_compressed_inst(
             if *imm == 0 || *imm % 4 != 0 || *imm < 0 || *imm > 1020 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.addi4spn immediate {} must be non-zero, multiple of 4, and 4-1020",
+                        "c.addi4spn immediate must be non-zero, a multiple of 4, and in range 4-1020, got {} non-zero, multiple of 4, and 4-1020",
                         imm
                     ),
                     location.clone(),
@@ -1972,7 +1973,7 @@ fn encode_compressed_inst(
             if *imm == 0 || *imm % 16 != 0 || !fits_signed(*imm as i64, 10) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.addi16sp immediate {} must be non-zero, multiple of 16, and fit in 10 bits",
+                        "c.addi16sp immediate must be non-zero, a multiple of 16, and fit in 10 bits, got {} non-zero, multiple of 16, and fit in 10 bits",
                         imm
                     ),
                     location.clone(),
@@ -1987,7 +1988,7 @@ fn encode_compressed_inst(
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.slli shift amount {} out of range (must be 1-31)",
+                        "c.slli shift amount must be in range 1-31, got {} (must be 1-31)",
                         shamt
                     ),
                     location.clone(),
@@ -2002,7 +2003,7 @@ fn encode_compressed_inst(
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.srli shift amount {} out of range (must be 1-31)",
+                        "c.srli shift amount must be in range 1-31, got {} (must be 1-31)",
                         shamt
                     ),
                     location.clone(),
@@ -2017,7 +2018,7 @@ fn encode_compressed_inst(
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.srai shift amount {} out of range (must be 1-31)",
+                        "c.srai shift amount must be in range 1-31, got {} (must be 1-31)",
                         shamt
                     ),
                     location.clone(),
@@ -2032,7 +2033,7 @@ fn encode_compressed_inst(
             if !fits_signed(*imm as i64, 6) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.andi immediate {} out of range (must fit in 6-bit signed)",
+                        "c.andi immediate must be in range -32 to 31 (6-bit signed), got {} (must fit in 6-bit signed)",
                         imm
                     ),
                     location.clone(),
@@ -2047,7 +2048,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.lw offset {} must be 0-124 and 4-byte aligned",
+                        "c.lw offset must be a multiple of 4 and in range 0-124, got {} 0-124 and 4-byte aligned",
                         offset
                     ),
                     location.clone(),
@@ -2062,7 +2063,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.lwsp offset {} must be 0-252 and 4-byte aligned",
+                        "c.lwsp offset must be a multiple of 4 and in range 0-252, got {} 0-252 and 4-byte aligned",
                         offset
                     ),
                     location.clone(),
@@ -2077,7 +2078,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.sw offset {} must be 0-124 and 4-byte aligned",
+                        "c.sw offset must be a multiple of 4 and in range 0-124, got {} 0-124 and 4-byte aligned",
                         offset
                     ),
                     location.clone(),
@@ -2092,7 +2093,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.swsp offset {} must be 0-252 and 4-byte aligned",
+                        "c.swsp offset must be a multiple of 4 and in range 0-252, got {} 0-252 and 4-byte aligned",
                         offset
                     ),
                     location.clone(),
@@ -2107,7 +2108,7 @@ fn encode_compressed_inst(
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.beqz offset {} must be -256 to 254 and even",
+                        "c.beqz offset must be in range -256 to 254 and even, got {} -256 to 254 and even",
                         offset
                     ),
                     location.clone(),
@@ -2122,7 +2123,7 @@ fn encode_compressed_inst(
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.bnez offset {} must be -256 to 254 and even",
+                        "c.bnez offset must be in range -256 to 254 and even, got {} -256 to 254 and even",
                         offset
                     ),
                     location.clone(),
@@ -2137,7 +2138,7 @@ fn encode_compressed_inst(
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.j offset {} must be -2048 to 2046 and even",
+                        "c.j offset must be in range -2048 to 2046 and even, got {} -2048 to 2046 and even",
                         offset
                     ),
                     location.clone(),
@@ -2152,7 +2153,7 @@ fn encode_compressed_inst(
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.jal offset {} must be -2048 to 2046 and even",
+                        "c.jal offset must be in range -2048 to 2046 and even, got {} -2048 to 2046 and even",
                         offset
                     ),
                     location.clone(),
@@ -2467,7 +2468,10 @@ fn require_integer(
     match val {
         EvaluatedValue::Integer(i) => Ok(i as i64),
         EvaluatedValue::Address(_) => Err(RiscletError::from_context(
-            format!("{} must be an Integer, got Address", context),
+            format!(
+                "{} must be a numeric value, got an address (from a label)",
+                context
+            ),
             location.clone(),
         )),
     }
@@ -2481,7 +2485,7 @@ fn require_address(
     match val {
         EvaluatedValue::Address(a) => Ok(a),
         EvaluatedValue::Integer(_) => Err(RiscletError::from_context(
-            format!("{} must be an Address, got Integer", context),
+            format!("{} must be an address, got a numeric value", context),
             location.clone(),
         )),
     }
@@ -2491,7 +2495,7 @@ fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
     if !fits_signed(imm, 12) {
         return Err(RiscletError::from_context(
             format!(
-                "Immediate {} out of range for I-type (must fit in 12-bit signed)",
+                "I-type immediate must be in range -2048 to 2047 (12-bit signed), got {}",
                 imm
             ),
             location.clone(),
@@ -2503,14 +2507,17 @@ fn check_i_imm(imm: i64, location: &Location) -> Result<()> {
 fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
         return Err(RiscletError::from_context(
-            format!("Branch offset {} must be even", offset),
+            format!(
+                "Branch offset must be a multiple of 2 (even), got {}",
+                offset
+            ),
             location.clone(),
         ));
     }
     if !fits_signed(offset, 13) {
         return Err(RiscletError::from_context(
             format!(
-                "Branch offset {} out of range (must fit in 13-bit signed)",
+                "Branch offset must be in range -4096 to 4094 (even 13-bit signed), got {}",
                 offset
             ),
             location.clone(),
@@ -2522,14 +2529,17 @@ fn check_b_imm(offset: i64, location: &Location) -> Result<()> {
 fn check_j_imm(offset: i64, location: &Location) -> Result<()> {
     if offset % 2 != 0 {
         return Err(RiscletError::from_context(
-            format!("Jump offset {} must be even", offset),
+            format!(
+                "Jump offset must be a multiple of 2 (even), got {}",
+                offset
+            ),
             location.clone(),
         ));
     }
     if !fits_signed(offset, 21) {
         return Err(RiscletError::from_context(
             format!(
-                "Jump offset {} out of range (must fit in 21-bit signed)",
+                "Jump offset must be in range -1048576 to 1048575 (even 21-bit signed), got {}",
                 offset
             ),
             location.clone(),
@@ -2542,7 +2552,7 @@ fn check_u_imm(imm: u32, location: &Location) -> Result<()> {
     if imm > 0xFFFFF {
         return Err(RiscletError::from_context(
             format!(
-                "Immediate {} out of range for U-type (must fit in 20 bits)",
+                "U-type immediate must be in range 0 to 1048575 (20 bits), got {}",
                 imm
             ),
             location.clone(),

@@ -6,7 +6,7 @@
 // Reference: ELF-32 Object File Format, Version 1.5 Draft 2
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
-use crate::error::Result;
+use crate::error::{Result, RiscletError};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -160,7 +160,7 @@ impl ElfHeader {
     /// Decode header from 52 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
         if data.len() < 52 {
-            return Err("ELF header too short".to_string().into());
+            return Err(RiscletError::elf("ELF header too short".to_string()));
         }
 
         let mut e_ident = [0u8; 16];
@@ -226,7 +226,9 @@ impl ElfProgramHeader {
     /// Decode program header from 32 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
         if data.len() < 32 {
-            return Err("Program header too short".to_string().into());
+            return Err(RiscletError::elf(
+                "Program header too short".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -303,7 +305,9 @@ impl ElfSectionHeader {
     /// Decode section header from 40 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
         if data.len() < 40 {
-            return Err("Section header too short".to_string().into());
+            return Err(RiscletError::elf(
+                "Section header too short".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -400,7 +404,9 @@ impl ElfSymbol {
     /// Decode symbol from 16 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
         if data.len() < 16 {
-            return Err("Symbol entry too short".to_string().into());
+            return Err(RiscletError::elf(
+                "Symbol entry too short".to_string(),
+            ));
         }
 
         Ok(Self {
@@ -473,12 +479,11 @@ impl StringTable {
     /// Parse a null-terminated string from the given offset
     pub fn get_string(&self, offset: usize) -> Result<String> {
         if offset >= self.strings.len() {
-            return Err(format!(
+            return Err(RiscletError::elf(format!(
                 "String offset {} out of bounds (table size: {})",
                 offset,
                 self.strings.len()
-            )
-            .into());
+            )));
         }
 
         let mut end = offset;
@@ -487,9 +492,9 @@ impl StringTable {
         }
 
         if end >= self.strings.len() {
-            return Err("Unterminated string in string table"
-                .to_string()
-                .into());
+            return Err(RiscletError::elf(
+                "Unterminated string in string table".to_string(),
+            ));
         }
 
         Ok(String::from_utf8_lossy(&self.strings[offset..end]).into_owned())

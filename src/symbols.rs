@@ -245,7 +245,10 @@ fn flush_numeric_labels(
         let error_location =
             locations[unref.referencing_pointer.line_index].clone();
         return Err(RiscletError::from_context(
-            format!("Unresolved numeric label reference: {}", unref.symbol),
+            format!(
+                "Numeric label '{}f' (forward) is used but no matching label found in remaining file",
+                unref.symbol
+            ),
             error_location,
         ));
     }
@@ -402,7 +405,7 @@ fn process_symbol_references(
             } else {
                 return Err(RiscletError::from_context(
                     format!(
-                        "Unresolved backward numeric label reference: {}",
+                        "Numeric label '{}b' (backward) is used but no matching label found earlier in file",
                         symbol
                     ),
                     line.location.clone(),
@@ -538,7 +541,10 @@ fn process_regular_label(
     // Check for duplicate label
     if definitions.contains_key(label) {
         return Err(RiscletError::from_context(
-            format!("Duplicate label: {}", label),
+            format!(
+                "Label '{}' is already defined (labels must be unique within a file)",
+                label
+            ),
             line_location.clone(),
         ));
     }
@@ -565,7 +571,10 @@ fn process_equ_definition(
     // .equ cannot define numeric labels
     if name.parse::<u32>().is_ok() {
         return Err(RiscletError::from_context(
-            format!("Numeric label cannot be defined in .equ: {}", name),
+            format!(
+                "Numeric labels (like '{}:') cannot be used with .equ (only regular labels can)",
+                name
+            ),
             line_location.clone(),
         ));
     }
@@ -620,7 +629,10 @@ fn process_global_declarations(
         // Cannot declare numeric labels as global
         if symbol.parse::<u32>().is_ok() {
             return Err(RiscletError::from_context(
-                format!("Numeric label cannot be declared global: {}", symbol),
+                format!(
+                    "Numeric labels (like '{}:') cannot be declared global with .global",
+                    symbol
+                ),
                 line_location.clone(),
             ));
         }
@@ -628,7 +640,10 @@ fn process_global_declarations(
         // Cannot declare the same symbol global twice
         if unfinalized_globals.contains_key(symbol) {
             return Err(RiscletError::from_context(
-                format!("Symbol already declared global: {}", symbol),
+                format!(
+                    "Symbol '{}' is declared global (.global) more than once",
+                    symbol
+                ),
                 line_location.clone(),
             ));
         }
@@ -658,7 +673,10 @@ fn finalize_globals(
             let decl_location =
                 file.lines[ug.declaration_pointer.line_index].location.clone();
             return Err(RiscletError::from_context(
-                format!("Global symbol declared but not defined: {}", symbol),
+                format!(
+                    "Symbol '{}' is declared global (.global) but never defined with a label",
+                    symbol
+                ),
                 decl_location,
             ));
         };
@@ -870,7 +888,10 @@ fn link_cross_file(
             let file = &source.files[unref.referencing_pointer.file_index];
             let line = &file.lines[unref.referencing_pointer.line_index];
             return Err(RiscletError::from_context(
-                format!("Undefined symbol: {}", unref.symbol),
+                format!(
+                    "Symbol '{}' is used but never defined (define with a label, or declare with .global if defined elsewhere)",
+                    unref.symbol
+                ),
                 line.location.clone(),
             ));
         }
