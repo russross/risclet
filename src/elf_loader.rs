@@ -23,10 +23,9 @@ pub enum ElfInput<'a> {
 /// Load an ELF file from either a filesystem path or a byte slice
 pub fn load_elf(input: ElfInput) -> Result<Machine> {
     let raw = match input {
-        ElfInput::File(filename) => {
-            std::fs::read(filename)
-                .map_err(|e| format!("failed to read file '{}': {}", filename, e))?
-        }
+        ElfInput::File(filename) => std::fs::read(filename).map_err(|e| {
+            format!("failed to read file '{}': {}", filename, e)
+        })?,
         ElfInput::Bytes(bytes) => bytes.to_vec(),
     };
 

@@ -591,13 +591,11 @@ pub fn trace(
                 let fields =
                     &instructions[addresses[&first_inst.address]].pseudo_fields;
                 let disassembly = fields_to_string(
+                    config,
                     fields,
                     first_inst.address,
                     m.global_pointer,
                     first_inst.length == 2,
-                    config.hex_mode,
-                    config.verbose_instructions,
-                    config.show_addresses,
                     None,
                     &m.address_symbols,
                 );
@@ -613,13 +611,11 @@ pub fn trace(
             // Now print ecall line with syscall signature before execution
             let fields = &instruction.verbose_fields;
             let disassembly = fields_to_string(
+                config,
                 fields,
                 instruction.address,
                 m.global_pointer,
                 instruction.length == 2,
-                config.hex_mode,
-                config.verbose_instructions,
-                config.show_addresses,
                 None,
                 &m.address_symbols,
             );
@@ -637,13 +633,11 @@ pub fn trace(
             // In verbose-mode with ecall: just print ecall line before execution
             let fields = &instruction.verbose_fields;
             let disassembly = fields_to_string(
+                config,
                 fields,
                 instruction.address,
                 m.global_pointer,
                 instruction.length == 2,
-                config.hex_mode,
-                config.verbose_instructions,
-                config.show_addresses,
                 None,
                 &m.address_symbols,
             );
@@ -704,13 +698,11 @@ pub fn trace(
                 } else {
                     let fields = &instruction.verbose_fields;
                     let disassembly = fields_to_string(
+                        config,
                         fields,
                         instruction.address,
                         m.global_pointer,
                         instruction.length == 2,
-                        config.hex_mode,
-                        config.verbose_instructions,
-                        config.show_addresses,
                         None,
                         &m.address_symbols,
                     );
@@ -746,13 +738,11 @@ pub fn trace(
                                 [addresses[&first_inst.address]]
                                 .pseudo_fields;
                             let disassembly = fields_to_string(
+                                config,
                                 fields,
                                 first_inst.address,
                                 m.global_pointer,
                                 first_inst.length == 2,
-                                config.hex_mode,
-                                config.verbose_instructions,
-                                config.show_addresses,
                                 None,
                                 &m.address_symbols,
                             );
@@ -799,13 +789,11 @@ pub fn trace(
         let fields =
             &instructions[addresses[&first_inst.address]].pseudo_fields;
         let disassembly = fields_to_string(
+            config,
             fields,
             first_inst.address,
             m.global_pointer,
             first_inst.length == 2,
-            config.hex_mode,
-            config.verbose_instructions,
-            config.show_addresses,
             None,
             &m.address_symbols,
         );

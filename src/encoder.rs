@@ -16,7 +16,7 @@ use crate::ast::{
     SpecialOp, UTypeOp,
 };
 use crate::config::Config;
-use crate::error::{RiscletError, Result};
+use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues, eval_expr};
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::SymbolLinks;

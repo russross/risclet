@@ -8,7 +8,7 @@
 use crate::ast::{
     Directive, Expression, LineContent, LinePointer, Location, Source,
 };
-use crate::error::{RiscletError, Result};
+use crate::error::{Result, RiscletError};
 use crate::layout::Layout;
 use crate::symbols::{SymbolDefinition, SymbolLinks, SymbolReference};
 use std::collections::HashMap;

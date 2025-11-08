@@ -4,7 +4,7 @@
 // for the RISC-V 32 assembler. Each structure and enum represents a specific component
 // of the assembly language syntax and is designed to be directly filled by the parser.
 
-use crate::error::{RiscletError, Result};
+use crate::error::{Result, RiscletError};
 use std::fmt;
 
 // ==============================================================================

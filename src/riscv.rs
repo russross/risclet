@@ -1705,31 +1705,21 @@ impl Op {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn to_string(
         &self,
+        config: &crate::config::Config,
         pc: u32,
         gp: u32,
         is_compressed: bool,
-        hex: bool,
-        verbose: bool,
-        show_addresses: bool,
         arrow: Option<&str>,
         symbols: &HashMap<u32, String>,
     ) -> String {
-        let fields =
-            if verbose { self.to_fields() } else { self.to_pseudo_fields() };
-        fields_to_string(
-            &fields,
-            pc,
-            gp,
-            is_compressed,
-            hex,
-            verbose,
-            show_addresses,
-            arrow,
-            symbols,
-        )
+        let fields = if config.verbose_instructions {
+            self.to_fields()
+        } else {
+            self.to_pseudo_fields()
+        };
+        fields_to_string(config, &fields, pc, gp, is_compressed, arrow, symbols)
     }
 
     pub fn branch_target(&self, pc: u32) -> Option<u32> {
@@ -1911,21 +1901,18 @@ pub fn get_pseudo_sequence(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn fields_to_string(
+    config: &crate::config::Config,
     fields: &[Field],
     pc: u32,
     gp: u32,
     is_compressed: bool,
-    hex: bool,
-    verbose: bool,
-    show_addresses: bool,
     arrow: Option<&str>,
     symbols: &HashMap<u32, String>,
 ) -> String {
-    let addr_part = if !show_addresses {
+    let addr_part = if !config.show_addresses {
         String::new()
-    } else if hex {
+    } else if config.hex_mode {
         format!("0x{:5x} ", pc)
     } else {
         format!("{:>7} ", pc)
@@ -1954,13 +1941,27 @@ pub fn fields_to_string(
     }
     let label: String = label.into_iter().collect();
 
-    let mut inst = fields[0].to_string(pc, gp, hex, verbose, symbols);
-    if verbose && is_compressed {
+    let mut inst = fields[0].to_string(
+        pc,
+        gp,
+        config.hex_mode,
+        config.verbose_instructions,
+        symbols,
+    );
+    if config.verbose_instructions && is_compressed {
         inst.insert_str(0, "c.");
     }
     let operands = fields[1..]
         .iter()
-        .map(|elt| elt.to_string(pc, gp, hex, verbose, symbols))
+        .map(|elt| {
+            elt.to_string(
+                pc,
+                gp,
+                config.hex_mode,
+                config.verbose_instructions,
+                symbols,
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let disasm = format!("{:<8}{}", inst, operands);

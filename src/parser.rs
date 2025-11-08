@@ -4,7 +4,7 @@ use crate::ast::{
     LoadStoreOp, Location, MemoryOrdering, NumericLabelRef, OperatorOp,
     PseudoOp, RTypeOp, Register, SpecialOp, Token, UTypeOp,
 };
-use crate::error::{RiscletError, Result};
+use crate::error::{Result, RiscletError};
 
 pub struct Parser<'a> {
     tokens: &'a [Token],

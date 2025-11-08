@@ -7,11 +7,11 @@ mod elf;
 mod error;
 
 // Simulator modules
+mod checkabi;
 mod decoder;
 mod elf_loader;
 mod execution;
 mod isa_tests;
-mod checkabi;
 mod memory;
 mod riscv;
 mod simulator;
@@ -84,13 +84,17 @@ fn main() {
                 };
 
                 // Pass in-memory ELF to simulator
-                if let Err(e) = run_simulator(&config, ElfInput::Bytes(&elf_bytes)) {
+                if let Err(e) =
+                    run_simulator(&config, ElfInput::Bytes(&elf_bytes))
+                {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
             } else {
                 // No .s files - load executable and run simulator
-                if let Err(e) = run_simulator(&config, ElfInput::File(&config.executable)) {
+                if let Err(e) =
+                    run_simulator(&config, ElfInput::File(&config.executable))
+                {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
                 }
