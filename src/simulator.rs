@@ -3,27 +3,16 @@
 // Provides the RISC-V simulation and debugging functionality
 
 use crate::config::{Config, Mode};
-use crate::elf_loader::{load_elf, load_elf_from_memory};
-use crate::execution::{Instruction, Machine, add_local_labels, trace};
+use crate::elf_loader::{load_elf, ElfInput};
+use crate::execution::{Instruction, add_local_labels, trace};
 use crate::riscv::{Op, fields_to_string, get_pseudo_sequence};
 use crate::ui::Tui;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub fn run_simulator(config: &Config) -> Result<(), String> {
-    let m = load_elf(&config.executable)?;
-    run_simulator_impl(config, m)
-}
-
-pub fn run_simulator_from_memory(
-    config: &Config,
-    elf_bytes: &[u8],
-) -> Result<(), String> {
-    let m = load_elf_from_memory(elf_bytes)?;
-    run_simulator_impl(config, m)
-}
-
-fn run_simulator_impl(config: &Config, mut m: Machine) -> Result<(), String> {
+/// Run the simulator with the specified ELF input (file or bytes)
+pub fn run_simulator(config: &Config, input: ElfInput) -> Result<(), String> {
+    let mut m = load_elf(input)?;
     let mut instructions = Vec::new();
     let mut pc = m.text_start();
     while pc < m.text_end() {

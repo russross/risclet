@@ -3,28 +3,33 @@
 // This module loads ELF executables into memory for simulation.
 // All byte-level parsing is delegated to the elf module's decode methods.
 
+use std::collections::HashMap;
+
 use crate::elf::{
     ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PT_LOAD,
     SHT_STRTAB, SHT_SYMTAB, STT_FILE, SYMBOL_ENTRY_SIZE, StringTable,
 };
 use crate::error::Result;
 use crate::{Machine, memory::Segment};
-use std::collections::HashMap;
 
-/// Load an ELF file from the filesystem
-pub fn load_elf(filename: &str) -> Result<Machine> {
-    let raw = std::fs::read(filename)
-        .map_err(|e| format!("failed to read file '{}': {}", filename, e))?;
-    load_elf_from_bytes(&raw)
+/// Input source for loading an ELF file
+pub enum ElfInput<'a> {
+    /// Load from a file path
+    File(&'a str),
+    /// Load from a byte slice
+    Bytes(&'a [u8]),
 }
 
-/// Load an ELF file from a byte slice in memory
-pub fn load_elf_from_memory(raw: &[u8]) -> Result<Machine> {
-    load_elf_from_bytes(raw)
-}
+/// Load an ELF file from either a filesystem path or a byte slice
+pub fn load_elf(input: ElfInput) -> Result<Machine> {
+    let raw = match input {
+        ElfInput::File(filename) => {
+            std::fs::read(filename)
+                .map_err(|e| format!("failed to read file '{}': {}", filename, e))?
+        }
+        ElfInput::Bytes(bytes) => bytes.to_vec(),
+    };
 
-/// Load an ELF file from a byte slice
-pub fn load_elf_from_bytes(raw: &[u8]) -> Result<Machine> {
     // Validate minimum size for ELF header
     if raw.len() < 52 {
         return Err("ELF data is too short to contain a valid header".into());
@@ -142,7 +147,7 @@ pub fn load_elf_from_bytes(raw: &[u8]) -> Result<Machine> {
     }
 
     // Load section header string table
-    let shstrtab = load_section_header_string_table(raw, &header)?;
+    let shstrtab = load_section_header_string_table(&raw, &header)?;
 
     // Load section header entries and build segments
     let mut segments = Vec::new();

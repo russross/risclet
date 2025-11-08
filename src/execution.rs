@@ -1,12 +1,15 @@
-use crate::config::{Config, Mode};
+use std::collections::{HashMap, HashSet};
+#[allow(unused_imports)]
+use std::io::{self, Read, Write};
+use std::rc::Rc;
+
+use crossterm::tty::IsTty;
+
 use crate::checkabi::CheckABI;
+use crate::config::{Config, Mode};
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
-use crossterm::tty::IsTty;
-use std::collections::{HashMap, HashSet};
-use std::io::{self, Read, Write};
-use std::rc::Rc;
 
 pub struct Machine {
     state: CpuState,
