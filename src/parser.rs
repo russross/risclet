@@ -42,14 +42,41 @@ impl<'a> Parser<'a> {
                 self.next();
                 Ok(())
             } else {
+                let expected_name = match expected {
+                    Token::Colon => "colon (:)",
+                    Token::Comma => "comma (,)",
+                    Token::OpenParen => "left parenthesis (()",
+                    Token::CloseParen => "right parenthesis ())",
+                    _ => "expected token",
+                };
+                let found_name = match t {
+                    Token::Colon => "colon (:)",
+                    Token::Comma => "comma (,)",
+                    Token::OpenParen => "left parenthesis (()",
+                    Token::CloseParen => "right parenthesis ())",
+                    Token::Identifier(s) => &format!("identifier '{}'", s),
+                    Token::Register(r) => &format!("register {}", r),
+                    Token::Integer(n) => &format!("number {}", n),
+                    _ => "unexpected token",
+                };
                 Err(RiscletError::from_context(
-                    format!("Expected {:?}, found {:?}", expected, t),
+                    format!(
+                        "Expected {} but found {}",
+                        expected_name, found_name
+                    ),
                     self.location(),
                 ))
             }
         } else {
+            let expected_name = match expected {
+                Token::Colon => "colon (:)",
+                Token::Comma => "comma (,)",
+                Token::OpenParen => "left parenthesis (()",
+                Token::CloseParen => "right parenthesis ())",
+                _ => "expected token",
+            };
             Err(RiscletError::from_context(
-                format!("Expected {:?}, found EOF", expected),
+                format!("Expected {} but reached end of line", expected_name),
                 self.location(),
             ))
         }
@@ -62,7 +89,8 @@ impl<'a> Parser<'a> {
             Ok(s)
         } else {
             Err(RiscletError::from_context(
-                "Expected identifier".to_string(),
+                "Expected an identifier (label, symbol, or directive name)"
+                    .to_string(),
                 self.location(),
             ))
         }
@@ -75,7 +103,8 @@ impl<'a> Parser<'a> {
             Ok(r)
         } else {
             Err(RiscletError::from_context(
-                "Expected register".to_string(),
+                "Expected a register name (x0-x31, a0-a7, sp, ra, etc.)"
+                    .to_string(),
                 self.location(),
             ))
         }
@@ -302,13 +331,13 @@ impl<'a> Parser<'a> {
                     Ok(Expression::CurrentAddress) // .
                 }
                 _ => Err(RiscletError::from_context(
-                    "Expected operand".to_string(),
+                    "Expected an operand (number, label, register, or parenthesized expression)".to_string(),
                     self.location(),
                 )),
             }
         } else {
             Err(RiscletError::from_context(
-                "Expected operand".to_string(),
+                "Expected an operand but reached end of line".to_string(),
                 self.location(),
             ))
         }
@@ -364,7 +393,7 @@ impl<'a> Parser<'a> {
         }
         if lines.is_empty() {
             return Err(RiscletError::from_context(
-                "Empty line".to_string(),
+                "Empty line: a label must be followed by an instruction or directive".to_string(),
                 self.location(),
             ));
         }
@@ -458,7 +487,7 @@ impl<'a> Parser<'a> {
             }
         } else {
             Err(RiscletError::from_context(
-                "Expected directive".to_string(),
+                "Expected a directive (like .global, .text, .data, .bss, .space, .byte, etc.)".to_string(),
                 self.location(),
             ))
         }
@@ -765,7 +794,10 @@ impl<'a> Parser<'a> {
                 }
 
                 Err(RiscletError::from_context(
-                    format!("Unknown instruction {}", opcode),
+                    format!(
+                        "Unknown instruction '{}': check spelling or consult the RISC-V ISA reference",
+                        opcode
+                    ),
                     self.location(),
                 ))
             }
@@ -843,7 +875,10 @@ impl<'a> Parser<'a> {
                 'w' => bits |= 0x01, // write (bit 0)
                 _ => {
                     return Err(RiscletError::from_context(
-                        format!("Invalid fence ordering bit: {}", ch),
+                        format!(
+                            "Invalid fence ordering character '{}': must be 'i' (input), 'o' (output), 'r' (read), or 'w' (write)",
+                            ch
+                        ),
                         self.location(),
                     ));
                 }
@@ -1082,7 +1117,10 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 if rd != Register::X2 {
                     return Err(RiscletError::from_context(
-                        "c.addi16sp requires sp (x2) as rd".to_string(),
+                        format!(
+                            "c.addi16sp destination must be sp (x2), got {}",
+                            rd
+                        ),
                         self.location(),
                     ));
                 }
@@ -1099,7 +1137,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.addi4spn requires rd in compressed register set, got {}",
+                            "c.addi4spn destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1109,8 +1147,10 @@ impl<'a> Parser<'a> {
                 let base = self.parse_register()?;
                 if base != Register::X2 {
                     return Err(RiscletError::from_context(
-                        "c.addi4spn requires sp (x2) as base register"
-                            .to_string(),
+                        format!(
+                            "c.addi4spn base register must be sp (x2), got {}",
+                            base
+                        ),
                         self.location(),
                     ));
                 }
@@ -1144,7 +1184,10 @@ impl<'a> Parser<'a> {
                 let base = self.parse_register()?;
                 if base != Register::X2 {
                     return Err(RiscletError::from_context(
-                        "c.lwsp requires sp as base register".to_string(),
+                        format!(
+                            "c.lwsp base register must be sp (x2), got {}",
+                            base
+                        ),
                         self.location(),
                     ));
                 }
@@ -1167,7 +1210,10 @@ impl<'a> Parser<'a> {
                 let base = self.parse_register()?;
                 if base != Register::X2 {
                     return Err(RiscletError::from_context(
-                        "c.swsp requires sp as base register".to_string(),
+                        format!(
+                            "c.swsp base register must be sp (x2), got {}",
+                            base
+                        ),
                         self.location(),
                     ));
                 }
@@ -1187,7 +1233,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.lw requires rd in compressed register set (s0, s1, a0-a5), got {}",
+                            "c.lw destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1200,7 +1246,7 @@ impl<'a> Parser<'a> {
                 if !rs1.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.lw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
+                            "c.lw base register must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs1
                         ),
                         self.location(),
@@ -1223,7 +1269,7 @@ impl<'a> Parser<'a> {
                 if !rs2.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.sw requires rs2 in compressed register set (s0, s1, a0-a5), got {}",
+                            "c.sw source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs2
                         ),
                         self.location(),
@@ -1236,7 +1282,7 @@ impl<'a> Parser<'a> {
                 if !rs1.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.sw requires rs1 in compressed register set (s0, s1, a0-a5), got {}",
+                            "c.sw base register must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs1
                         ),
                         self.location(),
@@ -1259,7 +1305,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.and requires rd in compressed register set, got {}",
+                            "c.and destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1270,7 +1316,7 @@ impl<'a> Parser<'a> {
                 if !rs2.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.and requires rs2 in compressed register set, got {}",
+                            "c.and source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs2
                         ),
                         self.location(),
@@ -1287,7 +1333,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.or requires rd in compressed register set, got {}",
+                            "c.or destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1298,7 +1344,7 @@ impl<'a> Parser<'a> {
                 if !rs2.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.or requires rs2 in compressed register set, got {}",
+                            "c.or source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs2
                         ),
                         self.location(),
@@ -1315,7 +1361,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.xor requires rd in compressed register set, got {}",
+                            "c.xor destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1326,7 +1372,7 @@ impl<'a> Parser<'a> {
                 if !rs2.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.xor requires rs2 in compressed register set, got {}",
+                            "c.xor source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs2
                         ),
                         self.location(),
@@ -1343,7 +1389,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.sub requires rd in compressed register set, got {}",
+                            "c.sub destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1354,7 +1400,7 @@ impl<'a> Parser<'a> {
                 if !rs2.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.sub requires rs2 in compressed register set, got {}",
+                            "c.sub source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs2
                         ),
                         self.location(),
@@ -1372,7 +1418,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.srli requires rd in compressed register set, got {}",
+                            "c.srli destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1394,7 +1440,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.srai requires rd in compressed register set, got {}",
+                            "c.srai destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1416,7 +1462,7 @@ impl<'a> Parser<'a> {
                 if !rd.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.andi requires rd in compressed register set, got {}",
+                            "c.andi destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rd
                         ),
                         self.location(),
@@ -1439,7 +1485,7 @@ impl<'a> Parser<'a> {
                 if !rs1.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.beqz requires rs1 in compressed register set, got {}",
+                            "c.beqz operand must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs1
                         ),
                         self.location(),
@@ -1461,7 +1507,7 @@ impl<'a> Parser<'a> {
                 if !rs1.is_compressed_register() {
                     return Err(RiscletError::from_context(
                         format!(
-                            "c.bnez requires rs1 in compressed register set, got {}",
+                            "c.bnez operand must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                             rs1
                         ),
                         self.location(),
@@ -1501,7 +1547,10 @@ impl<'a> Parser<'a> {
 
             _ => {
                 return Err(RiscletError::from_context(
-                    format!("Unknown compressed instruction: c.{}", op),
+                    format!(
+                        "Unknown compressed instruction 'c.{}': check spelling or consult the RISC-V ISA reference",
+                        op
+                    ),
                     self.location(),
                 ));
             }
@@ -1522,7 +1571,10 @@ pub fn parse(tokens: &[Token], file: String, line: usize) -> Result<Vec<Line>> {
             .map(|t| format!("{:?}", t))
             .collect();
         return Err(RiscletError::from_context(
-            format!("Unexpected tokens after parsing: {}", remaining.join(" ")),
+            format!(
+                "Extra tokens after instruction: '{}' (each line should have at most one instruction or directive)",
+                remaining.join(" ")
+            ),
             Location { file: file.clone(), line },
         ));
     }

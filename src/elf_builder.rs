@@ -14,7 +14,7 @@ use crate::elf::{
     STB_GLOBAL, STB_LOCAL, STT_NOTYPE, StringTable, generate_riscv_attributes,
     make_st_info,
 };
-use crate::error::Result;
+use crate::error::{Result, RiscletError};
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::SymbolLinks;
 
@@ -89,12 +89,11 @@ impl<'a> ElfBuilder<'a> {
         // Validation check: ensure the estimated header size matches the actual size.
         // A mismatch indicates a bug in the program header count estimation.
         if self.layout.header_size != actual_header_size {
-            return Err(format!(
+            return Err(RiscletError::internal(format!(
                 "ELF header size mismatch: estimated {} but actual is {} \
                  (the number of program headers was likely estimated incorrectly)",
                 self.layout.header_size, actual_header_size
-            )
-            .into());
+            )));
         }
         output.resize(output.len() + ph_size as usize, 0);
 
@@ -298,8 +297,10 @@ impl<'a> ElfBuilder<'a> {
                 sh_flags: SHF_WRITE | SHF_ALLOC,
                 sh_addr: self.layout.data_start,
                 sh_offset: data_offset.ok_or_else(|| {
-                    "data offset should be set when data section exists"
-                        .to_string()
+                    RiscletError::internal(
+                        "data offset should be set when data section exists"
+                            .to_string(),
+                    )
                 })?,
                 sh_size: self.data_data.len() as u32,
                 sh_link: 0,

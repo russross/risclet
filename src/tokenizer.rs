@@ -73,7 +73,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     chars.next();
                     tokens.push(Token::Operator(OperatorOp::LeftShift));
                 } else {
-                    return Err("Unexpected '<'".to_string());
+                    return Err("Unexpected '<': shift operators must be two characters (use << or >>)".to_string());
                 }
             }
             '>' => {
@@ -82,7 +82,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     chars.next();
                     tokens.push(Token::Operator(OperatorOp::RightShift));
                 } else {
-                    return Err("Unexpected '>'".to_string());
+                    return Err("Unexpected '>': shift operators must be two characters (use << or >>)".to_string());
                 }
             }
             '\'' => {
@@ -112,7 +112,7 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     ch
                 };
                 if chars.next() != Some('\'') {
-                    return Err("Unclosed char literal".to_string());
+                    return Err("Character literal contains multiple characters or is unclosed".to_string());
                 }
                 tokens.push(Token::Integer(c as i32));
             }
@@ -184,7 +184,12 @@ fn parse_identifier(
             break;
         }
     }
-    if s.is_empty() { Err("Empty identifier".to_string()) } else { Ok(s) }
+    if s.is_empty() {
+        Err("Empty identifier: expected a name (label, symbol, or register)"
+            .to_string())
+    } else {
+        Ok(s)
+    }
 }
 
 fn parse_number(
@@ -243,7 +248,10 @@ fn parse_number(
         Ok(val) => Ok(val),
         Err(_) => match u32::from_str_radix(num_str, base) {
             Ok(val) => Ok(val as i32),
-            Err(_) => Err(format!("Invalid number {}", s)),
+            Err(_) => Err(format!(
+                "Invalid number: must be decimal (123), hex (0x1F), octal (0o755), or binary (0b1010), got {}",
+                s
+            )),
         },
     }
 }

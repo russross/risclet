@@ -908,8 +908,8 @@ li x1, target
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("li")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+            && err_msg.contains("numeric value")
+            && err_msg.contains("address"),
         "Error should mention type mismatch (expected Integer, got Address), got: {}",
         err_msg
     );
@@ -927,8 +927,8 @@ la x1, 42
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("la")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+            && err_msg.contains("address")
+            && err_msg.contains("numeric value"),
         "Error should mention type mismatch (expected Address, got Integer), got: {}",
         err_msg
     );
@@ -946,8 +946,8 @@ call 100
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("call")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+            && err_msg.contains("address")
+            && err_msg.contains("numeric value"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -965,8 +965,8 @@ tail 200
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("tail")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+            && err_msg.contains("address")
+            && err_msg.contains("numeric value"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -983,9 +983,9 @@ jal x1, 42
     assert!(result.is_err(), "Expected error for jal with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("Jump target")
+            && err_msg.contains("address")
+            && err_msg.contains("numeric value"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -1002,9 +1002,9 @@ beq x1, x2, 16
     assert!(result.is_err(), "Expected error for branch with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch")
-            && err_msg.contains("Address")
-            && err_msg.contains("Integer"),
+        err_msg.contains("Branch target")
+            && err_msg.contains("address")
+            && err_msg.contains("numeric value"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -1023,8 +1023,8 @@ addi x1, x2, target
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("I-type")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+            && err_msg.contains("numeric value")
+            && err_msg.contains("address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -1043,8 +1043,8 @@ lui x1, target
     let err_msg = result.unwrap_err();
     assert!(
         err_msg.contains("U-type")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+            && err_msg.contains("numeric value")
+            && err_msg.contains("address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );
@@ -1062,9 +1062,9 @@ lw x1, target(x2)
     assert!(result.is_err(), "Expected error for load with address offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Load/Store")
-            && err_msg.contains("Integer")
-            && err_msg.contains("Address"),
+        err_msg.contains("offset")
+            && err_msg.contains("numeric value")
+            && err_msg.contains("address"),
         "Error should mention type mismatch, got: {}",
         err_msg
     );

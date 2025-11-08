@@ -7,6 +7,7 @@ use crossterm::tty::IsTty;
 
 use crate::checkabi::CheckABI;
 use crate::config::{Config, Mode};
+use crate::error::{Result, RiscletError};
 use crate::memory::{CpuState, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
@@ -80,7 +81,7 @@ impl Machine {
         self.reservation_set = None;
     }
 
-    pub fn load(&mut self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
+    pub fn load(&mut self, addr: u32, size: u32) -> Result<Vec<u8>> {
         let raw = self.memory.load_raw(addr, size)?;
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.mem_read.is_none());
@@ -90,36 +91,36 @@ impl Machine {
         Ok(raw.to_vec())
     }
 
-    pub fn load_i8(&mut self, addr: u32) -> Result<i32, String> {
+    pub fn load_i8(&mut self, addr: u32) -> Result<i32> {
         let bytes = self.load(addr, 1)?;
         Ok(i8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32)
     }
 
-    pub fn load_u8(&mut self, addr: u32) -> Result<i32, String> {
+    pub fn load_u8(&mut self, addr: u32) -> Result<i32> {
         let bytes = self.load(addr, 1)?;
         Ok(u8::from_le_bytes(bytes[..1].try_into().unwrap()) as i32)
     }
 
-    pub fn load_i16(&mut self, addr: u32) -> Result<i32, String> {
+    pub fn load_i16(&mut self, addr: u32) -> Result<i32> {
         let bytes = self.load(addr, 2)?;
         Ok(i16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32)
     }
 
-    pub fn load_u16(&mut self, addr: u32) -> Result<i32, String> {
+    pub fn load_u16(&mut self, addr: u32) -> Result<i32> {
         let bytes = self.load(addr, 2)?;
         Ok(u16::from_le_bytes(bytes[..2].try_into().unwrap()) as i32)
     }
 
-    pub fn load_i32(&mut self, addr: u32) -> Result<i32, String> {
+    pub fn load_i32(&mut self, addr: u32) -> Result<i32> {
         let bytes = self.load(addr, 4)?;
         Ok(i32::from_le_bytes(bytes[..4].try_into().unwrap()))
     }
 
-    pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32), String> {
+    pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32)> {
         self.memory.load_instruction(addr)
     }
 
-    pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<(), String> {
+    pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<()> {
         if let Some(effects) = &mut self.current_effect
             && let Ok(old_val) = self.memory.load(addr, raw.len() as u32)
         {
@@ -157,11 +158,14 @@ impl Machine {
         self.state.set_reg(reg, value);
     }
 
-    pub fn set_pc(&mut self, value: u32) -> Result<(), String> {
+    pub fn set_pc(&mut self, value: u32) -> Result<()> {
         let old_pc = self.state.pc();
         self.state.set_pc(value);
         if value & 1 != 0 {
-            return Err(format!("bus error: pc addr={:x}", value));
+            return Err(RiscletError::execution_error(format!(
+                "bus error: pc addr={:x}",
+                value
+            )));
         }
         if let Some(effects) = &mut self.current_effect {
             effects.pc = (old_pc, value);
@@ -372,7 +376,7 @@ impl Machine {
         self.current_effect.as_mut()
     }
 
-    pub fn read_stdin(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
+    pub fn read_stdin(&mut self, buffer: &mut [u8]) -> Result<usize> {
         #[cfg(test)]
         {
             let available = self.stdin_data.len() - self.stdin_pos;
@@ -386,13 +390,16 @@ impl Machine {
         #[cfg(not(test))]
         {
             let mut handle = io::stdin().lock();
-            handle
-                .read(buffer)
-                .map_err(|e| format!("read syscall error: {}", e))
+            handle.read(buffer).map_err(|e| {
+                RiscletError::syscall_error(format!(
+                    "read syscall error: {}",
+                    e
+                ))
+            })
         }
     }
 
-    pub fn write_stdout(&mut self, data: &[u8]) -> Result<(), String> {
+    pub fn write_stdout(&mut self, data: &[u8]) -> Result<()> {
         // Just record the data; printing is handled by the trace function
         // (which respects the execution mode: run/debug echo immediately,
         // trace mode prints only from effects report)
@@ -567,7 +574,9 @@ pub fn trace(
         if i >= instructions.len() || instructions[i].address != m.pc() {
             let Some(&new_i) = addresses.get(&m.pc()) else {
                 if let Some(effects) = sequence.last_mut() {
-                    effects.error("next instruction not found".to_string());
+                    effects.error(RiscletError::execution_error(
+                        "next instruction not found".to_string(),
+                    ));
                 }
                 break;
             };
@@ -660,7 +669,10 @@ pub fn trace(
         {
             let mut handle = io::stdout().lock();
             if let Err(e) = handle.write(output) {
-                effects.error(format!("error echoing stdout: {}", e));
+                effects.error(RiscletError::io(format!(
+                    "error echoing stdout: {}",
+                    e
+                )));
             }
         }
 
@@ -671,7 +683,10 @@ pub fn trace(
         {
             let mut handle = io::stdout().lock();
             if let Err(e) = handle.write(input) {
-                effects.error(format!("error echoing stdin: {}", e));
+                effects.error(RiscletError::io(format!(
+                    "error echoing stdin: {}",
+                    e
+                )));
             }
         }
 
@@ -681,7 +696,7 @@ pub fn trace(
             && let Err(msg) =
                 abi.check_instruction(m, instruction, &mut effects)
         {
-            effects.error(msg);
+            effects.error(RiscletError::abi_violation(msg));
         }
 
         // For trace mode, handle pseudo-instruction printing
@@ -772,7 +787,10 @@ pub fn trace(
             if let Some(last) = sequence.last_mut()
                 && last.other_message.is_none()
             {
-                last.error(format!("stopped after {} steps", config.max_steps));
+                last.error(RiscletError::execution_error(format!(
+                    "stopped after {} steps",
+                    config.max_steps
+                )));
             }
         } else if !matches!(config.mode, Mode::Debug) {
             sequence.clear();

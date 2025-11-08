@@ -138,8 +138,7 @@ fn eval_symbol(
         let line = source.get_line(key.pointer)?;
         return Err(RiscletError::from_context(
             format!(
-                "Circular reference in symbol '{}': {} -> {}",
-                key.symbol,
+                "Circular reference in symbol definitions: {} -> {} (symbols cannot reference each other)",
                 cycle_chain.join(" -> "),
                 key.symbol
             ),
@@ -306,7 +305,7 @@ pub fn eval_expr(
             let result = lhs_int.checked_mul(rhs_int).ok_or_else(|| {
                 RiscletError::from_context(
                     format!(
-                        "Arithmetic overflow in multiplication: {} * {}",
+                        "Integer overflow in multiplication: {} * {} exceeds 32-bit range",
                         lhs_int, rhs_int
                     ),
                     location.clone(),
@@ -331,7 +330,7 @@ pub fn eval_expr(
             let result = lhs_int.checked_div(rhs_int).ok_or_else(|| {
                 RiscletError::from_context(
                     format!(
-                        "Arithmetic overflow in division: {} / {}",
+                        "Arithmetic overflow in division: {} / {} exceeds 32-bit range",
                         lhs_int, rhs_int
                     ),
                     location.clone(),
@@ -356,7 +355,7 @@ pub fn eval_expr(
             let result = lhs_int.checked_rem(rhs_int).ok_or_else(|| {
                 RiscletError::from_context(
                     format!(
-                        "Arithmetic overflow in modulo: {} % {}",
+                        "Arithmetic overflow in modulo: {} % {} exceeds 32-bit range",
                         lhs_int, rhs_int
                     ),
                     location.clone(),
@@ -375,7 +374,10 @@ pub fn eval_expr(
 
             if !(0..32).contains(&rhs_int) {
                 return Err(RiscletError::from_context(
-                    format!("Invalid shift amount {} (must be 0..32)", rhs_int),
+                    format!(
+                        "Left shift amount must be in range 0-31, got {}",
+                        rhs_int
+                    ),
                     location.clone(),
                 ));
             }
@@ -384,7 +386,7 @@ pub fn eval_expr(
                 lhs_int.checked_shl(rhs_int as u32).ok_or_else(|| {
                     RiscletError::from_context(
                         format!(
-                            "Arithmetic overflow in left shift: {} << {}",
+                            "Arithmetic overflow in left shift: {} << {} exceeds 32-bit range",
                             lhs_int, rhs_int
                         ),
                         location.clone(),
@@ -403,7 +405,10 @@ pub fn eval_expr(
 
             if !(0..32).contains(&rhs_int) {
                 return Err(RiscletError::from_context(
-                    format!("Invalid shift amount {} (must be 0..32)", rhs_int),
+                    format!(
+                        "Right shift amount must be in range 0-31, got {}",
+                        rhs_int
+                    ),
                     location.clone(),
                 ));
             }
@@ -451,7 +456,7 @@ pub fn eval_expr(
             let int = require_integer(val, "negation", location)?;
             let result = int.checked_neg().ok_or_else(|| {
                 RiscletError::from_context(
-                    format!("Arithmetic overflow in negation: -{}", int),
+                    format!("Arithmetic overflow in negation: -{} exceeds 32-bit range", int),
                     location.clone(),
                 )
             })?;
@@ -477,7 +482,7 @@ pub fn checked_add(
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_add(rhs_i).ok_or_else(|| {
                 RiscletError::from_context(
-                    format!("Integer overflow: {} + {}", lhs, rhs),
+                    format!("Integer overflow in addition: {} + {} exceeds 32-bit range", lhs, rhs),
                     location.clone(),
                 )
             })?;
@@ -506,7 +511,7 @@ pub fn checked_add(
         (EvaluatedValue::Address(_), EvaluatedValue::Address(_)) => {
             Err(RiscletError::from_context(
                 format!(
-                    "Type error: cannot add Address + Address: {} + {}",
+                    "Cannot add two addresses together: {} + {} (one must be a numeric value)",
                     lhs, rhs
                 ),
                 location.clone(),
@@ -525,7 +530,7 @@ pub fn checked_sub(
         (EvaluatedValue::Integer(lhs_i), EvaluatedValue::Integer(rhs_i)) => {
             let result = lhs_i.checked_sub(rhs_i).ok_or_else(|| {
                 RiscletError::from_context(
-                    format!("Integer wraparound: {} - {}", lhs, rhs),
+                    format!("Integer underflow in subtraction: {} - {} results in negative value", lhs, rhs),
                     location.clone(),
                 )
             })?;
@@ -565,7 +570,7 @@ pub fn checked_sub(
         }
         (EvaluatedValue::Integer(_), EvaluatedValue::Address(_)) => {
             Err(RiscletError::from_context(
-                "Type error in subtraction: cannot compute Integer - Address"
+                "Cannot subtract an address from a number: {} - {} (subtract numeric values or subtract from address)"
                     .to_string(),
                 location.clone(),
             ))
@@ -583,7 +588,7 @@ fn require_integer(
         EvaluatedValue::Integer(i) => Ok(i),
         EvaluatedValue::Address(_) => Err(RiscletError::from_context(
             format!(
-                "Type error in {}: expected Integer, got Address",
+                "{}: expected a numeric value but got an address (from a label)",
                 operation
             ),
             location.clone(),

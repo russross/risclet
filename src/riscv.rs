@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::decoder::InstructionDecoder;
+use crate::error::{Result, RiscletError};
 use crate::execution::{Instruction, Machine};
 use crate::trace::SyscallInfo;
 
@@ -731,7 +732,7 @@ impl Op {
         }
     }
 
-    pub fn execute(&self, m: &mut Machine, length: u32) -> Result<(), String> {
+    pub fn execute(&self, m: &mut Machine, length: u32) -> Result<()> {
         match self {
             // r-type
             Op::Add { rd, rs1, rs2 } => {
@@ -946,14 +947,16 @@ impl Op {
                         let count = m.get(A2);
 
                         if fd != 0 {
-                            return Err(format!(
-                                "read syscall: only stdin (fd 0) supported, not {fd}"
+                            return Err(RiscletError::syscall_error(
+                                "read syscall: only stdin (fd 0) supported"
+                                    .to_string(),
                             ));
                         }
                         if count < 0 {
-                            return Err(format!(
-                                "read syscall: invalid buffer size: {count}"
-                            ));
+                            return Err(RiscletError::syscall_error(format!(
+                                "read syscall: invalid buffer size: {}",
+                                count
+                            )));
                         }
 
                         // make a buffer and read from stdin
@@ -981,14 +984,16 @@ impl Op {
                         let count = m.get(12);
 
                         if fd != 1 {
-                            return Err(format!(
-                                "write syscall: only stdout (fd 1) supported, not {fd}"
+                            return Err(RiscletError::syscall_error(
+                                "write syscall: only stdout (fd 1) supported"
+                                    .to_string(),
                             ));
                         }
                         if count < 0 {
-                            return Err(format!(
-                                "write syscall: invalid buffer size: {count}"
-                            ));
+                            return Err(RiscletError::syscall_error(format!(
+                                "write syscall: invalid buffer size: {}",
+                                count
+                            )));
                         }
 
                         let write_buffer = m.load(buf_addr, count as u32)?;
@@ -1010,15 +1015,20 @@ impl Op {
                         let status = m.get(A0) & 0xff;
                         m.current_effect_mut().unwrap().syscall =
                             Some(SyscallInfo::Exit(status));
-                        return Err(format!("exit({})", status));
+                        return Err(RiscletError::Exit(status));
                     }
                     syscall => {
-                        return Err(format!("unsupported syscall {syscall}"));
+                        return Err(RiscletError::syscall_error(format!(
+                            "unsupported syscall {}",
+                            syscall
+                        )));
                     }
                 }
             }
             Op::Ebreak => {
-                return Err(String::from("ebreak"));
+                return Err(RiscletError::execution_error(String::from(
+                    "ebreak",
+                )));
             }
 
             // m extension
@@ -1185,7 +1195,10 @@ impl Op {
             }
 
             Op::Unimplemented { inst, note } => {
-                return Err(format!("inst: 0x{:x} note: {}", inst, note));
+                return Err(RiscletError::invalid_instruction_error(format!(
+                    "inst: 0x{:x} note: {}",
+                    inst, note
+                )));
             }
         }
         Ok(())

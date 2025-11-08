@@ -1,3 +1,5 @@
+use crate::error::{Result, RiscletError};
+
 const STACK_SIZE: u32 = 8192;
 
 pub struct Segment {
@@ -131,25 +133,31 @@ impl MemoryManager {
         }
     }
 
-    pub fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>, String> {
+    pub fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>> {
         for segment in &self.segments {
             if segment.in_range(addr, size) {
                 return Ok(segment.load(addr, size).to_vec());
             }
         }
-        Err(format!("segfault: load addr=0x{:x} size={}", addr, size))
+        Err(RiscletError::memory_access_error(format!(
+            "cannot read {} bytes from address 0x{:x} (no allocated memory)",
+            size, addr
+        )))
     }
 
-    pub fn load_raw(&self, addr: u32, size: u32) -> Result<&[u8], String> {
+    pub fn load_raw(&self, addr: u32, size: u32) -> Result<&[u8]> {
         for segment in &self.segments {
             if segment.in_range(addr, size) {
                 return Ok(segment.load(addr, size));
             }
         }
-        Err(format!("segfault: load addr=0x{:x} size={}", addr, size))
+        Err(RiscletError::memory_access_error(format!(
+            "cannot read {} bytes from address 0x{:x} (no allocated memory)",
+            size, addr
+        )))
     }
 
-    pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<(), String> {
+    pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<()> {
         let size = raw.len() as u32;
         for segment in &mut self.segments {
             if segment.in_range(addr, size) && segment.writeable {
@@ -157,10 +165,13 @@ impl MemoryManager {
                 return Ok(());
             }
         }
-        Err(format!("segfault: store addr=0x{:x} size={}", addr, size))
+        Err(RiscletError::memory_access_error(format!(
+            "cannot write {} bytes to address 0x{:x} (not allocated or read-only)",
+            size, addr
+        )))
     }
 
-    pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32), String> {
+    pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32)> {
         for segment in &self.segments {
             if !segment.in_range(addr, 2) || !segment.executable {
                 continue;
@@ -175,13 +186,16 @@ impl MemoryManager {
                 let raw = segment.load(addr, 4);
                 return Ok((i32::from_le_bytes(raw.try_into().unwrap()), 4));
             } else {
-                return Err(format!(
-                    "partial instruction at end of segment addr=0x{:x}",
+                return Err(RiscletError::memory_access_error(format!(
+                    "instruction at 0x{:x} is incomplete (extends beyond segment)",
                     addr
-                ));
+                )));
             }
         }
-        Err(format!("segfault: instruction fetch addr=0x{:x}", addr))
+        Err(RiscletError::memory_access_error(format!(
+            "cannot fetch instruction from 0x{:x} (no allocated memory)",
+            addr
+        )))
     }
 }
 

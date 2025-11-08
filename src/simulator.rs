@@ -4,6 +4,7 @@
 
 use crate::config::{Config, Mode};
 use crate::elf_loader::{ElfInput, load_elf};
+use crate::error::{Result, RiscletError};
 use crate::execution::{Instruction, add_local_labels, trace};
 use crate::riscv::{Op, fields_to_string, get_pseudo_sequence};
 use crate::ui::Tui;
@@ -11,7 +12,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Run the simulator with the specified ELF input (file or bytes)
-pub fn run_simulator(config: &Config, input: ElfInput) -> Result<(), String> {
+pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
     let mut m = load_elf(input)?;
     let mut instructions = Vec::new();
     let mut pc = m.text_start();
@@ -100,19 +101,17 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<(), String> {
 
     // Handle exit codes and errors from trace execution
     if config.mode == Mode::Trace {
-        if let Some(effects) = sequence.last() {
-            if let (Op::Ecall, Some(msg)) =
-                (&effects.instruction.op, &effects.other_message)
-                && msg.starts_with("exit(")
-                && msg.ends_with(")")
-            {
-                let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
-                std::process::exit(n);
-            }
-
-            if let Some(msg) = &effects.other_message {
-                eprintln!("{}", msg);
-                std::process::exit(1);
+        if let Some(effects) = sequence.last()
+            && let Some(error) = &effects.other_message
+        {
+            match error {
+                RiscletError::Exit(code) => {
+                    std::process::exit(*code);
+                }
+                _ => {
+                    eprintln!("{}", error);
+                    std::process::exit(1);
+                }
             }
         }
         return Ok(());
@@ -128,24 +127,23 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<(), String> {
             pseudo_addresses,
             sequence,
             config,
-        )?;
-        tui.main_loop()?;
+        )
+        .map_err(RiscletError::ui)?;
+        tui.main_loop().map_err(RiscletError::ui)?;
         return Ok(());
     }
 
-    if let Some(effects) = sequence.last() {
-        if let (Op::Ecall, Some(msg)) =
-            (&effects.instruction.op, &effects.other_message)
-            && msg.starts_with("exit(")
-            && msg.ends_with(")")
-        {
-            let n: i32 = msg[5..msg.len() - 1].parse().unwrap();
-            std::process::exit(n);
-        }
-
-        if let Some(msg) = &effects.other_message {
-            eprintln!("{}", msg);
-            std::process::exit(1);
+    if let Some(effects) = sequence.last()
+        && let Some(error) = &effects.other_message
+    {
+        match error {
+            RiscletError::Exit(code) => {
+                std::process::exit(*code);
+            }
+            _ => {
+                eprintln!("{}", error);
+                std::process::exit(1);
+            }
         }
     }
     eprintln!("program ended unexpectedly");

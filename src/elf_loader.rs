@@ -9,7 +9,7 @@ use crate::elf::{
     ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PT_LOAD,
     SHT_STRTAB, SHT_SYMTAB, STT_FILE, SYMBOL_ENTRY_SIZE, StringTable,
 };
-use crate::error::Result;
+use crate::error::{Result, RiscletError};
 use crate::{Machine, memory::Segment};
 
 /// Input source for loading an ELF file
@@ -24,38 +24,49 @@ pub enum ElfInput<'a> {
 pub fn load_elf(input: ElfInput) -> Result<Machine> {
     let raw = match input {
         ElfInput::File(filename) => std::fs::read(filename).map_err(|e| {
-            format!("failed to read file '{}': {}", filename, e)
+            RiscletError::io(format!(
+                "failed to read file '{}': {}",
+                filename, e
+            ))
         })?,
         ElfInput::Bytes(bytes) => bytes.to_vec(),
     };
 
     // Validate minimum size for ELF header
     if raw.len() < 52 {
-        return Err("ELF data is too short to contain a valid header".into());
+        return Err(RiscletError::elf(
+            "ELF data is too short to contain a valid header".to_string(),
+        ));
     }
 
     // Validate ELF magic number
     if raw[0..4] != *b"\x7fELF" {
-        return Err(
+        return Err(RiscletError::elf(
             "ELF data does not have valid ELF magic number (0x7f 'E' 'L' 'F')"
-                .into(),
-        );
+                .to_string(),
+        ));
     }
 
     // Validate ELF class (32-bit), data (little-endian), version, and OS/ABI
     if raw[4] != 1 {
-        return Err("ELF file is not 32-bit (class must be 1)".into());
+        return Err(RiscletError::elf(
+            "ELF file is not 32-bit (class must be 1)".to_string(),
+        ));
     }
     if raw[5] != 1 {
-        return Err("ELF file is not little-endian (data must be 1)".into());
+        return Err(RiscletError::elf(
+            "ELF file is not little-endian (data must be 1)".to_string(),
+        ));
     }
     if raw[6] != 1 {
-        return Err(
-            "ELF file version is not current (version must be 1)".into()
-        );
+        return Err(RiscletError::elf(
+            "ELF file version is not current (version must be 1)".to_string(),
+        ));
     }
     if raw[7] != 0 {
-        return Err("ELF file OS/ABI is not System V (must be 0)".into());
+        return Err(RiscletError::elf(
+            "ELF file OS/ABI is not System V (must be 0)".to_string(),
+        ));
     }
 
     // Decode ELF header
@@ -63,51 +74,47 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
 
     // Validate executable RISC-V file
     if header.e_type != 2 {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "ELF file is not executable (type={}, expected 2)",
             header.e_type
-        )
-        .into());
+        )));
     }
     if header.e_machine != 0xf3 {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "ELF file is not RISC-V (machine={:#x}, expected 0xf3)",
             header.e_machine
-        )
-        .into());
+        )));
     }
     if header.e_version != 1 {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "ELF file version is not 1 (got {})",
             header.e_version
-        )
-        .into());
+        )));
     }
 
     // Validate header size and entry sizes
     if header.e_ehsize != 52 {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "unexpected ELF header size: {} (expected 52)",
             header.e_ehsize
-        )
-        .into());
+        )));
     }
     if header.e_phentsize != 32 {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "unexpected program header entry size: {} (expected 32)",
             header.e_phentsize
-        )
-        .into());
+        )));
     }
     if header.e_shentsize != 40 {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "unexpected section header entry size: {} (expected 40)",
             header.e_shentsize
-        )
-        .into());
+        )));
     }
     if header.e_phnum < 1 {
-        return Err("ELF file has no program headers".into());
+        return Err(RiscletError::elf(
+            "ELF file has no program headers".to_string(),
+        ));
     }
 
     // Load program segments (PT_LOAD only)
@@ -116,11 +123,10 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
         let offset =
             header.e_phoff as usize + (i * header.e_phentsize as usize);
         if offset + header.e_phentsize as usize > raw.len() {
-            return Err(format!(
+            return Err(RiscletError::elf(format!(
                 "program header {} out of bounds: offset {} size {}",
                 i, offset, header.e_phentsize
-            )
-            .into());
+            )));
         }
 
         let ph_data = &raw[offset..offset + header.e_phentsize as usize];
@@ -134,11 +140,13 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
         // Validate segment file content is within ELF
         let seg_end = ph.p_offset as usize + ph.p_filesz as usize;
         if seg_end > raw.len() {
-            return Err(format!(
+            return Err(RiscletError::elf(format!(
                 "program segment {} extends beyond ELF file (offset {} + size {} > {})",
-                i, ph.p_offset, ph.p_filesz, raw.len()
-            )
-            .into());
+                i,
+                ph.p_offset,
+                ph.p_filesz,
+                raw.len()
+            )));
         }
 
         let segment_data = raw[ph.p_offset as usize..seg_end].to_vec();
@@ -157,11 +165,10 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
         let offset =
             header.e_shoff as usize + (i * header.e_shentsize as usize);
         if offset + header.e_shentsize as usize > raw.len() {
-            return Err(format!(
+            return Err(RiscletError::elf(format!(
                 "section header {} out of bounds: offset {} size {}",
                 i, offset, header.e_shentsize
-            )
-            .into());
+            )));
         }
 
         let sh_data = &raw[offset..offset + header.e_shentsize as usize];
@@ -172,11 +179,10 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
 
         // Check for unsupported section types
         if is_unsupported_section_type(sh.sh_type) {
-            return Err(format!(
+            return Err(RiscletError::elf(format!(
                 "ELF file contains unsupported section type: {:#x}",
                 sh.sh_type
-            )
-            .into());
+            )));
         }
 
         // Load allocatable sections (PROGBITS or NOBITS with SHF_ALLOC)
@@ -208,11 +214,12 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
             && sh.sh_type == SHT_STRTAB
         {
             if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
-                return Err(format!(
+                return Err(RiscletError::elf(format!(
                     ".strtab section extends beyond ELF file: offset {} + size {} > {}",
-                    sh.sh_offset, sh.sh_size, raw.len()
-                )
-                .into());
+                    sh.sh_offset,
+                    sh.sh_size,
+                    raw.len()
+                )));
             }
             strtab = Some(
                 raw[sh.sh_offset as usize
@@ -225,11 +232,12 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
             && sh.sh_type == SHT_SYMTAB
         {
             if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
-                return Err(format!(
+                return Err(RiscletError::elf(format!(
                     ".symtab section extends beyond ELF file: offset {} + size {} > {}",
-                    sh.sh_offset, sh.sh_size, raw.len()
-                )
-                .into());
+                    sh.sh_offset,
+                    sh.sh_size,
+                    raw.len()
+                )));
             }
             symtab = Some(
                 raw[sh.sh_offset as usize
@@ -240,10 +248,14 @@ pub fn load_elf(input: ElfInput) -> Result<Machine> {
     }
 
     let strtab = strtab.ok_or_else(|| {
-        "ELF file does not contain .strtab section".to_string()
+        RiscletError::elf(
+            "ELF file does not contain .strtab section".to_string(),
+        )
     })?;
     let symtab = symtab.ok_or_else(|| {
-        "ELF file does not contain .symtab section".to_string()
+        RiscletError::elf(
+            "ELF file does not contain .symtab section".to_string(),
+        )
     })?;
 
     // Parse symbol table
@@ -274,22 +286,22 @@ fn load_section_header_string_table(
     let offset =
         header.e_shoff as usize + (shstrndx * header.e_shentsize as usize);
     if offset + header.e_shentsize as usize > raw.len() {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "section header string table entry out of bounds: offset {} size {}",
             offset, header.e_shentsize
-        )
-        .into());
+        )));
     }
 
     let sh_data = &raw[offset..offset + header.e_shentsize as usize];
     let sh = ElfSectionHeader::decode(sh_data)?;
 
     if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "section header string table out of bounds: offset {} + size {} > {}",
-            sh.sh_offset, sh.sh_size, raw.len()
-        )
-        .into());
+            sh.sh_offset,
+            sh.sh_size,
+            raw.len()
+        )));
     }
 
     let strtab_data = &raw
@@ -332,13 +344,12 @@ fn parse_symbol_table(strtab: &[u8], symtab: &[u8]) -> Result<SymbolTableData> {
 
     for i in (0..symtab.len()).step_by(SYMBOL_ENTRY_SIZE) {
         if i + SYMBOL_ENTRY_SIZE > symtab.len() {
-            return Err(format!(
+            return Err(RiscletError::elf(format!(
                 "symbol table entry {} out of bounds: offset {} size {}",
                 i / SYMBOL_ENTRY_SIZE,
                 i,
                 SYMBOL_ENTRY_SIZE
-            )
-            .into());
+            )));
         }
 
         let sym_data = &symtab[i..i + SYMBOL_ENTRY_SIZE];
@@ -378,12 +389,11 @@ fn parse_symbol_table(strtab: &[u8], symtab: &[u8]) -> Result<SymbolTableData> {
 /// Extract a null-terminated string from the string table
 fn get_symbol_name(strtab: &[u8], offset: usize) -> Result<String> {
     if offset >= strtab.len() {
-        return Err(format!(
+        return Err(RiscletError::elf(format!(
             "symbol name offset {} out of bounds (table size: {})",
             offset,
             strtab.len()
-        )
-        .into());
+        )));
     }
 
     let mut end = offset;
@@ -392,7 +402,9 @@ fn get_symbol_name(strtab: &[u8], offset: usize) -> Result<String> {
     }
 
     if end >= strtab.len() {
-        return Err("unterminated symbol name in string table".into());
+        return Err(RiscletError::elf(
+            "unterminated symbol name in string table".to_string(),
+        ));
     }
 
     Ok(String::from_utf8_lossy(&strtab[offset..end]).into_owned())

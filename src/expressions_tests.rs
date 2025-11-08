@@ -203,7 +203,7 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("cannot add Address + Address"));
+        assert!(err_msg.contains("Cannot add two addresses"));
     }
 
     #[test]
@@ -219,7 +219,7 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("cannot compute Integer - Address"));
+        assert!(err_msg.contains("Cannot subtract an address from a number"));
     }
 
     // ========================================================================
@@ -457,7 +457,7 @@ mod tests {
         let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Invalid shift amount"));
+        assert!(err_msg.contains("shift amount must be in range 0-31"));
     }
 
     #[test]
@@ -473,7 +473,7 @@ mod tests {
         let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Invalid shift amount"));
+        assert!(err_msg.contains("shift amount must be in range 0-31"));
     }
 
     // ========================================================================
@@ -509,7 +509,7 @@ mod tests {
         let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("wraparound"));
+        assert!(err_msg.contains("underflow") || err_msg.contains("negative"));
     }
 
     #[test]

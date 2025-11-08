@@ -48,6 +48,7 @@ mod tokenizer_tests;
 
 use crate::assembler::{assemble_to_memory, drive_assembler};
 use crate::config::{Mode, parse_cli_args};
+use crate::elf_loader::ElfInput;
 use crate::simulator::run_simulator;
 
 fn main() {
@@ -110,8 +111,8 @@ fn main() {
 }
 
 // Re-export main APIs (for compatibility with any code that imports from this crate)
-pub use elf_loader::*;
+pub use crate::elf_loader::load_elf;
 pub use execution::{Instruction, Machine, add_local_labels, trace};
 pub use riscv::{Op, fields_to_string, get_pseudo_sequence};
 pub use trace::Effects;
-pub use ui::*;
+pub use ui::Tui;
