@@ -532,7 +532,7 @@ impl<'a> Parser<'a> {
             "andi" => self.parse_itype(ITypeOp::Andi),
             "srli" => self.parse_itype(ITypeOp::Srli),
             "srai" => self.parse_itype(ITypeOp::Srai),
-            "jalr" => self.parse_itype(ITypeOp::Jalr),
+            "jalr" => self.parse_jalr(),
             // B-type
             "beq" => self.parse_btype(BTypeOp::Beq),
             "bne" => self.parse_btype(BTypeOp::Bne),
@@ -824,6 +824,68 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Comma)?;
         let imm = self.parse_expression()?;
         Ok(Instruction::IType(op, rd, rs1, Box::new(imm)))
+    }
+
+    // Grammar: reg , [offset] ( reg ) | reg , reg [, offset]
+    // Examples: jalr ra, 0(t0), jalr ra, (t0), jalr ra, t0, jalr ra, t0, 0
+    fn parse_jalr(&mut self) -> Result<Instruction> {
+        let rd = self.parse_register()?;
+        self.expect(&Token::Comma)?;
+
+        // Lookahead for ( reg ) to handle zero offset: jalr rd, (rs1)
+        if let Some(Token::OpenParen) = self.peek() {
+            let pos_backup = self.pos;
+            self.next();
+            if let Ok(rs1) = self.parse_register()
+                && self.expect(&Token::CloseParen).is_ok()
+            {
+                return Ok(Instruction::IType(
+                    ITypeOp::Jalr,
+                    rd,
+                    rs1,
+                    Box::new(Expression::Literal(0)),
+                ));
+            }
+            self.pos = pos_backup;
+        }
+
+        // Try to parse as register first (for alternate format or just "jalr rd, rs1")
+        let first_token_pos = self.pos;
+        if let Ok(rs1) = self.parse_register() {
+            // Check what follows the register
+            match self.peek() {
+                Some(Token::Comma) => {
+                    // jalr rd, rs1, offset
+                    self.next();
+                    let offset = self.parse_expression()?;
+                    return Ok(Instruction::IType(ITypeOp::Jalr, rd, rs1, Box::new(offset)));
+                }
+                _ => {
+                    // jalr rd, rs1 (offset defaults to 0)
+                    return Ok(Instruction::IType(
+                        ITypeOp::Jalr,
+                        rd,
+                        rs1,
+                        Box::new(Expression::Literal(0)),
+                    ));
+                }
+            }
+        }
+
+        // Not a register, so must be offset(rs1) format
+        self.pos = first_token_pos;
+        let offset = self.parse_expression()?;
+        if let Some(Token::OpenParen) = self.peek() {
+            self.next();
+            let rs1 = self.parse_register()?;
+            self.expect(&Token::CloseParen)?;
+            Ok(Instruction::IType(ITypeOp::Jalr, rd, rs1, Box::new(offset)))
+        } else {
+            Err(RiscletError::from_context(
+                "jalr expects offset(rs1), (rs1), rs1, or rs1, offset syntax".to_string(),
+                self.location(),
+            ))
+        }
     }
 
     // Grammar: reg , reg , expression

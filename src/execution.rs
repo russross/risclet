@@ -567,7 +567,15 @@ pub fn trace(
     addresses: &HashMap<u32, usize>,
     config: &Config,
 ) -> Vec<Effects> {
-    let mut abi = CheckABI::new(m.get_reg(2) as u32);
+    let mut abi = CheckABI::new(
+        m.get_reg(2) as u32,
+        m.text_start(),
+        m.text_end(),
+        m.data_start(),
+        m.data_end(),
+        m.stack_start(),
+        m.stack_end(),
+    );
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
     let mut prev_pseudo_index: Option<usize> = None;
