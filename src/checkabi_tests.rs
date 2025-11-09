@@ -33,11 +33,7 @@ mod checkabi_tests {
             output_file: "a.out".to_string(),
             text_start: 0x10000,
             dump: crate::dump::DumpConfig::new(),
-            relax: Relax {
-                gp: true,
-                pseudo: true,
-                compressed: false,
-            },
+            relax: Relax { gp: true, pseudo: true, compressed: false },
         }
     }
 
@@ -45,8 +41,7 @@ mod checkabi_tests {
     fn assemble_source(source: &str) -> Result<Vec<u8>, String> {
         let config = make_test_config(false);
         let sources = vec![("test.s".to_string(), source.to_string())];
-        crate::assembler::assemble(&config, sources)
-            .map_err(|e| e.to_string())
+        crate::assembler::assemble(&config, sources).map_err(|e| e.to_string())
     }
 
     /// Run assembled code with ABI checking and capture result
@@ -54,7 +49,12 @@ mod checkabi_tests {
         // Assemble
         let elf_bytes = match assemble_source(source) {
             Ok(bytes) => bytes,
-            Err(e) => return AbiTestResult::RuntimeError(format!("Assembly error: {}", e)),
+            Err(e) => {
+                return AbiTestResult::RuntimeError(format!(
+                    "Assembly error: {}",
+                    e
+                ));
+            }
         };
 
         // Load and prepare to run
@@ -64,7 +64,12 @@ mod checkabi_tests {
         // Load ELF from bytes
         let mut m = match load_elf(ElfInput::Bytes(&elf_bytes)) {
             Ok(machine) => machine,
-            Err(e) => return AbiTestResult::RuntimeError(format!("Load error: {}", e)),
+            Err(e) => {
+                return AbiTestResult::RuntimeError(format!(
+                    "Load error: {}",
+                    e
+                ));
+            }
         };
 
         // Load all instructions
@@ -86,7 +91,10 @@ mod checkabi_tests {
                     pc += length;
                 }
                 Err(e) => {
-                    return AbiTestResult::RuntimeError(format!("Load instruction error: {}", e))
+                    return AbiTestResult::RuntimeError(format!(
+                        "Load instruction error: {}",
+                        e
+                    ));
                 }
             }
         }
@@ -107,12 +115,15 @@ mod checkabi_tests {
             let mut j = 0;
             while i < instructions.len() {
                 let n = if let Some((n, fields)) =
-                    crate::riscv::get_pseudo_sequence(&instructions[i..], &m.address_symbols)
-                {
+                    crate::riscv::get_pseudo_sequence(
+                        &instructions[i..],
+                        &m.address_symbols,
+                    ) {
                     instructions[i].pseudo_fields = fields;
                     n
                 } else {
-                    instructions[i].pseudo_fields = instructions[i].op.to_pseudo_fields();
+                    instructions[i].pseudo_fields =
+                        instructions[i].op.to_pseudo_fields();
                     1
                 };
                 for inst in &mut instructions[i..i + n] {
@@ -152,7 +163,10 @@ mod checkabi_tests {
                 panic!("Expected '{}', got: {}", error_pattern, msg)
             }
             AbiTestResult::Success => {
-                panic!("Expected violation '{}', but program succeeded", error_pattern)
+                panic!(
+                    "Expected violation '{}', but program succeeded",
+                    error_pattern
+                )
             }
             AbiTestResult::RuntimeError(msg) => {
                 panic!("Expected violation, got error: {}", msg)
@@ -257,9 +271,8 @@ _start:
 
     #[test]
     fn test_save_only_store_allowed() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -284,17 +297,15 @@ foo:
 .equ foo_args, 0
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_save_only_move_allowed() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -315,9 +326,8 @@ foo:
 .global foo_args
 .equ foo_args, 0
 "#,
-                exit_code(0),
-            ),
-        );
+            exit_code(0),
+        ));
     }
 
     #[test]
@@ -426,9 +436,8 @@ _start:
 
     #[test]
     fn test_valid_function_call_with_label() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -444,17 +453,15 @@ foo:
 .global foo_args
 .equ foo_args, 0
 "#,
-                exit_code(0),
-                "    ret",
-            ),
-        );
+            exit_code(0),
+            "    ret",
+        ));
     }
 
     #[test]
     fn test_function_call_with_arg_count() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -472,17 +479,15 @@ add_fn:
 .global add_fn_args
 .equ add_fn_args, 2
 "#,
-                exit_code(0),
-                "    ret",
-            ),
-        );
+            exit_code(0),
+            "    ret",
+        ));
     }
 
     #[test]
     fn test_function_call_zero_args() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -498,10 +503,9 @@ foo:
 .global foo_args
 .equ foo_args, 0
 "#,
-                exit_code(0),
-                "    ret",
-            ),
-        );
+            exit_code(0),
+            "    ret",
+        ));
     }
 
     #[test]
@@ -552,9 +556,8 @@ _start:
     fn test_function_call_arg_count_callee_side() {
         // Test that callee-side arg count declaration works:
         // Function declares 2 args, so a0 and a1 should be valid, a2+ invalid
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -573,10 +576,9 @@ add_two:
 .global add_two_args
 .equ add_two_args, 2
 "#,
-                exit_code(0),
-                "    ret",
-            ),
-        );
+            exit_code(0),
+            "    ret",
+        ));
     }
 
     #[test]
@@ -619,9 +621,8 @@ use_a2:
 
     #[test]
     fn test_valid_function_return() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -644,16 +645,14 @@ foo:
 .global foo_args
 .equ foo_args, 1
 "#,
-                exit_code(0),
-            ),
-        );
+            exit_code(0),
+        ));
     }
 
     #[test]
     fn test_return_with_sp_restored() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -674,9 +673,8 @@ foo:
 .global foo_args
 .equ foo_args, 0
 "#,
-                exit_code(0),
-            ),
-        );
+            exit_code(0),
+        ));
     }
 
     #[test]
@@ -809,9 +807,8 @@ _start:
 
     #[test]
     fn test_sb_any_alignment() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -826,17 +823,15 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_sh_aligned_2_bytes() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -849,17 +844,15 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_sw_aligned_4_bytes() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -871,10 +864,9 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
@@ -978,9 +970,8 @@ _start:
 
     #[test]
     fn test_lb_lbu_any_alignment() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1002,17 +993,15 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_lh_lhu_aligned_2_bytes() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1028,17 +1017,15 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_lw_aligned_4_bytes() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1051,10 +1038,9 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
@@ -1168,9 +1154,8 @@ _start:
 
     #[test]
     fn test_store_then_load_same_size() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1183,17 +1168,15 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_load_unwritten_memory() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1204,17 +1187,15 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
     fn test_separate_byte_stores_and_loads() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1230,10 +1211,9 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("buffer", 4)
-            ),
-        );
+            exit_code(0),
+            bss_space("buffer", 4)
+        ));
     }
 
     #[test]
@@ -1342,9 +1322,8 @@ _start:
 
     #[test]
     fn test_syscall_write_byte_data() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1367,10 +1346,9 @@ _start:
 
 {}
 "#,
-                exit_code(0),
-                bss_space("msg", 5)
-            ),
-        );
+            exit_code(0),
+            bss_space("msg", 5)
+        ));
     }
 
     #[test]
@@ -1407,9 +1385,8 @@ _start:
 
     #[test]
     fn test_mv_preserves_value_number() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1419,16 +1396,14 @@ _start:
     add a0, t1, x0
     {}
 "#,
-                exit_code(0)
-            ),
-        );
+            exit_code(0)
+        ));
     }
 
     #[test]
     fn test_arithmetic_creates_new_value() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1439,9 +1414,8 @@ _start:
     add a0, t2, x0
     {}
 "#,
-                exit_code(0)
-            ),
-        );
+            exit_code(0)
+        ));
     }
 
     // ============================================================================
@@ -1450,9 +1424,8 @@ _start:
 
     #[test]
     fn test_nested_function_calls() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1480,18 +1453,16 @@ inner:
 .global inner_args
 .equ inner_args, 0
 "#,
-                exit_code(0),
-                "    ret",
-                "    ret",
-            ),
-        );
+            exit_code(0),
+            "    ret",
+            "    ret",
+        ));
     }
 
     #[test]
     fn test_recursive_function() {
-        check_abi_success(
-            &format!(
-                r#"
+        check_abi_success(&format!(
+            r#"
 .global _start
 .text
 _start:
@@ -1516,9 +1487,8 @@ countdown:
 .global countdown_args
 .equ countdown_args, 1
 "#,
-                exit_code(0),
-            ),
-        );
+            exit_code(0),
+        ));
     }
 
     #[test]

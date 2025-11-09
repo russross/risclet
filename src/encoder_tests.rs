@@ -99,6 +99,9 @@ fn assemble(
     // until line sizes stabilize. Returns the final encoded segments.
     let mut layout = Layout::new(&source);
     relaxation_loop(config, &source, &symbols, &mut layout)
+        .map(|(text_bytes, data_bytes, bss_size, _symbol_values)| {
+            (text_bytes, data_bytes, bss_size)
+        })
         .map_err(|e| e.with_source_context())
 }
 

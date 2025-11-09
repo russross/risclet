@@ -8,7 +8,7 @@ use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
 use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
 use crate::error::{Result, RiscletError};
-use crate::expressions::eval_symbol_values;
+use crate::expressions::{SymbolValues, eval_symbol_values};
 use crate::layout::Layout;
 use crate::parser::parse;
 use crate::symbols::{SymbolLinks, create_builtin_symbols_file, link_symbols};
@@ -73,7 +73,6 @@ pub fn assemble(
         println!(); // Separator between phase dumps
     }
 
-
     // ========================================================================
     // Phase 2: Link symbols (connect symbol uses to their definitions)
     // ========================================================================
@@ -103,7 +102,7 @@ pub fn assemble(
         print_input_statistics(&source, symbol_links);
     }
 
-    let (text_bytes, data_bytes, _bss_size) =
+    let (text_bytes, data_bytes, _bss_size, symbol_values) =
         relaxation_loop(config, &source, symbol_links, &mut layout)?;
 
     // Checkpoint: after relaxation, check if we should exit before ELF generation
@@ -123,7 +122,7 @@ pub fn assemble(
     let mut elf_builder = ElfBuilder::new(&layout, text_bytes, data_bytes);
 
     // Build symbol table
-    elf_builder.build_symbol_table(&source, symbol_links)?;
+    elf_builder.build_symbol_table(&source, symbol_links, &symbol_values)?;
 
     // Checkpoint: dump ELF if requested
     if should_dump_phase(config, Phase::Elf) {
@@ -165,8 +164,12 @@ pub fn assemble_files(config: &Config) -> Result<Vec<u8>> {
     // Read all input files into (filename, content) pairs
     let mut sources = Vec::new();
     for file_path in &config.input_files {
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| RiscletError::io(format!("could not read file '{}': {}", file_path, e)))?;
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
+            RiscletError::io(format!(
+                "could not read file '{}': {}",
+                file_path, e
+            ))
+        })?;
         sources.push((file_path.clone(), content));
     }
 
@@ -184,13 +187,13 @@ pub fn assemble_files(config: &Config) -> Result<Vec<u8>> {
 /// 5. Checks if any sizes changed from the guess
 ///
 /// Loops until there are no size changes or max iterations reached.
-/// Returns Ok((text, data, bss_size)) with the final encoding.
+/// Returns Ok((text, data, bss_size, symbol_values)) with the final encoding and symbol values.
 pub fn relaxation_loop(
     config: &Config,
     source: &Source,
     symbol_links: &SymbolLinks,
     layout: &mut Layout,
-) -> Result<(Vec<u8>, Vec<u8>, u32)> {
+) -> Result<(Vec<u8>, Vec<u8>, u32, SymbolValues)> {
     const MAX_ITERATIONS: usize = 10;
 
     if config.verbose {
@@ -255,7 +258,7 @@ pub fn relaxation_loop(
                     if pass_number == 1 { "" } else { "es" }
                 );
             }
-            return Ok((text_bytes, data_bytes, bss_size));
+            return Ok((text_bytes, data_bytes, bss_size, symbol_values));
         }
 
         // Sizes changed, discard encoded data and loop again
@@ -315,7 +318,10 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
 }
 
 /// Parse source code from a string (for in-memory assembly in tests)
-fn parse_source_from_string(file_name: &str, source_code: &str) -> Result<SourceFile> {
+fn parse_source_from_string(
+    file_name: &str,
+    source_code: &str,
+) -> Result<SourceFile> {
     let mut lines: Vec<Line> = Vec::new();
 
     for (line_num, line_text) in source_code.lines().enumerate() {

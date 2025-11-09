@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::elf::{
-    ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PT_LOAD,
+    ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PT_LOAD, SHN_ABS,
     SHT_STRTAB, SHT_SYMTAB, STT_FILE, SYMBOL_ENTRY_SIZE, StringTable,
 };
 use crate::error::{Result, RiscletError};
@@ -376,7 +376,7 @@ fn parse_symbol_table(strtab: &[u8], symtab: &[u8]) -> Result<SymbolTableData> {
         }
 
         // Categorize symbol
-        if sym.st_shndx > 0 {
+        if sym.st_shndx > 0 && sym.st_shndx != SHN_ABS {
             address_symbols.insert(sym.st_value, name);
         } else {
             other_symbols.insert(name, sym.st_value);
