@@ -14,13 +14,13 @@ use crate::parser::parse;
 use crate::symbols::{SymbolLinks, create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 
-/// Main assembly driver - wrapper that generates ELF and writes to disk
-pub fn drive_assembler(config: &Config) -> Result<()> {
+/// Assemble source files and write ELF to disk
+pub fn assemble_and_save(config: &Config) -> Result<()> {
     // Generate ELF bytes (handles all phases and dump checkpoints)
-    let elf_bytes = assemble_to_memory(config)?;
+    let elf_bytes = assemble_files(config)?;
 
     // Write to output file
     let mut file = File::create(&config.output_file)
@@ -39,16 +39,31 @@ pub fn drive_assembler(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Assemble to in-memory ELF bytes - core assembly logic
-pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
+/// Core assembler: takes unparsed source strings and produces ELF bytes
+///
+/// Takes a vector of (filename, source code) pairs and assembles them into an ELF binary.
+/// This is the main assembly pipeline - all assembly operations go through this function.
+/// Handles all phases: parsing, symbol linking, relaxation, and ELF generation.
+pub fn assemble(
+    config: &Config,
+    sources: Vec<(String, String)>,
+) -> Result<Vec<u8>> {
     // ========================================================================
-    // Phase 1: Parse source files into AST
+    // Phase 1: Parse source code from strings into AST
     // ========================================================================
-    let source = &process_files(&config.input_files)?;
+    let mut source = Source { files: Vec::new() };
+
+    for (file_name, source_code) in sources {
+        let source_file = parse_source_from_string(&file_name, &source_code)?;
+        source.files.push(source_file);
+    }
+
+    // Add builtin symbols file (provides __global_pointer$ definition)
+    source.files.push(create_builtin_symbols_file());
 
     // Checkpoint: dump AST if requested
     if should_dump_phase(config, Phase::Parse) {
-        dump_ast(config, source);
+        dump_ast(config, &source);
         if is_terminal_phase(config, Phase::Parse) {
             println!("\n(No output file generated)");
             return Err(RiscletError::io(
@@ -58,14 +73,15 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
         println!(); // Separator between phase dumps
     }
 
+
     // ========================================================================
     // Phase 2: Link symbols (connect symbol uses to their definitions)
     // ========================================================================
-    let symbol_links = &link_symbols(source)?;
+    let symbol_links = &link_symbols(&source)?;
 
     // Checkpoint: dump symbol linking if requested
     if should_dump_phase(config, Phase::SymbolLinking) {
-        dump_symbols(config, source, symbol_links);
+        dump_symbols(config, &source, symbol_links);
         if is_terminal_phase(config, Phase::SymbolLinking) {
             println!("\n(No output file generated)");
             return Err(RiscletError::io(
@@ -76,7 +92,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
     }
 
     // Create initial layout after symbol linking
-    let mut layout = Layout::new(source);
+    let mut layout = Layout::new(&source);
 
     // ========================================================================
     // Phase 3: Relaxation - iteratively compute offsets and encode until stable
@@ -84,11 +100,11 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
 
     // Show input statistics before relaxation loop if verbose
     if config.verbose {
-        print_input_statistics(source, symbol_links);
+        print_input_statistics(&source, symbol_links);
     }
 
     let (text_bytes, data_bytes, _bss_size) =
-        relaxation_loop(config, source, symbol_links, &mut layout)?;
+        relaxation_loop(config, &source, symbol_links, &mut layout)?;
 
     // Checkpoint: after relaxation, check if we should exit before ELF generation
     if should_dump_phase(config, Phase::Relaxation)
@@ -107,7 +123,7 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
     let mut elf_builder = ElfBuilder::new(&layout, text_bytes, data_bytes);
 
     // Build symbol table
-    elf_builder.build_symbol_table(source, symbol_links)?;
+    elf_builder.build_symbol_table(&source, symbol_links)?;
 
     // Checkpoint: dump ELF if requested
     if should_dump_phase(config, Phase::Elf) {
@@ -142,6 +158,20 @@ pub fn assemble_to_memory(config: &Config) -> Result<Vec<u8>> {
     }?;
 
     elf_builder.build(entry_point)
+}
+
+/// Read source files from config and assemble to ELF bytes
+pub fn assemble_files(config: &Config) -> Result<Vec<u8>> {
+    // Read all input files into (filename, content) pairs
+    let mut sources = Vec::new();
+    for file_path in &config.input_files {
+        let content = std::fs::read_to_string(file_path)
+            .map_err(|e| RiscletError::io(format!("could not read file '{}': {}", file_path, e)))?;
+        sources.push((file_path.clone(), content));
+    }
+
+    // Call core assembler
+    assemble(config, sources)
 }
 
 /// Iterate until line sizes and offsets are stable
@@ -284,50 +314,24 @@ fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
     }
 }
 
-/// Read and parse input files into AST
-pub fn process_files(files: &[String]) -> Result<Source> {
-    let mut source = Source { files: Vec::new() };
-
-    for file_path in files {
-        let source_file = process_file(file_path)?;
-        source.files.push(source_file);
-    }
-
-    // Add builtin symbols file (provides __global_pointer$ definition)
-    source.files.push(create_builtin_symbols_file());
-
-    Ok(source)
-}
-
-/// Process a single source file
-fn process_file(file_path: &str) -> Result<SourceFile> {
-    let file = File::open(file_path).map_err(|e| {
-        RiscletError::io(format!("could not open file '{}': {}", file_path, e))
-    })?;
-    let reader = io::BufReader::new(file);
-
+/// Parse source code from a string (for in-memory assembly in tests)
+fn parse_source_from_string(file_name: &str, source_code: &str) -> Result<SourceFile> {
     let mut lines: Vec<Line> = Vec::new();
 
-    for (line_num, line_result) in reader.lines().enumerate() {
-        let line = line_result.map_err(|e| {
-            RiscletError::io(format!(
-                "could not read file '{}': {}",
-                file_path, e
-            ))
-        })?;
-        if line.trim().is_empty() {
+    for (line_num, line_text) in source_code.lines().enumerate() {
+        if line_text.trim().is_empty() {
             continue;
         }
 
         let location =
-            Location { file: file_path.to_string(), line: line_num + 1 };
+            Location { file: file_name.to_string(), line: line_num + 1 };
 
-        let tokens = tokenize(&line)
+        let tokens = tokenize(line_text)
             .map_err(|e| RiscletError::from_context(e, location.clone()))?;
 
         if !tokens.is_empty() {
             let parsed_lines =
-                parse(&tokens, file_path.to_string(), line_num + 1)?;
+                parse(&tokens, file_name.to_string(), line_num + 1)?;
 
             for parsed_line in parsed_lines {
                 // Segment and size will be set in the layout phase
@@ -336,7 +340,7 @@ fn process_file(file_path: &str) -> Result<SourceFile> {
         }
     }
 
-    Ok(SourceFile { file: file_path.to_string(), lines })
+    Ok(SourceFile { file: file_name.to_string(), lines })
 }
 
 /// Print input statistics during verbose assembly

@@ -216,6 +216,7 @@ pub const A_REGS: [usize; 8] = [10, 11, 12, 13, 14, 15, 16, 17];
 pub const T_REGS: [usize; 7] = [5, 6, 7, 28, 29, 30, 31];
 pub const S_REGS: [usize; 12] = [8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27];
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Op {
     // r-type
     Add { rd: usize, rs1: usize, rs2: usize },

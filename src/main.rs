@@ -34,6 +34,8 @@ mod tokenizer;
 
 // Test modules
 #[cfg(test)]
+mod checkabi_tests;
+#[cfg(test)]
 mod encoder_tests;
 #[cfg(test)]
 mod expressions_tests;
@@ -46,7 +48,7 @@ mod symbols_tests;
 #[cfg(test)]
 mod tokenizer_tests;
 
-use crate::assembler::{assemble_to_memory, drive_assembler};
+use crate::assembler::{assemble_and_save, assemble_files};
 use crate::config::{Mode, parse_cli_args};
 use crate::elf_loader::ElfInput;
 use crate::simulator::run_simulator;
@@ -66,7 +68,7 @@ fn main() {
     // Dispatch based on mode
     match config.mode {
         Mode::Assemble => {
-            if let Err(e) = drive_assembler(&config) {
+            if let Err(e) = assemble_and_save(&config) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
@@ -76,7 +78,7 @@ fn main() {
             // Check if we have .s files to assemble first
             if !config.input_files.is_empty() {
                 // We have .s files - assemble them in-memory, then run simulator
-                let elf_bytes = match assemble_to_memory(&config) {
+                let elf_bytes = match assemble_files(&config) {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         eprintln!("{}", e);
