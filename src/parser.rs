@@ -858,7 +858,12 @@ impl<'a> Parser<'a> {
                     // jalr rd, rs1, offset
                     self.next();
                     let offset = self.parse_expression()?;
-                    return Ok(Instruction::IType(ITypeOp::Jalr, rd, rs1, Box::new(offset)));
+                    return Ok(Instruction::IType(
+                        ITypeOp::Jalr,
+                        rd,
+                        rs1,
+                        Box::new(offset),
+                    ));
                 }
                 _ => {
                     // jalr rd, rs1 (offset defaults to 0)
@@ -882,7 +887,8 @@ impl<'a> Parser<'a> {
             Ok(Instruction::IType(ITypeOp::Jalr, rd, rs1, Box::new(offset)))
         } else {
             Err(RiscletError::from_context(
-                "jalr expects offset(rs1), (rs1), rs1, or rs1, offset syntax".to_string(),
+                "jalr expects offset(rs1), (rs1), rs1, or rs1, offset syntax"
+                    .to_string(),
                 self.location(),
             ))
         }

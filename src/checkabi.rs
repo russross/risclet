@@ -7,10 +7,10 @@ use crate::trace::{Effects, MemoryValue, RegisterValue};
 /// Size category for shadow memory tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShadowSize {
-    Uninitialized,  // Not yet written
-    Byte,           // 1 byte
-    HalfWord,       // 2 bytes
-    Word,           // 4 bytes
+    Uninitialized, // Not yet written
+    Byte,          // 1 byte
+    HalfWord,      // 2 bytes
+    Word,          // 4 bytes
 }
 
 impl ShadowSize {
@@ -21,16 +21,6 @@ impl ShadowSize {
             2 => ShadowSize::HalfWord,
             4 => ShadowSize::Word,
             _ => panic!("Invalid byte count for shadow size: {}", bytes),
-        }
-    }
-
-    /// Convert size category to actual byte count
-    fn to_byte_count(self) -> usize {
-        match self {
-            ShadowSize::Uninitialized => 0,
-            ShadowSize::Byte => 1,
-            ShadowSize::HalfWord => 2,
-            ShadowSize::Word => 4,
         }
     }
 
@@ -153,11 +143,20 @@ impl CheckABI {
 
     /// Get reference to the segment containing this address
     fn get_segment(&self, addr: u32) -> Option<&Vec<u64>> {
-        if addr >= self.text_start && (addr as usize) < self.text_start as usize + self.text_shadow.len() {
+        if addr >= self.text_start
+            && (addr as usize)
+                < self.text_start as usize + self.text_shadow.len()
+        {
             Some(&self.text_shadow)
-        } else if addr >= self.data_start && (addr as usize) < self.data_start as usize + self.data_shadow.len() {
+        } else if addr >= self.data_start
+            && (addr as usize)
+                < self.data_start as usize + self.data_shadow.len()
+        {
             Some(&self.data_shadow)
-        } else if addr >= self.stack_start && (addr as usize) < self.stack_start as usize + self.stack_shadow.len() {
+        } else if addr >= self.stack_start
+            && (addr as usize)
+                < self.stack_start as usize + self.stack_shadow.len()
+        {
             Some(&self.stack_shadow)
         } else {
             None
@@ -167,9 +166,13 @@ impl CheckABI {
     /// Read shadow memory value at an address
     fn shadow_get(&self, addr: u32) -> Option<(usize, ShadowSize)> {
         let segment = self.get_segment(addr)?;
-        let offset = if addr >= self.text_start && addr < self.text_start + self.text_shadow.len() as u32 {
+        let offset = if addr >= self.text_start
+            && addr < self.text_start + self.text_shadow.len() as u32
+        {
             (addr - self.text_start) as usize
-        } else if addr >= self.data_start && addr < self.data_start + self.data_shadow.len() as u32 {
+        } else if addr >= self.data_start
+            && addr < self.data_start + self.data_shadow.len() as u32
+        {
             (addr - self.data_start) as usize
         } else {
             (addr - self.stack_start) as usize
@@ -180,34 +183,45 @@ impl CheckABI {
     /// Write shadow memory value at an address
     fn shadow_insert(&mut self, addr: u32, n: usize, size: ShadowSize) {
         // Compute offset and determine which segment before borrowing
-        let (offset, in_text) = if addr >= self.text_start && (addr as usize) < self.text_start as usize + self.text_shadow.len() {
+        let (offset, in_text) = if addr >= self.text_start
+            && (addr as usize)
+                < self.text_start as usize + self.text_shadow.len()
+        {
             ((addr - self.text_start) as usize, true)
-        } else if addr >= self.data_start && (addr as usize) < self.data_start as usize + self.data_shadow.len() {
+        } else if addr >= self.data_start
+            && (addr as usize)
+                < self.data_start as usize + self.data_shadow.len()
+        {
             ((addr - self.data_start) as usize, false)
-        } else if addr >= self.stack_start && (addr as usize) < self.stack_start as usize + self.stack_shadow.len() {
+        } else if addr >= self.stack_start
+            && (addr as usize)
+                < self.stack_start as usize + self.stack_shadow.len()
+        {
             ((addr - self.stack_start) as usize, false)
         } else {
             // This should never happen if memory bounds checking is working
-            assert!(false, "shadow_insert called with out-of-bounds address 0x{:x}", addr);
-            return;
+            unreachable!(
+                "shadow_insert called with out-of-bounds address 0x{:x}",
+                addr
+            );
         };
 
         // Now borrow the appropriate segment and write
         if in_text {
-            if addr >= self.text_start && (addr as usize) < self.text_start as usize + self.text_shadow.len() {
+            if addr >= self.text_start
+                && (addr as usize)
+                    < self.text_start as usize + self.text_shadow.len()
+            {
                 self.text_shadow[offset] = Self::encode(n, size);
             }
-        } else if addr >= self.data_start && (addr as usize) < self.data_start as usize + self.data_shadow.len() {
+        } else if addr >= self.data_start
+            && (addr as usize)
+                < self.data_start as usize + self.data_shadow.len()
+        {
             self.data_shadow[offset] = Self::encode(n, size);
         } else {
             self.stack_shadow[offset] = Self::encode(n, size);
         }
-    }
-
-    /// Check if a shadow memory location has been initialized
-    #[inline]
-    fn shadow_contains_key(&self, addr: u32) -> bool {
-        self.shadow_get(addr).map(|(_, size)| size != ShadowSize::Uninitialized).unwrap_or(false)
     }
 
     pub fn check_instruction(
@@ -216,7 +230,6 @@ impl CheckABI {
         instruction: &Rc<Instruction>,
         effects: &mut Effects,
     ) -> Result<(), String> {
-        eprintln!("Checking instruction: {:?}", instruction.op);
         // start with checks applicable to all instructions
         // this allows us to make basic assumptions later
 
@@ -313,7 +326,6 @@ impl CheckABI {
 
                 let mut arg_count = 8;
                 let args_sym = format!("{}_args", name);
-                eprintln!("args_sym: {}, other_symbols: {:?}", args_sym, m.other_symbols);
                 if let Some(&count) = m.other_symbols.get(&args_sym) {
                     // we have an argument count
                     assert!((0..8).contains(&count));
@@ -332,7 +344,6 @@ impl CheckABI {
                         self.registers[x] = None;
                         self.valid[x] = false;
                     }
-                    eprintln!("valid a regs after jal: {:?}", &self.valid[10..18]);
                 } else {
                     // no argument count, so assume all a registers are args
                     for &x in A_REGS.iter().take(arg_count) {
@@ -434,17 +445,17 @@ impl CheckABI {
                     Op::Sh { .. } => (2, self.new_n()),
                     Op::Sw { rs2, .. } => {
                         // Full register store: use the source register's value number
-                        let n = self.registers[rs2].expect("sw source register should be valid");
+                        let n = self.registers[rs2]
+                            .expect("sw source register should be valid");
                         (4, n)
-                    },
+                    }
                     _ => unreachable!(),
                 };
 
                 if addr & (alignment - 1) != 0 {
                     return Err(format!(
                         "Unaligned {}-byte memory write at 0x{:x}",
-                        alignment,
-                        addr
+                        alignment, addr
                     ));
                 }
 
@@ -498,10 +509,10 @@ impl CheckABI {
                         // First byte is uninitialized - all bytes must be uninitialized
                         let n = self.new_n();
                         for address in addr..addr + (byte_count as u32) {
-                            if let Some((_, size)) = self.shadow_get(address) {
-                                if size != ShadowSize::Uninitialized {
-                                    return Err("Cannot read: incomplete write before this read".to_string());
-                                }
+                            if let Some((_, size)) = self.shadow_get(address)
+                                && size != ShadowSize::Uninitialized
+                            {
+                                return Err("Cannot read: incomplete write before this read".to_string());
                             }
                             self.shadow_insert(address, n, read_size);
                         }
@@ -511,13 +522,7 @@ impl CheckABI {
                         let n = mem_n;
                         for address in addr..addr + (byte_count as u32) {
                             match self.shadow_get(address) {
-                                None => return Err(
-                                    "Cannot read: incomplete write before this read".to_string()
-                                ),
-                                Some((shadow_mem_n, shadow_mem_size)) => {
-                                    if shadow_mem_size == ShadowSize::Uninitialized {
-                                        return Err("Cannot read: incomplete write before this read".to_string());
-                                    }
+                                Some((shadow_mem_n, shadow_mem_size)) if shadow_mem_size != ShadowSize::Uninitialized => {
                                     if shadow_mem_n != n {
                                         return Err("Cannot read: data spans multiple separate writes".to_string());
                                     }
@@ -525,13 +530,17 @@ impl CheckABI {
                                         return Err("Read size mismatches original write size".to_string());
                                     }
                                 }
+                                _ => return Err("Cannot read: incomplete write before this read".to_string()),
                             }
                         }
                         n
                     }
                 } else {
                     // Address not in valid segment - shouldn't happen
-                    return Err("Cannot read: address not in valid memory segment".to_string());
+                    return Err(
+                        "Cannot read: address not in valid memory segment"
+                            .to_string(),
+                    );
                 };
 
                 self.registers[rd] = Some(n);

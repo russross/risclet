@@ -15,8 +15,9 @@ use crate::elf::{
     make_st_info,
 };
 use crate::error::{Result, RiscletError};
+use crate::expressions::{EvaluatedValue, SymbolValues};
 use crate::layout::{Layout, LineLayout};
-use crate::symbols::SymbolLinks;
+use crate::symbols::{SymbolDefinition, SymbolLinks};
 
 // ============================================================================
 // ELF Builder
@@ -410,6 +411,7 @@ impl<'a> ElfBuilder<'a> {
         &mut self,
         source: &Source,
         symbol_links: &SymbolLinks,
+        symbol_values: &SymbolValues,
     ) -> Result<()> {
         // Infer has_data and has_bss from layout
         let has_data = self.layout.data_size > 0;
@@ -552,35 +554,6 @@ impl<'a> ElfBuilder<'a> {
             st_size: 0,
         });
 
-        // __SDATA_BEGIN__ = data_start (if data exists)
-        if has_data || has_bss {
-            let sdata_begin = self.symbol_names.add("__SDATA_BEGIN__");
-            let section = if has_data {
-                data_section_index.ok_or_else(|| {
-                    RiscletError::internal(
-                        "Layout has data size > 0 but data_section_index is None. \
-                         This indicates a bug in the assembler.".to_string()
-                    )
-                })?
-            } else {
-                bss_section_index.ok_or_else(|| {
-                    RiscletError::internal(
-                        "Layout has bss size > 0 but bss_section_index is None. \
-                         This indicates a bug in the assembler.".to_string()
-                    )
-                })?
-            };
-            let addr = if has_data { data_start } else { bss_start };
-            self.add_symbol(ElfSymbol {
-                st_name: sdata_begin,
-                st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-                st_other: 0,
-                st_shndx: section,
-                st_value: addr,
-                st_size: 0,
-            });
-        }
-
         // Add user-defined global symbols
         for global in &symbol_links.global_symbols {
             // Skip __global_pointer$ - it's already emitted above as a linker-provided symbol
@@ -592,31 +565,32 @@ impl<'a> ElfBuilder<'a> {
             let line_index = global.definition_pointer.line_index;
 
             let name_idx = self.symbol_names.add(&global.symbol);
-            let (addr, section_idx) = {
-                let pointer = LinePointer { file_index, line_index };
-                let line_layout = self.layout.get(pointer);
-                match line_layout.segment {
-                    Segment::Text => {
-                        (text_start + line_layout.offset, text_section_index)
-                    }
-                    Segment::Data => {
-                        let idx = data_section_index.ok_or_else(|| {
+            let def = SymbolDefinition {
+                symbol: global.symbol.clone(),
+                pointer: global.definition_pointer,
+            };
+            let value = symbol_values.get(&def).unwrap();
+            let (st_value, st_shndx) = match value {
+                EvaluatedValue::Integer(v) => (v as u32, SHN_ABS),
+                EvaluatedValue::Address(a) => {
+                    let pointer = LinePointer { file_index, line_index };
+                    let line_layout = self.layout.get(pointer);
+                    let section_idx = match line_layout.segment {
+                        Segment::Text => text_section_index,
+                        Segment::Data => data_section_index.ok_or_else(|| {
                             RiscletError::internal(
                                 "Global symbol references data segment but no data section was created. \
                                  This indicates a bug in the assembler.".to_string()
                             )
-                        })?;
-                        (data_start + line_layout.offset, idx)
-                    }
-                    Segment::Bss => {
-                        let idx = bss_section_index.ok_or_else(|| {
+                        })?,
+                        Segment::Bss => bss_section_index.ok_or_else(|| {
                             RiscletError::internal(
                                 "Global symbol references bss segment but no bss section was created. \
                                  This indicates a bug in the assembler.".to_string()
                             )
-                        })?;
-                        (bss_start + line_layout.offset, idx)
-                    }
+                        })?,
+                    };
+                    (a, section_idx)
                 }
             };
 
@@ -624,114 +598,11 @@ impl<'a> ElfBuilder<'a> {
                 st_name: name_idx,
                 st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
                 st_other: 0,
-                st_shndx: section_idx,
-                st_value: addr,
+                st_shndx,
+                st_value,
                 st_size: 0,
             });
         }
-
-        // More linker-provided symbols (at end)
-        let end_text = text_start + self.layout.text_size;
-        let end_data = if has_data {
-            data_start + self.layout.data_size
-        } else if has_bss {
-            bss_start
-        } else {
-            end_text
-        };
-        let end_bss =
-            if has_bss { bss_start + self.layout.bss_size } else { end_data };
-
-        // __bss_start
-        let bss_start_name = self.symbol_names.add("__bss_start");
-        let bss_start_section =
-            if has_bss {
-                bss_section_index.ok_or_else(|| {
-                    RiscletError::internal(
-                    "Layout has bss size > 0 but bss_section_index is None. \
-                     This indicates a bug in the assembler.".to_string()
-                )
-                })?
-            } else if has_data {
-                data_section_index.ok_or_else(|| {
-                    RiscletError::internal(
-                    "Layout has data size > 0 but data_section_index is None. \
-                     This indicates a bug in the assembler.".to_string()
-                )
-                })?
-            } else {
-                text_section_index
-            };
-        self.add_symbol(ElfSymbol {
-            st_name: bss_start_name,
-            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-            st_other: 0,
-            st_shndx: bss_start_section,
-            st_value: if has_bss { bss_start } else { end_data },
-            st_size: 0,
-        });
-
-        // __DATA_BEGIN__
-        let data_begin_name = self.symbol_names.add("__DATA_BEGIN__");
-        self.add_symbol(ElfSymbol {
-            st_name: data_begin_name,
-            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-            st_other: 0,
-            st_shndx: bss_start_section,
-            st_value: if has_bss { bss_start } else { end_data },
-            st_size: 0,
-        });
-
-        // __BSS_END__
-        let bss_end_name = self.symbol_names.add("__BSS_END__");
-        let bss_end_section =
-            if has_bss {
-                bss_section_index.ok_or_else(|| {
-                    RiscletError::internal(
-                    "Layout has bss size > 0 but bss_section_index is None. \
-                     This indicates a bug in the assembler.".to_string()
-                )
-                })?
-            } else if has_data {
-                data_section_index.ok_or_else(|| {
-                    RiscletError::internal(
-                    "Layout has data size > 0 but data_section_index is None. \
-                     This indicates a bug in the assembler.".to_string()
-                )
-                })?
-            } else {
-                text_section_index
-            };
-        self.add_symbol(ElfSymbol {
-            st_name: bss_end_name,
-            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-            st_other: 0,
-            st_shndx: bss_end_section,
-            st_value: end_bss,
-            st_size: 0,
-        });
-
-        // _edata = end of .data (or end of .bss if no .data)
-        let edata_name = self.symbol_names.add("_edata");
-        self.add_symbol(ElfSymbol {
-            st_name: edata_name,
-            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-            st_other: 0,
-            st_shndx: bss_start_section,
-            st_value: if has_bss { bss_start } else { end_data },
-            st_size: 0,
-        });
-
-        // _end = absolute end of all sections
-        let end_name = self.symbol_names.add("_end");
-        self.add_symbol(ElfSymbol {
-            st_name: end_name,
-            st_info: make_st_info(STB_GLOBAL, STT_NOTYPE),
-            st_other: 0,
-            st_shndx: bss_end_section,
-            st_value: end_bss,
-            st_size: 0,
-        });
 
         Ok(())
     }
