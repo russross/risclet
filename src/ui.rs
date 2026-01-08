@@ -1144,6 +1144,8 @@ impl fmt::Write for Pane {
                 } else {
                     self.cursor_y = u16::MAX;
                 }
+            } else if c == '\0' {
+                // skip nul char
             } else if self.cursor_x < self.width && self.cursor_y < self.height
             {
                 self.out[(self.top + self.cursor_y) as usize]

@@ -503,8 +503,11 @@ impl CheckABI {
                 // 2. All bytes initialized with same value number and size - reuse value number
                 // Mixed initialized/uninitialized is an error (partial write)
 
-                let first_byte_state = self.shadow_get(addr);
-                let n = if let Some((mem_n, mem_size)) = first_byte_state {
+                let Some((mem_n, mem_size)) = self.shadow_get(addr) else {
+                    // Address not in valid segment - shouldn't happen
+                    return Err("Cannot read: address not in valid memory segment".to_string());
+                };
+                let n = {
                     if mem_size == ShadowSize::Uninitialized {
                         // First byte is uninitialized - all bytes must be uninitialized
                         let n = self.new_n();
@@ -535,12 +538,6 @@ impl CheckABI {
                         }
                         n
                     }
-                } else {
-                    // Address not in valid segment - shouldn't happen
-                    return Err(
-                        "Cannot read: address not in valid memory segment"
-                            .to_string(),
-                    );
                 };
 
                 self.registers[rd] = Some(n);
@@ -557,6 +554,7 @@ impl CheckABI {
                     for address in addr..addr + (size as u32) {
                         if let Some((_, shadow_size)) = self.shadow_get(address)
                             && shadow_size != ShadowSize::Byte
+                            && shadow_size != ShadowSize::Uninitialized
                         {
                             return Err(
                                 "Syscall write requires byte-level data"
@@ -575,6 +573,7 @@ impl CheckABI {
                         // do not allow overwrite of non-byte data
                         if let Some((_, shadow_size)) = self.shadow_get(address)
                             && shadow_size != ShadowSize::Byte
+                            && shadow_size != ShadowSize::Uninitialized
                         {
                             return Err(
                                 "Syscall read would overwrite non-byte data"
