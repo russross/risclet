@@ -104,8 +104,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # This job handles the native Windows and macOS builds.
-  build_windows_and_macos:
+  # This job handles the native macOS builds.
+  build_macos:
     name: Build for ${{ matrix.target }} (on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [check_release_type]
@@ -113,8 +113,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
           - target: x86_64-apple-darwin
             os: macos-latest
           - target: aarch64-apple-darwin
@@ -131,21 +129,14 @@ jobs:
 
       - name: Build binary
         run: cargo build --verbose --release --target ${{ matrix.target }}
-        env:
-           RUSTFLAGS: ${{ (contains(matrix.target, 'pc-windows-msvc') && format('{0} -C target-feature=+crt-static', env.RUSTFLAGS)) || env.RUSTFLAGS }}
 
       - name: Prepare Release Asset
         id: prepare_asset
         run: |
           TARGET="${{ matrix.target }}"
-          EXE_SUFFIX=""
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            EXE_SUFFIX=".exe"
-          fi
-          
-          SRC_PATH="target/$TARGET/release/${{ env.BINARY_NAME }}$EXE_SUFFIX"
+          SRC_PATH="target/$TARGET/release/${{ env.BINARY_NAME }}"
           # Asset name does not include version for a stable download URL
-          ASSET_NAME="${{ env.BINARY_NAME }}-${TARGET}${EXE_SUFFIX}"
+          ASSET_NAME="${{ env.BINARY_NAME }}-${TARGET}"
           
           echo "Source binary path: $SRC_PATH"
           echo "Final asset name: $ASSET_NAME"
@@ -170,7 +161,7 @@ jobs:
   publish_release:
     name: Publish Release
     runs-on: ubuntu-latest
-    needs: [check_release_type, build_linux_with_cross, build_windows_and_macos]
+    needs: [check_release_type, build_linux_with_cross, build_macos]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
