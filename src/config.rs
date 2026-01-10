@@ -89,7 +89,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
         "trace" => parse_simulator_mode(&args[1..], Mode::Trace),
         "-h" | "--help" | "help" => Err(print_main_help()),
         "-v" | "--version" => {
-            println!("risclet 0.4.0");
+            println!("risclet 0.4.2");
             std::process::exit(0);
         }
         _ => {
