@@ -76,7 +76,7 @@ const MAX_STEPS_DEFAULT: usize = 100_000_000;
 /// Parse command-line arguments - unified entry point
 pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
     if args.is_empty() {
-        // No arguments: auto-detect *.s files or a.out, run mode
+        // No arguments: auto-detect *.s files or a.out, debug mode (default)
         return parse_default_mode(&[]);
     }
 
@@ -89,7 +89,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
         "trace" => parse_simulator_mode(&args[1..], Mode::Trace),
         "-h" | "--help" | "help" => Err(print_main_help()),
         "-v" | "--version" => {
-            println!("risclet 0.4.2");
+            println!("risclet 0.4.3");
             std::process::exit(0);
         }
         _ => {
@@ -373,11 +373,11 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
     })
 }
 
-/// Parse default mode: auto-detect *.s files or a.out, default to run mode
+/// Parse default mode: auto-detect *.s files or a.out, default to debug mode
 fn parse_default_mode(args: &[String]) -> Result<Config, String> {
-    // Default mode is now just Run mode with file auto-detection
-    // Just delegate to parse_simulator_mode with Mode::Run
-    parse_simulator_mode(args, Mode::Run)
+    // Default mode is now Debug mode with file auto-detection
+    // Just delegate to parse_simulator_mode with Mode::Debug
+    parse_simulator_mode(args, Mode::Debug)
 }
 
 /// Find assembly files in current directory, or check for a.out
@@ -419,10 +419,10 @@ fn print_main_help() -> String {
     "Usage: risclet [subcommand] [files...] [options]
 
 Default behavior (no subcommand):
-  - With no arguments: auto-detects *.s files in current directory or a.out, then runs
-  - With .s files: assembles them in-memory and runs
-  - With executable: runs the executable
-  Default subcommand is 'run'
+  - With no arguments: auto-detects *.s files in current directory or a.out, then debugs
+  - With .s files: assembles them in-memory and debugs
+  - With executable: debugs the executable
+  Default subcommand is 'debug'
 
 Subcommands:
   assemble      Assemble RISC-V source files to executable on disk
@@ -455,13 +455,13 @@ Assembler Options (when using .s files):
   --relax-compressed / --no-relax-compressed    RV32C compression
 
 Examples:
-  risclet                          # Auto-detect *.s or a.out, run
-  risclet prog.s                   # Assemble and run prog.s
-  risclet prog.s lib.s             # Assemble both files and run
-  risclet a.out                    # Run a.out
-  risclet debug prog.s --hex            # Assemble and debug with hex display
-  risclet trace a.out --check-abi       # Trace a.out with ABI checking
-  risclet disassemble prog.s            # Assemble and disassemble
+  risclet                          # Auto-detect *.s or a.out, debug (default)
+  risclet prog.s                   # Assemble and debug prog.s
+  risclet prog.s lib.s             # Assemble both files and debug
+  risclet a.out                    # Debug a.out
+  risclet run prog.s               # Assemble and run prog.s (exit after completion)
+  risclet trace a.out --check-abi  # Trace a.out with ABI checking
+  risclet disassemble prog.s       # Assemble and disassemble
   risclet assemble -o prog prog.s  # Assemble to disk as 'prog'
 
 Use 'risclet <subcommand> --help' for subcommand-specific help."

@@ -246,7 +246,7 @@ fn flush_numeric_labels(
             locations[unref.referencing_pointer.line_index].clone();
         return Err(RiscletError::from_context(
             format!(
-                "Numeric label '{}f' (forward) is used but no matching label found in remaining file",
+                "Numeric label '{}' (forward) is used but no matching label found in remaining file",
                 unref.symbol
             ),
             error_location,
@@ -405,7 +405,7 @@ fn process_symbol_references(
             } else {
                 return Err(RiscletError::from_context(
                     format!(
-                        "Numeric label '{}b' (backward) is used but no matching label found earlier in file",
+                        "Numeric label '{}' (backward) is used but no matching label found earlier in file",
                         symbol
                     ),
                     line.location.clone(),
