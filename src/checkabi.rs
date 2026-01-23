@@ -505,7 +505,10 @@ impl CheckABI {
 
                 let Some((mem_n, mem_size)) = self.shadow_get(addr) else {
                     // Address not in valid segment - shouldn't happen
-                    return Err("Cannot read: address not in valid memory segment".to_string());
+                    return Err(
+                        "Cannot read: address not in valid memory segment"
+                            .to_string(),
+                    );
                 };
                 let n = {
                     if mem_size == ShadowSize::Uninitialized {
