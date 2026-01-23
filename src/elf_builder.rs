@@ -186,13 +186,10 @@ impl<'a> ElfBuilder<'a> {
         }
 
         // Program Header 2: LOAD .data/.bss
-        #[allow(clippy::collapsible_if)]
-        if self.program_headers.len() > 2 {
-            if let Some(ph) = self.program_headers.get_mut(2) {
-                ph.p_offset = data_offset.unwrap_or(0);
-                // The vaddr for data is already correctly calculated in expressions.rs
-                // and set during the initial program header creation.
-            }
+        if let Some(ph) = self.program_headers.get_mut(2) {
+            ph.p_offset = data_offset.unwrap_or(0);
+            // The vaddr for data is already correctly calculated in expressions.rs
+            // and set during the initial program header creation.
         }
 
         // Update ELF header
