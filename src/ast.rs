@@ -283,7 +283,6 @@ pub enum CompressedOp {
 /// Operands for compressed instructions
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, PartialEq)]
-#[allow(clippy::upper_case_acronyms)]
 pub enum CompressedOperands {
     /// CR format with two registers: c.add rd, rs2
     CR { rd: Register, rs2: Register },

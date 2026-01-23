@@ -114,6 +114,10 @@ impl Tui {
             crossterm::cursor::Hide
         ))?;
 
+        // Start cursor at entry point, not first line of text segment
+        let entry_point = machine.entry_point();
+        let initial_cursor_index = addresses.get(&entry_point).copied().unwrap_or(0);
+
         Ok(Tui {
             machine,
             instructions,
@@ -121,7 +125,7 @@ impl Tui {
             pseudo_addresses,
             sequence,
             sequence_index: 0,
-            cursor_index: 0,
+            cursor_index: initial_cursor_index,
 
             normal_color,
             inactive_stack_color,

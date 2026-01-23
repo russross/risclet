@@ -324,6 +324,10 @@ impl Machine {
         self.memory.layout.text_end
     }
 
+    pub fn entry_point(&self) -> u32 {
+        self.pc_start
+    }
+
     pub fn data_start(&self) -> u32 {
         self.memory.layout.data_start
     }
