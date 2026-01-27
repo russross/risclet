@@ -59,19 +59,61 @@ pub struct Relax {
     pub compressed: bool,
 }
 
-impl Relax {
-    /// Create a new Relax configuration with all optimizations enabled
-    pub fn all() -> Self {
-        Relax { gp: true, pseudo: true, compressed: true }
+const MAX_STEPS_DEFAULT: usize = 100_000_000;
+const TEXT_START_DEFAULT: u32 = 0x10000;
+const OUTPUT_FILE_DEFAULT: &str = "a.out";
+const EXECUTABLE_DEFAULT: &str = "a.out";
+
+impl Config {
+    /// Create default config for assemble mode
+    pub fn assemble_default() -> Self {
+        Config {
+            mode: Mode::Assemble,
+            verbose: false,
+            max_steps: MAX_STEPS_DEFAULT,
+            executable: EXECUTABLE_DEFAULT.to_string(),
+            check_abi: false,
+            hex_mode: false,
+            show_addresses: false,
+            verbose_instructions: false,
+            input_files: Vec::new(),
+            output_file: OUTPUT_FILE_DEFAULT.to_string(),
+            text_start: TEXT_START_DEFAULT,
+            dump: dump::DumpConfig::new(),
+            relax: Relax {
+                gp: true,
+                pseudo: true,
+                compressed: false,
+            },
+        }
     }
 
-    /// Create a new Relax configuration with all optimizations disabled
-    pub fn none() -> Self {
-        Relax { gp: false, pseudo: false, compressed: false }
+    /// Create default config for simulator modes (run, debug, disassemble, trace)
+    pub fn simulator_default(mode: Mode) -> Self {
+        // show_addresses defaults to true for disassemble and trace modes
+        let show_addresses = mode == Mode::Disassemble || mode == Mode::Trace;
+
+        Config {
+            mode,
+            verbose: false,
+            max_steps: MAX_STEPS_DEFAULT,
+            executable: EXECUTABLE_DEFAULT.to_string(),
+            check_abi: false,
+            hex_mode: false,
+            show_addresses,
+            verbose_instructions: false,
+            input_files: Vec::new(),
+            output_file: OUTPUT_FILE_DEFAULT.to_string(),
+            text_start: TEXT_START_DEFAULT,
+            dump: dump::DumpConfig::new(),
+            relax: Relax {
+                gp: true,
+                pseudo: true,
+                compressed: false,
+            },
+        }
     }
 }
-
-const MAX_STEPS_DEFAULT: usize = 100_000_000;
 
 /// Parse command-line arguments - unified entry point
 pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
@@ -102,12 +144,7 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
 
 /// Parse arguments for assemble mode
 fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
-    let mut input_files = Vec::new();
-    let mut output_file = "a.out".to_string();
-    let mut text_start = 0x10000u32;
-    let mut verbose = false;
-    let mut dump_config = dump::DumpConfig::new();
-    let mut relax = Relax::all();
+    let mut config = Config::assemble_default();
     let mut i = 0;
 
     while i < args.len() {
@@ -121,37 +158,35 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
                 } else {
                     ""
                 };
-                dump_config.dump_ast = Some(dump::parse_dump_spec(spec_str)?);
+                config.dump.dump_ast = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-symbols") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                dump_config.dump_symbols =
-                    Some(dump::parse_dump_spec(spec_str)?);
+                config.dump.dump_symbols = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-values") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                dump_config.dump_values =
-                    Some(dump::parse_dump_spec(spec_str)?);
+                config.dump.dump_values = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-code") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                dump_config.dump_code = Some(dump::parse_dump_spec(spec_str)?);
+                config.dump.dump_code = Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-elf") {
                 let parts_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                dump_config.dump_elf = Some(dump::parse_elf_parts(parts_str)?);
+                config.dump.dump_elf = Some(dump::parse_elf_parts(parts_str)?);
             } else {
                 return Err(format!("Error: unknown option: {}", arg));
             }
@@ -160,92 +195,69 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
                 "-o" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err(
-                            "Error: -o requires an argument".to_string()
-                        );
+                        return Err("Error: -o requires an argument".to_string());
                     }
-                    output_file = args[i].clone();
+                    config.output_file = args[i].clone();
                 }
                 "-t" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err(
-                            "Error: -t requires an argument".to_string()
-                        );
+                        return Err("Error: -t requires an argument".to_string());
                     }
-                    text_start = parse_address(&args[i])?;
+                    config.text_start = parse_address(&args[i])?;
                 }
                 "-v" | "--verbose" => {
-                    verbose = true;
+                    config.verbose = true;
                 }
                 "--no-relax" => {
-                    relax = Relax::none();
+                    config.relax = Relax {
+                        gp: false,
+                        pseudo: false,
+                        compressed: false,
+                    };
                 }
                 "--relax-gp" => {
-                    relax.gp = true;
+                    config.relax.gp = true;
                 }
                 "--no-relax-gp" => {
-                    relax.gp = false;
+                    config.relax.gp = false;
                 }
                 "--relax-pseudo" => {
-                    relax.pseudo = true;
+                    config.relax.pseudo = true;
                 }
                 "--no-relax-pseudo" => {
-                    relax.pseudo = false;
+                    config.relax.pseudo = false;
                 }
                 "--relax-compressed" => {
-                    relax.compressed = true;
+                    config.relax.compressed = true;
                 }
                 "--no-relax-compressed" => {
-                    relax.compressed = false;
+                    config.relax.compressed = false;
                 }
                 "-h" | "--help" => {
-                    return Err(print_assemble_help());
+                    return Err(print_assemble_help(&config));
                 }
                 _ => {
                     if arg.starts_with('-') {
                         return Err(format!("Error: unknown option: {}", arg));
                     }
-                    input_files.push(arg.to_string());
+                    config.input_files.push(arg.to_string());
                 }
             }
         }
         i += 1;
     }
 
-    if input_files.is_empty() {
+    if config.input_files.is_empty() {
         return Err("Error: no input files specified".to_string());
     }
 
-    Ok(Config {
-        mode: Mode::Assemble,
-        verbose,
-        max_steps: MAX_STEPS_DEFAULT,
-        executable: "a.out".to_string(),
-        check_abi: false,
-        hex_mode: false,
-        show_addresses: false,
-        verbose_instructions: false,
-        input_files,
-        output_file,
-        text_start,
-        dump: dump_config,
-        relax,
-    })
+    Ok(config)
 }
 
 /// Parse arguments for simulator modes (run, debug, disassemble, trace)
 fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
-    let mut executable = String::new();
-    let mut check_abi = false;
-    let mut max_steps = MAX_STEPS_DEFAULT;
-    let mut hex_mode = false;
-    let mut show_addresses = mode == Mode::Disassemble || mode == Mode::Trace;
-    let mut verbose_instructions = false;
-    let mut verbose = false;
-    let mut text_start = 0x10000u32;
-    let mut relax = Relax::all();
-    let mut input_files = Vec::new();
+    let mut config = Config::simulator_default(mode);
     let mut has_explicit_executable = false;
     let mut i = 0;
 
@@ -261,14 +273,14 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                         args[i - 1]
                     ));
                 }
-                executable = args[i].clone();
+                config.executable = args[i].clone();
                 has_explicit_executable = true;
             }
             "--check-abi" => {
-                check_abi = true;
+                config.check_abi = true;
             }
             "--no-check-abi" => {
-                check_abi = false;
+                config.check_abi = false;
             }
             "-s" | "--steps" => {
                 i += 1;
@@ -278,33 +290,39 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                         args[i - 1]
                     ));
                 }
-                max_steps = args[i].parse::<usize>().map_err(|_| {
+                config.max_steps = args[i].parse::<usize>().map_err(|_| {
                     format!("Error: invalid number of steps: {}", args[i])
                 })?;
             }
-            "--hex" => hex_mode = true,
-            "--no-hex" => hex_mode = false,
-            "--show-addresses" => show_addresses = true,
-            "--no-show-addresses" => show_addresses = false,
-            "--verbose-instructions" => verbose_instructions = true,
-            "--no-verbose-instructions" => verbose_instructions = false,
-            "-v" | "--verbose" => verbose = true,
+            "--hex" => config.hex_mode = true,
+            "--no-hex" => config.hex_mode = false,
+            "--show-addresses" => config.show_addresses = true,
+            "--no-show-addresses" => config.show_addresses = false,
+            "--verbose-instructions" => config.verbose_instructions = true,
+            "--no-verbose-instructions" => config.verbose_instructions = false,
+            "-v" | "--verbose" => config.verbose = true,
             "-t" => {
                 i += 1;
                 if i >= args.len() {
                     return Err("Error: -t requires an argument".to_string());
                 }
-                text_start = parse_address(&args[i])?;
+                config.text_start = parse_address(&args[i])?;
             }
-            "--no-relax" => relax = Relax::none(),
-            "--relax-gp" => relax.gp = true,
-            "--no-relax-gp" => relax.gp = false,
-            "--relax-pseudo" => relax.pseudo = true,
-            "--no-relax-pseudo" => relax.pseudo = false,
-            "--relax-compressed" => relax.compressed = true,
-            "--no-relax-compressed" => relax.compressed = false,
+            "--no-relax" => {
+                config.relax = Relax {
+                    gp: false,
+                    pseudo: false,
+                    compressed: false,
+                };
+            }
+            "--relax-gp" => config.relax.gp = true,
+            "--no-relax-gp" => config.relax.gp = false,
+            "--relax-pseudo" => config.relax.pseudo = true,
+            "--no-relax-pseudo" => config.relax.pseudo = false,
+            "--relax-compressed" => config.relax.compressed = true,
+            "--no-relax-compressed" => config.relax.compressed = false,
             "-h" | "--help" => {
-                return Err(print_simulator_help(&mode));
+                return Err(print_simulator_help(&config));
             }
             _ => {
                 if arg.starts_with("--dump-") {
@@ -313,7 +331,7 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                     return Err(format!("Error: unknown option: {}", arg));
                 } else {
                     // Positional argument: could be .s file or executable
-                    input_files.push(arg.clone());
+                    config.input_files.push(arg.clone());
                 }
             }
         }
@@ -321,56 +339,52 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
     }
 
     // Validate: cannot have both -e and positional file arguments
-    if has_explicit_executable && !input_files.is_empty() {
-        return Err("Error: cannot specify both -e/--executable and positional file arguments".to_string());
+    if has_explicit_executable && !config.input_files.is_empty() {
+        return Err("Error: cannot specify both -e/--executable and positional file arguments"
+            .to_string());
     }
 
     // Determine input type and set appropriate fields
-    if !input_files.is_empty() {
+    if !config.input_files.is_empty() {
         // Check if all files are .s files or all are executables
         let s_files: Vec<_> =
-            input_files.iter().filter(|f| f.ends_with(".s")).collect();
-        let non_s_files: Vec<_> =
-            input_files.iter().filter(|f| !f.ends_with(".s")).collect();
+            config.input_files.iter().filter(|f| f.ends_with(".s")).collect();
+        let non_s_files: Vec<_> = config
+            .input_files
+            .iter()
+            .filter(|f| !f.ends_with(".s"))
+            .collect();
 
         if !s_files.is_empty() && !non_s_files.is_empty() {
-            return Err("Error: cannot mix .s files and executables as positional arguments".to_string());
+            return Err(
+                "Error: cannot mix .s files and executables as positional arguments"
+                    .to_string(),
+            );
         }
 
         if !s_files.is_empty() {
             // All are .s files - will assemble in memory
-            // input_files stays as-is for assembler
+            // config.input_files stays as-is for assembler
         } else if non_s_files.len() == 1 {
             // Single executable
-            executable = input_files[0].clone();
-            input_files.clear();
+            config.executable = config.input_files[0].clone();
+            config.input_files.clear();
         } else {
             // Multiple non-.s files
-            return Err("Error: can only specify one executable as a positional argument".to_string());
+            return Err(
+                "Error: can only specify one executable as a positional argument"
+                    .to_string(),
+            );
         }
-    } else if executable.is_empty() {
-        // No files specified - try auto-detection
-        input_files = find_assembly_files()?;
-        if input_files.is_empty() {
-            executable = "a.out".to_string();
+    } else if config.executable == EXECUTABLE_DEFAULT {
+        // No files specified and no explicit executable - try auto-detection
+        config.input_files = find_assembly_files()?;
+        if config.input_files.is_empty() {
+            config.executable = EXECUTABLE_DEFAULT.to_string();
         }
     }
 
-    Ok(Config {
-        mode,
-        verbose,
-        max_steps,
-        executable,
-        check_abi,
-        hex_mode,
-        show_addresses,
-        verbose_instructions,
-        input_files,
-        output_file: "a.out".to_string(),
-        text_start,
-        dump: dump::DumpConfig::new(),
-        relax,
-    })
+    Ok(config)
 }
 
 /// Parse default mode: auto-detect *.s files or a.out, default to debug mode
@@ -416,7 +430,10 @@ fn find_assembly_files() -> Result<Vec<String>, String> {
 
 /// Print main help message
 fn print_main_help() -> String {
-    "Usage: risclet [subcommand] [files...] [options]
+    let defaults = Config::simulator_default(Mode::Debug);
+
+    format!(
+        "Usage: risclet [subcommand] [files...] [options]
 
 Default behavior (no subcommand):
   - With no arguments: auto-detects *.s files in current directory or a.out, then debugs
@@ -439,8 +456,8 @@ File Arguments:
   - No files: auto-detects *.s files in current directory, or uses a.out
 
 Common Options (all modes):
-  --check-abi / --no-check-abi  Enable ABI checking (default: false)
-  -s, --steps <count>           Max execution steps (default: 100000000)
+  --check-abi / --no-check-abi  Enable ABI checking (default: {})
+  -s, --steps <count>           Max execution steps (default: {})
   --hex / --no-hex              Display values in hexadecimal
   --show-addresses              Show addresses in disassembly
   --verbose-instructions        Show strict instructions (not pseudo)
@@ -448,7 +465,7 @@ Common Options (all modes):
 
 Assembler Options (when using .s files):
   -v, --verbose                 Show assembly statistics
-  -t <address>                  Set text start address (default: 0x10000)
+  -t <address>                  Set text start address (default: 0x{:x})
   --no-relax                    Disable all relaxations
   --relax-gp / --no-relax-gp    GP-relative optimization
   --relax-pseudo / --no-relax-pseudo    call/tail optimization
@@ -464,24 +481,28 @@ Examples:
   risclet disassemble prog.s       # Assemble and disassemble
   risclet assemble -o prog prog.s  # Assemble to disk as 'prog'
 
-Use 'risclet <subcommand> --help' for subcommand-specific help."
-        .to_string()
+Use 'risclet <subcommand> --help' for subcommand-specific help.",
+        if defaults.check_abi { "true" } else { "false" },
+        defaults.max_steps,
+        defaults.text_start
+    )
 }
 
 /// Print assembler help message
-fn print_assemble_help() -> String {
-    "Usage: risclet assemble [options] <file.s> [file.s...]
+fn print_assemble_help(config: &Config) -> String {
+    format!(
+        "Usage: risclet assemble [options] <file.s> [file.s...]
 
 Options:
-    -o <file>            Write output to <file> (default: a.out)
-    -t <address>         Set text start address (default: 0x10000)
+    -o <file>            Write output to <file> (default: {})
+    -t <address>         Set text start address (default: 0x{:x})
     -v, --verbose        Show input statistics and relaxation progress
     --no-relax           Disable all relaxations
-    --relax-gp           Enable GP-relative 'la' optimization (default: on)
+    --relax-gp           Enable GP-relative 'la' optimization (default: {})
     --no-relax-gp        Disable GP-relative 'la' optimization
-    --relax-pseudo       Enable 'call'/'tail' pseudo-instruction optimization (default: on)
+    --relax-pseudo       Enable 'call'/'tail' pseudo-instruction optimization (default: {})
     --no-relax-pseudo    Disable 'call'/'tail' pseudo-instruction optimization
-    --relax-compressed   Enable automatic RV32C compressed encoding (default: on)
+    --relax-compressed   Enable automatic RV32C compressed encoding (default: {})
     --no-relax-compressed Disable automatic RV32C compressed encoding
     -h, --help           Show this help message
 
@@ -524,12 +545,18 @@ Examples:
   risclet assemble -v --dump-code program.s         # Show stats AND code dump
   risclet assemble --dump-elf=headers,symbols prog.s # Dump ELF metadata
 
-Note: When any --dump-* option is used, no output file is generated.".to_string()
+Note: When any --dump-* option is used, no output file is generated.",
+        config.output_file,
+        config.text_start,
+        if config.relax.gp { "on" } else { "off" },
+        if config.relax.pseudo { "on" } else { "off" },
+        if config.relax.compressed { "on" } else { "off" }
+    )
 }
 
 /// Print simulator help message
-fn print_simulator_help(mode: &Mode) -> String {
-    let mode_str = match mode {
+fn print_simulator_help(config: &Config) -> String {
+    let mode_str = match config.mode {
         Mode::Run => "run",
         Mode::Debug => "debug",
         Mode::Disassemble => "disassemble",
@@ -537,74 +564,92 @@ fn print_simulator_help(mode: &Mode) -> String {
         _ => "simulator",
     };
 
-    let mut help =
-        format!("Usage: risclet {} [files...] [options]\n\n", mode_str);
+    let mut help = format!("Usage: risclet {} [files...] [options]\n\n", mode_str);
 
     help.push_str("File Arguments:\n");
     help.push_str("  One or more .s files          Assemble in-memory, then ");
     help.push_str(mode_str);
     help.push('\n');
     help.push_str("  One executable (no .s ext)    ");
-    help.push_str(if mode == &Mode::Run {
-        "Run"
-    } else if mode == &Mode::Debug {
-        "Debug"
-    } else if mode == &Mode::Disassemble {
-        "Disassemble"
-    } else {
-        "Trace"
+    help.push_str(match config.mode {
+        Mode::Run => "Run",
+        Mode::Debug => "Debug",
+        Mode::Disassemble => "Disassemble",
+        Mode::Trace => "Trace",
+        _ => "Run",
     });
     help.push_str(" the executable\n");
-    help.push_str(
-        "  No files                      Auto-detect *.s or use a.out\n",
-    );
-    help.push_str(
-        "  -e, --executable <path>       Explicitly specify executable\n",
-    );
+    help.push_str("  No files                      Auto-detect *.s or use a.out\n");
+    help.push_str("  -e, --executable <path>       Explicitly specify executable\n");
     help.push('\n');
 
     help.push_str("Simulator Options:\n");
-    help.push_str(
-        "  --check-abi / --no-check-abi  Enable ABI checking (default: false)\n",
-    );
-    help.push_str("  -s, --steps <count>           Max execution steps (default: 100000000)\n");
+    help.push_str(&format!(
+        "  --check-abi / --no-check-abi  Enable ABI checking (default: {})\n",
+        if config.check_abi { "true" } else { "false" }
+    ));
+    help.push_str(&format!(
+        "  -s, --steps <count>           Max execution steps (default: {})\n",
+        config.max_steps
+    ));
 
-    if mode == &Mode::Debug
-        || mode == &Mode::Disassemble
-        || mode == &Mode::Trace
+    if config.mode == Mode::Debug
+        || config.mode == Mode::Disassemble
+        || config.mode == Mode::Trace
     {
-        help.push_str(
-            "  --hex / --no-hex              Display values in hexadecimal\n",
-        );
-        if mode == &Mode::Debug {
-            help.push_str("  --show-addresses              Show addresses in disassembly\n");
-            help.push_str("  --no-show-addresses           Hide addresses in disassembly (default)\n");
+        help.push_str("  --hex / --no-hex              Display values in hexadecimal\n");
+        if config.mode == Mode::Debug {
+            help.push_str(&format!(
+                "  --show-addresses              Show addresses in disassembly (default: {})\n",
+                if config.show_addresses { "on" } else { "off" }
+            ));
+            help.push_str(&format!(
+                "  --no-show-addresses           Hide addresses in disassembly\n"
+            ));
         } else {
-            help.push_str("  --show-addresses              Show addresses in disassembly (default)\n");
+            help.push_str(&format!(
+                "  --show-addresses              Show addresses in disassembly (default: {})\n",
+                if config.show_addresses { "on" } else { "off" }
+            ));
             help.push_str("  --no-show-addresses           Hide addresses in disassembly\n");
         }
         help.push_str("  --verbose-instructions        Show strict instructions (not pseudo)\n");
-        help.push_str("  --no-verbose-instructions     Show pseudo-instructions (default)\n");
+        help.push_str(&format!(
+            "  --no-verbose-instructions     Show pseudo-instructions (default: {})\n",
+            if config.verbose_instructions {
+                "on"
+            } else {
+                "off"
+            }
+        ));
     }
 
     help.push('\n');
     help.push_str("Assembler Options (when using .s files):\n");
     help.push_str("  -v, --verbose                 Show assembly statistics\n");
-    help.push_str("  -t <address>                  Set text start address (default: 0x10000)\n");
+    help.push_str(&format!(
+        "  -t <address>                  Set text start address (default: 0x{:x})\n",
+        config.text_start
+    ));
     help.push_str("  --no-relax                    Disable all relaxations\n");
-    help.push_str("  --relax-gp / --no-relax-gp    GP-relative optimization\n");
-    help.push_str(
-        "  --relax-pseudo / --no-relax-pseudo    call/tail optimization\n",
-    );
-    help.push_str(
-        "  --relax-compressed / --no-relax-compressed    RV32C compression\n",
-    );
+    help.push_str(&format!(
+        "  --relax-gp / --no-relax-gp    GP-relative optimization (default: {})\n",
+        if config.relax.gp { "on" } else { "off" }
+    ));
+    help.push_str(&format!(
+        "  --relax-pseudo / --no-relax-pseudo    call/tail optimization (default: {})\n",
+        if config.relax.pseudo { "on" } else { "off" }
+    ));
+    help.push_str(&format!(
+        "  --relax-compressed / --no-relax-compressed    RV32C compression (default: {})\n",
+        if config.relax.compressed { "on" } else { "off" }
+    ));
 
     help.push('\n');
     help.push_str("Other:\n");
     help.push_str("  -h, --help                    Show this help\n");
 
-    if mode == &Mode::Debug {
+    if config.mode == Mode::Debug {
         help.push_str("\nInteractive Controls (in debugger):\n");
         help.push_str("  Press '?' in the debugger for keyboard shortcuts\n");
         help.push_str("  Key toggles: x (hex), v (verbose), a (addresses), r/o/s/d (panels)\n");
@@ -618,34 +663,27 @@ fn print_simulator_help(mode: &Mode) -> String {
     help.push_str(&format!(
         "  risclet {} a.out              # {} a.out\n",
         mode_str,
-        if mode == &Mode::Run {
-            "Run"
-        } else if mode == &Mode::Debug {
-            "Debug"
-        } else if mode == &Mode::Disassemble {
-            "Disassemble"
-        } else {
-            "Trace"
+        match config.mode {
+            Mode::Run => "Run",
+            Mode::Debug => "Debug",
+            Mode::Disassemble => "Disassemble",
+            Mode::Trace => "Trace",
+            _ => "Run",
         }
     ));
     help.push_str(&format!(
         "  risclet {} -e binary          # {} using -e flag\n",
         mode_str,
-        if mode == &Mode::Run {
-            "Run"
-        } else if mode == &Mode::Debug {
-            "Debug"
-        } else if mode == &Mode::Disassemble {
-            "Disassemble"
-        } else {
-            "Trace"
+        match config.mode {
+            Mode::Run => "Run",
+            Mode::Debug => "Debug",
+            Mode::Disassemble => "Disassemble",
+            Mode::Trace => "Trace",
+            _ => "Run",
         }
     ));
-    if mode != &Mode::Run {
-        help.push_str(&format!(
-            "  risclet {} prog.s --hex       # With hex display\n",
-            mode_str
-        ));
+    if config.mode != Mode::Run {
+        help.push_str(&format!("  risclet {} prog.s --hex       # With hex display\n", mode_str));
     }
 
     help
@@ -657,6 +695,7 @@ fn parse_address(s: &str) -> Result<u32, String> {
         u32::from_str_radix(hex, 16)
             .map_err(|_| format!("Error: invalid hex address: {}", s))
     } else {
-        s.parse::<u32>().map_err(|_| format!("Error: invalid address: {}", s))
+        s.parse::<u32>()
+            .map_err(|_| format!("Error: invalid address: {}", s))
     }
 }
