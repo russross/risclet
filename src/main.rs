@@ -55,7 +55,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     // Parse CLI arguments using unified parser
-    let config = match parse_cli_args(&args[1..]) {
+    let mut config = match parse_cli_args(&args[1..]) {
         Ok(config) => config,
         Err(e) => {
             eprintln!("{}", e);
@@ -66,7 +66,7 @@ fn main() {
     // Dispatch based on mode
     match config.mode {
         Mode::Assemble => {
-            if let Err(e) = assemble_and_save(&config) {
+            if let Err(e) = assemble_and_save(&mut config) {
                 eprintln!("{}", e);
                 std::process::exit(1);
             }
@@ -76,7 +76,7 @@ fn main() {
             // Check if we have .s files to assemble first
             if !config.input_files.is_empty() {
                 // We have .s files - assemble them in-memory, then run simulator
-                let elf_bytes = match assemble_files(&config) {
+                let elf_bytes = match assemble_files(&mut config) {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         eprintln!("{}", e);

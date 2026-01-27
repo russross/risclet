@@ -32,15 +32,15 @@ fn make_test_config(check_abi: bool) -> Config {
         output_file: "a.out".to_string(),
         text_start: 0x10000,
         dump: crate::dump::DumpConfig::new(),
-        relax: Relax { gp: true, pseudo: true, compressed: false },
+        relax: Relax { gp: Some(true), pseudo: true, compressed: false },
     }
 }
 
 /// Assemble source code in-memory to ELF bytes
 fn assemble_source(source: &str) -> Result<Vec<u8>, String> {
-    let config = make_test_config(false);
+    let mut config = make_test_config(false);
     let sources = vec![("test.s".to_string(), source.to_string())];
-    crate::assembler::assemble(&config, sources).map_err(|e| e.to_string())
+    crate::assembler::assemble(&mut config, sources).map_err(|e| e.to_string())
 }
 
 /// Run assembled code with ABI checking and capture result

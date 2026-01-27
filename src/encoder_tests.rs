@@ -26,7 +26,7 @@ fn make_default_config() -> Config {
         output_file: "a.out".to_string(),
         text_start: 0x10000,
         dump: crate::dump::DumpConfig::new(),
-        relax: Relax { gp: true, pseudo: true, compressed: false },
+        relax: Relax { gp: Some(true), pseudo: true, compressed: false },
     }
 }
 
@@ -45,7 +45,7 @@ fn make_config_with_compression() -> Config {
         output_file: "a.out".to_string(),
         text_start: 0x10000,
         dump: crate::dump::DumpConfig::new(),
-        relax: Relax { gp: true, pseudo: true, compressed: true },
+        relax: Relax { gp: Some(true), pseudo: true, compressed: true },
     }
 }
 
