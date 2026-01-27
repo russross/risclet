@@ -2,7 +2,10 @@
 //
 // Core assembly pipeline: relaxation loop, file input, and statistics
 
-use crate::ast::{Line, LineContent, Location, Source, SourceFile};
+use crate::ast::{
+    Expression, Instruction, Line, LineContent, Location, PseudoOp, Register,
+    Source, SourceFile,
+};
 use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
 use crate::elf_builder::ElfBuilder;
@@ -11,14 +14,17 @@ use crate::error::{Result, RiscletError};
 use crate::expressions::{SymbolValues, eval_symbol_values};
 use crate::layout::Layout;
 use crate::parser::parse;
-use crate::symbols::{SymbolLinks, create_builtin_symbols_file, link_symbols};
+use crate::symbols::{
+    BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER, SymbolLinks,
+    create_builtin_symbols_file, link_symbols,
+};
 use crate::tokenizer::tokenize;
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 
 /// Assemble source files and write ELF to disk
-pub fn assemble_and_save(config: &Config) -> Result<()> {
+pub fn assemble_and_save(config: &mut Config) -> Result<()> {
     // Generate ELF bytes (handles all phases and dump checkpoints)
     let elf_bytes = assemble_files(config)?;
 
@@ -45,7 +51,7 @@ pub fn assemble_and_save(config: &Config) -> Result<()> {
 /// This is the main assembly pipeline - all assembly operations go through this function.
 /// Handles all phases: parsing, symbol linking, relaxation, and ELF generation.
 pub fn assemble(
-    config: &Config,
+    config: &mut Config,
     sources: Vec<(String, String)>,
 ) -> Result<Vec<u8>> {
     // ========================================================================
@@ -89,6 +95,9 @@ pub fn assemble(
         }
         println!(); // Separator between phase dumps
     }
+
+    // Auto-detect GP initialization and resolve relaxation setting
+    apply_gp_auto_detection(config, &source);
 
     // Create initial layout after symbol linking
     let mut layout = Layout::new(&source);
@@ -160,7 +169,7 @@ pub fn assemble(
 }
 
 /// Read source files from config and assemble to ELF bytes
-pub fn assemble_files(config: &Config) -> Result<Vec<u8>> {
+pub fn assemble_files(config: &mut Config) -> Result<Vec<u8>> {
     // Read all input files into (filename, content) pairs
     let mut sources = Vec::new();
     for file_path in &config.input_files {
@@ -382,4 +391,69 @@ pub fn print_input_statistics(source: &Source, symbol_links: &SymbolLinks) {
         eprintln!("  Globals:      {}", num_globals);
     }
     eprintln!();
+}
+
+/// Detects if GP register is initialized with `la gp, __global_pointer$`
+///
+/// Scans all source files (except builtin) for the pattern:
+/// - Instruction: PseudoOp::La
+/// - Destination register: Register::X3 (GP)
+/// - Target expression: Identifier("__global_pointer$")
+pub fn detect_gp_initialization(source: &Source) -> bool {
+    for file in &source.files {
+        // Skip builtin file - it defines __global_pointer$ but doesn't init GP
+        if file.file == BUILTIN_FILE_NAME {
+            continue;
+        }
+
+        for line in &file.lines {
+            if let LineContent::Instruction(Instruction::Pseudo(
+                PseudoOp::La(rd, expr),
+            )) = &line.content
+            {
+                // Check if destination is GP register (x3) and target is __global_pointer$
+                if *rd == Register::X3
+                    && let Expression::Identifier(name) = expr.as_ref()
+                    && name == SPECIAL_GLOBAL_POINTER
+                {
+                    return true; // Early exit on first match
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Applies GP auto-detection and updates config accordingly
+///
+/// Called after symbol linking, before relaxation loop.
+pub fn apply_gp_auto_detection(config: &mut Config, source: &Source) {
+    match config.relax.gp {
+        Some(true) => {
+            // User explicitly enabled via --relax-gp
+            if config.verbose && !detect_gp_initialization(source) {
+                eprintln!(
+                    "Warning: GP relaxation enabled but GP register not initialized"
+                );
+                eprintln!("         Consider adding: la gp, __global_pointer$");
+            }
+        }
+        Some(false) => {
+            // User explicitly disabled - respect their choice
+        }
+        None => {
+            // Auto-detect mode
+            let gp_initialized = detect_gp_initialization(source);
+            config.relax.gp = Some(gp_initialized);
+
+            if config.verbose {
+                let status = if gp_initialized {
+                    "enabled (auto-detected)"
+                } else {
+                    "disabled (no GP init)"
+                };
+                eprintln!("  GP relaxation: {}", status);
+            }
+        }
+    }
 }

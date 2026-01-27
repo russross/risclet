@@ -907,7 +907,7 @@ fn encode_la(
     let is_gp_init = rd == Register::X3;
 
     // Try GP-relative encoding if enabled and not initializing GP
-    if !is_gp_init && config.relax.gp {
+    if !is_gp_init && config.relax.effective_gp() {
         // GP value is always data_start + 2048
         let gp_addr = data_start as i64 + 2048;
         let gp_offset = target_addr as i64 - gp_addr;

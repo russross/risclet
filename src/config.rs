@@ -51,12 +51,22 @@ pub struct Config {
 /// Relaxation settings for instruction optimization
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Relax {
-    /// Enable GP-relative la optimization
-    pub gp: bool,
+    /// GP-relative la optimization
+    /// - None = auto-detect based on GP initialization
+    /// - Some(true) = force enabled (--relax-gp)
+    /// - Some(false) = force disabled (--no-relax-gp)
+    pub gp: Option<bool>,
     /// Enable call/tail pseudo-instruction optimization
     pub pseudo: bool,
     /// Enable automatic RV32C compressed encoding
     pub compressed: bool,
+}
+
+impl Relax {
+    /// Resolve the effective GP relaxation setting after auto-detection
+    pub fn effective_gp(&self) -> bool {
+        self.gp.unwrap_or(false)
+    }
 }
 
 const MAX_STEPS_DEFAULT: usize = 100_000_000;
@@ -80,11 +90,7 @@ impl Config {
             output_file: OUTPUT_FILE_DEFAULT.to_string(),
             text_start: TEXT_START_DEFAULT,
             dump: dump::DumpConfig::new(),
-            relax: Relax {
-                gp: true,
-                pseudo: true,
-                compressed: false,
-            },
+            relax: Relax { gp: None, pseudo: true, compressed: false },
         }
     }
 
@@ -106,11 +112,7 @@ impl Config {
             output_file: OUTPUT_FILE_DEFAULT.to_string(),
             text_start: TEXT_START_DEFAULT,
             dump: dump::DumpConfig::new(),
-            relax: Relax {
-                gp: true,
-                pseudo: true,
-                compressed: false,
-            },
+            relax: Relax { gp: None, pseudo: true, compressed: false },
         }
     }
 }
@@ -165,14 +167,16 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
                 } else {
                     ""
                 };
-                config.dump.dump_symbols = Some(dump::parse_dump_spec(spec_str)?);
+                config.dump.dump_symbols =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-values") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
                 } else {
                     ""
                 };
-                config.dump.dump_values = Some(dump::parse_dump_spec(spec_str)?);
+                config.dump.dump_values =
+                    Some(dump::parse_dump_spec(spec_str)?);
             } else if arg.starts_with("--dump-code") {
                 let spec_str = if arg.contains('=') {
                     arg.split('=').nth(1).unwrap_or("")
@@ -195,14 +199,18 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
                 "-o" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -o requires an argument".to_string());
+                        return Err(
+                            "Error: -o requires an argument".to_string()
+                        );
                     }
                     config.output_file = args[i].clone();
                 }
                 "-t" => {
                     i += 1;
                     if i >= args.len() {
-                        return Err("Error: -t requires an argument".to_string());
+                        return Err(
+                            "Error: -t requires an argument".to_string()
+                        );
                     }
                     config.text_start = parse_address(&args[i])?;
                 }
@@ -211,16 +219,16 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
                 }
                 "--no-relax" => {
                     config.relax = Relax {
-                        gp: false,
+                        gp: Some(false),
                         pseudo: false,
                         compressed: false,
                     };
                 }
                 "--relax-gp" => {
-                    config.relax.gp = true;
+                    config.relax.gp = Some(true);
                 }
                 "--no-relax-gp" => {
-                    config.relax.gp = false;
+                    config.relax.gp = Some(false);
                 }
                 "--relax-pseudo" => {
                     config.relax.pseudo = true;
@@ -309,14 +317,11 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                 config.text_start = parse_address(&args[i])?;
             }
             "--no-relax" => {
-                config.relax = Relax {
-                    gp: false,
-                    pseudo: false,
-                    compressed: false,
-                };
+                config.relax =
+                    Relax { gp: Some(false), pseudo: false, compressed: false };
             }
-            "--relax-gp" => config.relax.gp = true,
-            "--no-relax-gp" => config.relax.gp = false,
+            "--relax-gp" => config.relax.gp = Some(true),
+            "--no-relax-gp" => config.relax.gp = Some(false),
             "--relax-pseudo" => config.relax.pseudo = true,
             "--no-relax-pseudo" => config.relax.pseudo = false,
             "--relax-compressed" => config.relax.compressed = true,
@@ -349,11 +354,8 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
         // Check if all files are .s files or all are executables
         let s_files: Vec<_> =
             config.input_files.iter().filter(|f| f.ends_with(".s")).collect();
-        let non_s_files: Vec<_> = config
-            .input_files
-            .iter()
-            .filter(|f| !f.ends_with(".s"))
-            .collect();
+        let non_s_files: Vec<_> =
+            config.input_files.iter().filter(|f| !f.ends_with(".s")).collect();
 
         if !s_files.is_empty() && !non_s_files.is_empty() {
             return Err(
@@ -467,7 +469,7 @@ Assembler Options (when using .s files):
   -v, --verbose                 Show assembly statistics
   -t <address>                  Set text start address (default: 0x{:x})
   --no-relax                    Disable all relaxations
-  --relax-gp / --no-relax-gp    GP-relative optimization
+  --relax-gp / --no-relax-gp    GP-relative optimization (default: auto-detect)
   --relax-pseudo / --no-relax-pseudo    call/tail optimization
   --relax-compressed / --no-relax-compressed    RV32C compression
 
@@ -498,7 +500,7 @@ Options:
     -t <address>         Set text start address (default: 0x{:x})
     -v, --verbose        Show input statistics and relaxation progress
     --no-relax           Disable all relaxations
-    --relax-gp           Enable GP-relative 'la' optimization (default: {})
+    --relax-gp           Enable GP-relative 'la' optimization (default: auto)
     --no-relax-gp        Disable GP-relative 'la' optimization
     --relax-pseudo       Enable 'call'/'tail' pseudo-instruction optimization (default: {})
     --no-relax-pseudo    Disable 'call'/'tail' pseudo-instruction optimization
@@ -548,7 +550,6 @@ Examples:
 Note: When any --dump-* option is used, no output file is generated.",
         config.output_file,
         config.text_start,
-        if config.relax.gp { "on" } else { "off" },
         if config.relax.pseudo { "on" } else { "off" },
         if config.relax.compressed { "on" } else { "off" }
     )
@@ -564,7 +565,8 @@ fn print_simulator_help(config: &Config) -> String {
         _ => "simulator",
     };
 
-    let mut help = format!("Usage: risclet {} [files...] [options]\n\n", mode_str);
+    let mut help =
+        format!("Usage: risclet {} [files...] [options]\n\n", mode_str);
 
     help.push_str("File Arguments:\n");
     help.push_str("  One or more .s files          Assemble in-memory, then ");
@@ -579,8 +581,12 @@ fn print_simulator_help(config: &Config) -> String {
         _ => "Run",
     });
     help.push_str(" the executable\n");
-    help.push_str("  No files                      Auto-detect *.s or use a.out\n");
-    help.push_str("  -e, --executable <path>       Explicitly specify executable\n");
+    help.push_str(
+        "  No files                      Auto-detect *.s or use a.out\n",
+    );
+    help.push_str(
+        "  -e, --executable <path>       Explicitly specify executable\n",
+    );
     help.push('\n');
 
     help.push_str("Simulator Options:\n");
@@ -597,22 +603,16 @@ fn print_simulator_help(config: &Config) -> String {
         || config.mode == Mode::Disassemble
         || config.mode == Mode::Trace
     {
-        help.push_str("  --hex / --no-hex              Display values in hexadecimal\n");
-        if config.mode == Mode::Debug {
-            help.push_str(&format!(
-                "  --show-addresses              Show addresses in disassembly (default: {})\n",
-                if config.show_addresses { "on" } else { "off" }
-            ));
-            help.push_str(&format!(
-                "  --no-show-addresses           Hide addresses in disassembly\n"
-            ));
-        } else {
-            help.push_str(&format!(
-                "  --show-addresses              Show addresses in disassembly (default: {})\n",
-                if config.show_addresses { "on" } else { "off" }
-            ));
-            help.push_str("  --no-show-addresses           Hide addresses in disassembly\n");
-        }
+        help.push_str(
+            "  --hex / --no-hex              Display values in hexadecimal\n",
+        );
+        help.push_str(&format!(
+            "  --show-addresses              Show addresses in disassembly (default: {})\n",
+            if config.show_addresses { "on" } else { "off" }
+        ));
+        help.push_str(
+            "  --no-show-addresses           Hide addresses in disassembly\n",
+        );
         help.push_str("  --verbose-instructions        Show strict instructions (not pseudo)\n");
         help.push_str(&format!(
             "  --no-verbose-instructions     Show pseudo-instructions (default: {})\n",
@@ -632,10 +632,7 @@ fn print_simulator_help(config: &Config) -> String {
         config.text_start
     ));
     help.push_str("  --no-relax                    Disable all relaxations\n");
-    help.push_str(&format!(
-        "  --relax-gp / --no-relax-gp    GP-relative optimization (default: {})\n",
-        if config.relax.gp { "on" } else { "off" }
-    ));
+    help.push_str("  --relax-gp / --no-relax-gp    GP-relative optimization (default: auto-detect)\n");
     help.push_str(&format!(
         "  --relax-pseudo / --no-relax-pseudo    call/tail optimization (default: {})\n",
         if config.relax.pseudo { "on" } else { "off" }
@@ -683,7 +680,10 @@ fn print_simulator_help(config: &Config) -> String {
         }
     ));
     if config.mode != Mode::Run {
-        help.push_str(&format!("  risclet {} prog.s --hex       # With hex display\n", mode_str));
+        help.push_str(&format!(
+            "  risclet {} prog.s --hex       # With hex display\n",
+            mode_str
+        ));
     }
 
     help
@@ -695,7 +695,6 @@ fn parse_address(s: &str) -> Result<u32, String> {
         u32::from_str_radix(hex, 16)
             .map_err(|_| format!("Error: invalid hex address: {}", s))
     } else {
-        s.parse::<u32>()
-            .map_err(|_| format!("Error: invalid address: {}", s))
+        s.parse::<u32>().map_err(|_| format!("Error: invalid address: {}", s))
     }
 }
