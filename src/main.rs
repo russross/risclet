@@ -1,6 +1,4 @@
 // Risclet: A RISC-V simulator and assembler
-//
-// Unified command-line interface for both tools
 
 // Shared modules
 mod elf;
