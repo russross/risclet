@@ -1209,8 +1209,11 @@ fn find_function_bounds(
     instructions: &[Rc<Instruction>],
     current: usize,
 ) -> (u32, u32) {
-    let (mut start_pc, mut end_pc) =
-        (instructions[0].address, instructions.last().unwrap().address);
+    let last_instruction = instructions.last().unwrap();
+    let (mut start_pc, mut end_pc) = (
+        instructions[0].address,
+        last_instruction.address + last_instruction.length,
+    );
     for instruction in instructions[0..=current].iter().rev() {
         if let Some(label) = symbols.get(&instruction.address)
             && label.parse::<usize>().is_err()
