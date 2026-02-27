@@ -955,6 +955,24 @@ impl<'a> Parser<'a> {
         Ok(bits)
     }
 
+    fn require_compressed_register(
+        &self,
+        reg: Register,
+        subject: &str,
+    ) -> Result<()> {
+        if reg.is_compressed_register() {
+            Ok(())
+        } else {
+            Err(RiscletError::from_context(
+                format!(
+                    "{} must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
+                    subject, reg
+                ),
+                self.location(),
+            ))
+        }
+    }
+
     // Grammar: reg , [exp] ( reg ) | reg , exp (global load, exp not followed by '(')
     // Examples: lb a0, 0(sp) (immediate offset), lb a0, (sp) (zero offset via peekahead), lb a0, label (global load, no parens; parentheses in exp like (label + 4) are part of the expression)
     fn parse_load(&mut self, op: LoadStoreOp) -> Result<Instruction> {
@@ -1202,15 +1220,7 @@ impl<'a> Parser<'a> {
 
             "addi4spn" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.addi4spn destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.addi4spn destination")?;
                 self.expect(&Token::Comma)?;
                 let base = self.parse_register()?;
                 if base != Register::X2 {
@@ -1298,28 +1308,12 @@ impl<'a> Parser<'a> {
             // CL format: c.lw rd', offset(rs1')
             "lw" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.lw destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.lw destination")?;
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
                 self.expect(&Token::OpenParen)?;
                 let rs1 = self.parse_register()?;
-                if !rs1.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.lw base register must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs1
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs1, "c.lw base register")?;
                 self.expect(&Token::CloseParen)?;
                 (
                     CompressedOp::CLw,
@@ -1334,28 +1328,12 @@ impl<'a> Parser<'a> {
             // CS format: c.sw rs2', offset(rs1')
             "sw" => {
                 let rs2 = self.parse_register()?;
-                if !rs2.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.sw source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs2
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs2, "c.sw source")?;
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
                 self.expect(&Token::OpenParen)?;
                 let rs1 = self.parse_register()?;
-                if !rs1.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.sw base register must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs1
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs1, "c.sw base register")?;
                 self.expect(&Token::CloseParen)?;
                 (
                     CompressedOp::CSw,
@@ -1370,26 +1348,10 @@ impl<'a> Parser<'a> {
             // CA format: c.and, c.or, c.xor, c.sub
             "and" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.and destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.and destination")?;
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
-                if !rs2.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.and source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs2
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs2, "c.and source")?;
                 (
                     CompressedOp::CAnd,
                     CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
@@ -1398,26 +1360,10 @@ impl<'a> Parser<'a> {
 
             "or" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.or destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.or destination")?;
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
-                if !rs2.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.or source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs2
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs2, "c.or source")?;
                 (
                     CompressedOp::COr,
                     CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
@@ -1426,26 +1372,10 @@ impl<'a> Parser<'a> {
 
             "xor" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.xor destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.xor destination")?;
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
-                if !rs2.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.xor source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs2
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs2, "c.xor source")?;
                 (
                     CompressedOp::CXor,
                     CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
@@ -1454,26 +1384,10 @@ impl<'a> Parser<'a> {
 
             "sub" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.sub destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.sub destination")?;
                 self.expect(&Token::Comma)?;
                 let rs2 = self.parse_register()?;
-                if !rs2.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.sub source must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs2
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs2, "c.sub source")?;
                 (
                     CompressedOp::CSub,
                     CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
@@ -1483,15 +1397,7 @@ impl<'a> Parser<'a> {
             // CB format shift/immediate: c.srli, c.srai, c.andi
             "srli" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.srli destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.srli destination")?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
                 (
@@ -1505,15 +1411,7 @@ impl<'a> Parser<'a> {
 
             "srai" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.srai destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.srai destination")?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
                 (
@@ -1527,15 +1425,7 @@ impl<'a> Parser<'a> {
 
             "andi" => {
                 let rd = self.parse_register()?;
-                if !rd.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.andi destination must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rd
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rd, "c.andi destination")?;
                 self.expect(&Token::Comma)?;
                 let imm = self.parse_expression()?;
                 (
@@ -1550,15 +1440,7 @@ impl<'a> Parser<'a> {
             // CB format branch: c.beqz, c.bnez
             "beqz" => {
                 let rs1 = self.parse_register()?;
-                if !rs1.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.beqz operand must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs1
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs1, "c.beqz operand")?;
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
                 (
@@ -1572,15 +1454,7 @@ impl<'a> Parser<'a> {
 
             "bnez" => {
                 let rs1 = self.parse_register()?;
-                if !rs1.is_compressed_register() {
-                    return Err(RiscletError::from_context(
-                        format!(
-                            "c.bnez operand must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
-                            rs1
-                        ),
-                        self.location(),
-                    ));
-                }
+                self.require_compressed_register(rs1, "c.bnez operand")?;
                 self.expect(&Token::Comma)?;
                 let offset = self.parse_expression()?;
                 (
