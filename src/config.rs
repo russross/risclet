@@ -132,16 +132,28 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
         "disassemble" => parse_simulator_mode(&args[1..], Mode::Disassemble),
         "trace" => parse_simulator_mode(&args[1..], Mode::Trace),
         "-h" | "--help" | "help" => Err(print_main_help()),
-        "-v" | "--version" => {
+        "--version" => {
             println!("risclet 0.4.3");
             std::process::exit(0);
         }
         _ => {
             // No recognized subcommand - treat as run mode with positional args
             // This allows: risclet foo.s, risclet a.out, risclet --hex, etc.
+            if let Some(subcommand) = args.iter().skip(1).find_map(|arg| {
+                is_explicit_subcommand(arg.as_str()).then_some(arg.as_str())
+            }) {
+                return Err(format!(
+                    "Error: subcommand '{}' must appear before options and file arguments",
+                    subcommand
+                ));
+            }
             parse_simulator_mode(args, Mode::Run)
         }
     }
+}
+
+fn is_explicit_subcommand(arg: &str) -> bool {
+    matches!(arg, "assemble" | "run" | "debug" | "disassemble" | "trace")
 }
 
 fn option_value_after_equals(arg: &str) -> &str {
@@ -177,6 +189,10 @@ fn parse_dump_option(arg: &str, config: &mut Config) -> Result<bool, String> {
 
 fn parse_relax_option(arg: &str, relax: &mut Relax) -> bool {
     match arg {
+        "--relax" => {
+            *relax = Relax { gp: Some(true), pseudo: true, compressed: true };
+            true
+        }
         "--no-relax" => {
             *relax = Relax { gp: Some(false), pseudo: false, compressed: false };
             true
@@ -435,14 +451,14 @@ Subcommands:
   disassemble   Disassemble executable or .s files
   trace         Execute and print each instruction with effects
   help, -h      Show this help message
-  -v, --version Show version information
+  --version Show version information
 
 File Arguments:
   - One or more .s files: assembles in-memory, then runs/debugs/etc.
   - One executable (no .s extension): runs/debugs/disassembles that file
   - No files: auto-detects *.s files in current directory, or uses a.out
 
-Common Options (all modes):
+Common Options:
   --check-abi / --no-check-abi  Enable ABI checking (default: {})
   -s, --steps <count>           Max execution steps (default: {})
   --hex / --no-hex              Display values in hexadecimal
@@ -450,9 +466,10 @@ Common Options (all modes):
   --verbose-instructions        Show strict instructions (not pseudo)
   -h, --help                    Show this help
 
-Assembler Options (when using .s files):
+Assembler Options:
   -v, --verbose                 Show assembly statistics
   -t <address>                  Set text start address (default: 0x{:x})
+  --relax                       Enable all relaxations
   --no-relax                    Disable all relaxations
   --relax-gp / --no-relax-gp    GP-relative optimization (default: auto-detect)
   --relax-pseudo / --no-relax-pseudo    call/tail optimization
@@ -484,6 +501,7 @@ Options:
     -o <file>            Write output to <file> (default: {})
     -t <address>         Set text start address (default: 0x{:x})
     -v, --verbose        Show input statistics and relaxation progress
+    --relax              Enable all relaxations
     --no-relax           Disable all relaxations
     --relax-gp           Enable GP-relative 'la' optimization (default: auto)
     --no-relax-gp        Disable GP-relative 'la' optimization
@@ -616,6 +634,7 @@ fn print_simulator_help(config: &Config) -> String {
         "  -t <address>                  Set text start address (default: 0x{:x})\n",
         config.text_start
     ));
+    help.push_str("  --relax                       Enable all relaxations\n");
     help.push_str("  --no-relax                    Disable all relaxations\n");
     help.push_str("  --relax-gp / --no-relax-gp    GP-relative optimization (default: auto-detect)\n");
     help.push_str(&format!(
@@ -681,5 +700,101 @@ fn parse_address(s: &str) -> Result<u32, String> {
             .map_err(|_| format!("Error: invalid hex address: {}", s))
     } else {
         s.parse::<u32>().map_err(|_| format!("Error: invalid address: {}", s))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_cli_args, Mode};
+
+    #[test]
+    fn parse_assemble_relax_enables_all_relaxations() {
+        let args = vec!["assemble".to_string(), "--relax".to_string(), "prog.s".to_string()];
+        let config = parse_cli_args(&args).expect("parse should succeed");
+
+        assert_eq!(config.mode, Mode::Assemble);
+        assert_eq!(config.relax.gp, Some(true));
+        assert!(config.relax.pseudo);
+        assert!(config.relax.compressed);
+    }
+
+    #[test]
+    fn parse_simulator_relax_enables_all_relaxations_for_s_files() {
+        let args = vec!["run".to_string(), "--relax".to_string(), "prog.s".to_string()];
+        let config = parse_cli_args(&args).expect("parse should succeed");
+
+        assert_eq!(config.mode, Mode::Run);
+        assert_eq!(config.relax.gp, Some(true));
+        assert!(config.relax.pseudo);
+        assert!(config.relax.compressed);
+    }
+
+    #[test]
+    fn parse_relax_can_be_overridden_by_no_relax() {
+        let args = vec![
+            "assemble".to_string(),
+            "--relax".to_string(),
+            "--no-relax".to_string(),
+            "prog.s".to_string(),
+        ];
+        let config = parse_cli_args(&args).expect("parse should succeed");
+
+        assert_eq!(config.relax.gp, Some(false));
+        assert!(!config.relax.pseudo);
+        assert!(!config.relax.compressed);
+    }
+
+    #[test]
+    fn parse_rejects_subcommand_after_option() {
+        let args = vec![
+            "--hex".to_string(),
+            "run".to_string(),
+            "a.out".to_string(),
+        ];
+
+        let err = match parse_cli_args(&args) {
+            Ok(_) => panic!("parse should fail"),
+            Err(err) => err,
+        };
+        assert!(err.contains("subcommand 'run' must appear before options and file arguments"));
+    }
+
+    #[test]
+    fn parse_rejects_assemble_after_option() {
+        let args = vec![
+            "--hex".to_string(),
+            "assemble".to_string(),
+            "prog.s".to_string(),
+        ];
+
+        let err = match parse_cli_args(&args) {
+            Ok(_) => panic!("parse should fail"),
+            Err(err) => err,
+        };
+        assert!(err.contains(
+            "subcommand 'assemble' must appear before options and file arguments"
+        ));
+    }
+
+    #[test]
+    fn parse_allows_options_without_explicit_subcommand() {
+        let args = vec!["--hex".to_string(), "a.out".to_string()];
+        let config = parse_cli_args(&args).expect("parse should succeed");
+
+        assert_eq!(config.mode, Mode::Run);
+        assert!(config.hex_mode);
+        assert_eq!(config.executable, "a.out");
+        assert!(config.input_files.is_empty());
+    }
+
+    #[test]
+    fn parse_short_v_as_verbose_not_version() {
+        let args = vec!["-v".to_string(), "a.out".to_string()];
+        let config = parse_cli_args(&args).expect("parse should succeed");
+
+        assert_eq!(config.mode, Mode::Run);
+        assert!(config.verbose);
+        assert_eq!(config.executable, "a.out");
+        assert!(config.input_files.is_empty());
     }
 }
