@@ -214,19 +214,17 @@ fn encode_instruction(
     current_address: u32,
     data_start: u32,
 ) -> Result<Vec<u8>> {
-    let refs = symbol_links.get_line_refs(pointer);
-
     match inst {
         Instruction::RType(op, rd, rs1, rs2) => {
             encode_r_type_family(config, op, *rd, *rs1, *rs2)
         }
         Instruction::IType(op, rd, rs1, imm) => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 imm,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let imm_val =
@@ -234,12 +232,12 @@ fn encode_instruction(
             encode_i_type_family(config, &line.location, op, *rd, *rs1, imm_val)
         }
         Instruction::LoadStore(op, rd_or_rs, offset, rs1) => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let offset_val =
@@ -254,12 +252,12 @@ fn encode_instruction(
             )
         }
         Instruction::BType(op, rs1, rs2, target) => {
-            let target_val = eval_expr(
+            let target_val = eval_line_expr(
                 target,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let target_addr =
@@ -269,12 +267,12 @@ fn encode_instruction(
             encode_branch_family(op, *rs1, *rs2, offset, &line.location, config)
         }
         Instruction::UType(op, rd, imm) => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 imm,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let imm_val =
@@ -282,12 +280,12 @@ fn encode_instruction(
             encode_u_type_family(op, *rd, imm_val, &line.location)
         }
         Instruction::JType(_op, rd, target) => {
-            let target_val = eval_expr(
+            let target_val = eval_line_expr(
                 target,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let target_addr =
@@ -1281,8 +1279,6 @@ fn encode_directive(
     symbol_links: &SymbolLinks,
     pointer: LinePointer,
 ) -> Result<Vec<u8>> {
-    let refs = symbol_links.get_line_refs(pointer);
-
     match dir {
         Directive::Text
         | Directive::Data
@@ -1293,18 +1289,15 @@ fn encode_directive(
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(
+                let val = eval_line_expr(
                     expr,
                     current_address,
-                    refs,
-                    symbol_values,
                     source,
+                    symbol_values,
+                    symbol_links,
                     pointer,
                 )?;
-                let byte_val = match val {
-                    EvaluatedValue::Integer(i) => i as u8,
-                    EvaluatedValue::Address(a) => a as u8,
-                };
+                let byte_val = evaluated_value_to_i32(val) as u8;
                 bytes.push(byte_val);
             }
             Ok(bytes)
@@ -1313,18 +1306,15 @@ fn encode_directive(
         Directive::TwoByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(
+                let val = eval_line_expr(
                     expr,
                     current_address,
-                    refs,
-                    symbol_values,
                     source,
+                    symbol_values,
+                    symbol_links,
                     pointer,
                 )?;
-                let short_val = match val {
-                    EvaluatedValue::Integer(i) => i as u16,
-                    EvaluatedValue::Address(a) => a as u16,
-                };
+                let short_val = evaluated_value_to_i32(val) as u16;
                 bytes.extend_from_slice(&short_val.to_le_bytes());
             }
             Ok(bytes)
@@ -1333,18 +1323,15 @@ fn encode_directive(
         Directive::FourByte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
-                let val = eval_expr(
+                let val = eval_line_expr(
                     expr,
                     current_address,
-                    refs,
-                    symbol_values,
                     source,
+                    symbol_values,
+                    symbol_links,
                     pointer,
                 )?;
-                let word_val = match val {
-                    EvaluatedValue::Integer(i) => i as u32,
-                    EvaluatedValue::Address(a) => a,
-                };
+                let word_val = evaluated_value_to_i32(val) as u32;
                 bytes.extend_from_slice(&word_val.to_le_bytes());
             }
             Ok(bytes)
@@ -1368,12 +1355,12 @@ fn encode_directive(
         }
 
         Directive::Space(expr) => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 expr,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let size =
@@ -1388,12 +1375,12 @@ fn encode_directive(
         }
 
         Directive::Balign(expr) => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 expr,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
             let alignment =
@@ -2202,8 +2189,6 @@ fn eval_compressed_operands(
     symbol_links: &SymbolLinks,
     pointer: LinePointer,
 ) -> Result<EvaluatedCompressedOperands> {
-    let refs = symbol_links.get_line_refs(pointer);
-
     match operands {
         CompressedOperands::None => Ok(EvaluatedCompressedOperands::None),
         CompressedOperands::CR { rd, rs2 } => {
@@ -2213,87 +2198,72 @@ fn eval_compressed_operands(
             Ok(EvaluatedCompressedOperands::CRSingle { rs1: *rs1 })
         }
         CompressedOperands::CI { rd, imm } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 imm,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let imm_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let imm_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CI { rd: *rd, imm: imm_val })
         }
         CompressedOperands::CIStackLoad { rd, offset } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let offset_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let offset_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CIStackLoad {
                 rd: *rd,
                 offset: offset_val,
             })
         }
         CompressedOperands::CSSStackStore { rs2, offset } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let offset_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let offset_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CSSStackStore {
                 rs2: *rs2,
                 offset: offset_val,
             })
         }
         CompressedOperands::CIW { rd_prime, imm } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 imm,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let imm_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let imm_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CIW {
                 rd_prime: *rd_prime,
                 imm: imm_val,
             })
         }
         CompressedOperands::CL { rd_prime, rs1_prime, offset } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let offset_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let offset_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CL {
                 rd_prime: *rd_prime,
                 rs1_prime: *rs1_prime,
@@ -2301,18 +2271,15 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CS { rs2_prime, rs1_prime, offset } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let offset_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let offset_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CS {
                 rs2_prime: *rs2_prime,
                 rs1_prime: *rs1_prime,
@@ -2326,64 +2293,45 @@ fn eval_compressed_operands(
             })
         }
         CompressedOperands::CBImm { rd_prime, imm } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 imm,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let imm_val = match val {
-                EvaluatedValue::Integer(i) => i,
-                EvaluatedValue::Address(a) => a as i32,
-            };
+            let imm_val = evaluated_value_to_i32(val);
             Ok(EvaluatedCompressedOperands::CBImm {
                 rd_prime: *rd_prime,
                 imm: imm_val,
             })
         }
         CompressedOperands::CBBranch { rs1_prime, offset } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let offset_val = match val {
-                // For branches, if we get an address, compute PC-relative offset
-                EvaluatedValue::Address(target_addr) => {
-                    let current_pc = current_address as i64;
-                    (target_addr as i64 - current_pc) as i32
-                }
-                // If it's an integer, use it directly as the offset
-                EvaluatedValue::Integer(i) => i,
-            };
+            let offset_val = evaluated_value_to_pc_relative_i32(val, current_address);
             Ok(EvaluatedCompressedOperands::CBBranch {
                 rs1_prime: *rs1_prime,
                 offset: offset_val,
             })
         }
         CompressedOperands::CJOpnd { offset } => {
-            let val = eval_expr(
+            let val = eval_line_expr(
                 offset,
                 current_address,
-                refs,
-                symbol_values,
                 source,
+                symbol_values,
+                symbol_links,
                 pointer,
             )?;
-            let offset_val = match val {
-                // For jumps, if we get an address, compute PC-relative offset
-                EvaluatedValue::Address(target_addr) => {
-                    let current_pc = current_address as i64;
-                    (target_addr as i64 - current_pc) as i32
-                }
-                // If it's an integer, use it directly as the offset
-                EvaluatedValue::Integer(i) => i,
-            };
+            let offset_val = evaluated_value_to_pc_relative_i32(val, current_address);
             Ok(EvaluatedCompressedOperands::CJOpnd { offset: offset_val })
         }
     }
@@ -2458,6 +2406,39 @@ fn split_offset_hi_lo(offset: i64) -> (i64, i64) {
     let lo = ((offset as i32) << 20) >> 20;
     let hi = ((offset as i32) - lo) >> 12;
     (hi as i64, lo as i64)
+}
+
+fn eval_line_expr(
+    expr: &Expression,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
+) -> Result<EvaluatedValue> {
+    let refs = symbol_links.get_line_refs(pointer);
+    eval_expr(expr, current_address, refs, symbol_values, source, pointer)
+}
+
+fn evaluated_value_to_i32(val: EvaluatedValue) -> i32 {
+    match val {
+        EvaluatedValue::Integer(i) => i,
+        EvaluatedValue::Address(a) => a as i32,
+    }
+}
+
+fn evaluated_value_to_pc_relative_i32(
+    val: EvaluatedValue,
+    current_address: u32,
+) -> i32 {
+    match val {
+        // For branches and jumps, addresses become PC-relative offsets.
+        EvaluatedValue::Address(target_addr) => {
+            let current_pc = current_address as i64;
+            (target_addr as i64 - current_pc) as i32
+        }
+        EvaluatedValue::Integer(i) => i,
+    }
 }
 
 fn require_integer(

@@ -144,6 +144,83 @@ pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
     }
 }
 
+fn option_value_after_equals(arg: &str) -> &str {
+    arg.split_once('=').map_or("", |(_, value)| value)
+}
+
+fn parse_dump_option(arg: &str, config: &mut Config) -> Result<bool, String> {
+    if !arg.starts_with("--dump-") {
+        return Ok(false);
+    }
+
+    if arg.starts_with("--dump-ast") {
+        let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
+        config.dump.dump_ast = Some(spec);
+    } else if arg.starts_with("--dump-symbols") {
+        let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
+        config.dump.dump_symbols = Some(spec);
+    } else if arg.starts_with("--dump-values") {
+        let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
+        config.dump.dump_values = Some(spec);
+    } else if arg.starts_with("--dump-code") {
+        let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
+        config.dump.dump_code = Some(spec);
+    } else if arg.starts_with("--dump-elf") {
+        let parts = dump::parse_elf_parts(option_value_after_equals(arg))?;
+        config.dump.dump_elf = Some(parts);
+    } else {
+        return Err(format!("Error: unknown option: {}", arg));
+    }
+
+    Ok(true)
+}
+
+fn parse_relax_option(arg: &str, relax: &mut Relax) -> bool {
+    match arg {
+        "--no-relax" => {
+            *relax = Relax { gp: Some(false), pseudo: false, compressed: false };
+            true
+        }
+        "--relax-gp" => {
+            relax.gp = Some(true);
+            true
+        }
+        "--no-relax-gp" => {
+            relax.gp = Some(false);
+            true
+        }
+        "--relax-pseudo" => {
+            relax.pseudo = true;
+            true
+        }
+        "--no-relax-pseudo" => {
+            relax.pseudo = false;
+            true
+        }
+        "--relax-compressed" => {
+            relax.compressed = true;
+            true
+        }
+        "--no-relax-compressed" => {
+            relax.compressed = false;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn require_option_value(
+    args: &[String],
+    i: &mut usize,
+    option: &str,
+) -> Result<String, String> {
+    *i += 1;
+    if *i >= args.len() {
+        return Err(format!("Error: {} requires an argument", option));
+    }
+    Ok(args[*i].clone())
+}
+
 /// Parse arguments for assemble mode
 fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
     let mut config = Config::assemble_default();
@@ -153,99 +230,28 @@ fn parse_assemble_mode(args: &[String]) -> Result<Config, String> {
         let arg = &args[i];
 
         // Handle --dump-* options
-        if arg.starts_with("--dump-") {
-            if arg.starts_with("--dump-ast") {
-                let spec_str = if arg.contains('=') {
-                    arg.split('=').nth(1).unwrap_or("")
-                } else {
-                    ""
-                };
-                config.dump.dump_ast = Some(dump::parse_dump_spec(spec_str)?);
-            } else if arg.starts_with("--dump-symbols") {
-                let spec_str = if arg.contains('=') {
-                    arg.split('=').nth(1).unwrap_or("")
-                } else {
-                    ""
-                };
-                config.dump.dump_symbols =
-                    Some(dump::parse_dump_spec(spec_str)?);
-            } else if arg.starts_with("--dump-values") {
-                let spec_str = if arg.contains('=') {
-                    arg.split('=').nth(1).unwrap_or("")
-                } else {
-                    ""
-                };
-                config.dump.dump_values =
-                    Some(dump::parse_dump_spec(spec_str)?);
-            } else if arg.starts_with("--dump-code") {
-                let spec_str = if arg.contains('=') {
-                    arg.split('=').nth(1).unwrap_or("")
-                } else {
-                    ""
-                };
-                config.dump.dump_code = Some(dump::parse_dump_spec(spec_str)?);
-            } else if arg.starts_with("--dump-elf") {
-                let parts_str = if arg.contains('=') {
-                    arg.split('=').nth(1).unwrap_or("")
-                } else {
-                    ""
-                };
-                config.dump.dump_elf = Some(dump::parse_elf_parts(parts_str)?);
-            } else {
-                return Err(format!("Error: unknown option: {}", arg));
-            }
+        if parse_dump_option(arg, &mut config)? {
         } else {
             match arg.as_str() {
                 "-o" => {
-                    i += 1;
-                    if i >= args.len() {
-                        return Err(
-                            "Error: -o requires an argument".to_string()
-                        );
-                    }
-                    config.output_file = args[i].clone();
+                    config.output_file =
+                        require_option_value(args, &mut i, "-o")?;
                 }
                 "-t" => {
-                    i += 1;
-                    if i >= args.len() {
-                        return Err(
-                            "Error: -t requires an argument".to_string()
-                        );
-                    }
-                    config.text_start = parse_address(&args[i])?;
+                    let value = require_option_value(args, &mut i, "-t")?;
+                    config.text_start = parse_address(&value)?;
                 }
                 "-v" | "--verbose" => {
                     config.verbose = true;
-                }
-                "--no-relax" => {
-                    config.relax = Relax {
-                        gp: Some(false),
-                        pseudo: false,
-                        compressed: false,
-                    };
-                }
-                "--relax-gp" => {
-                    config.relax.gp = Some(true);
-                }
-                "--no-relax-gp" => {
-                    config.relax.gp = Some(false);
-                }
-                "--relax-pseudo" => {
-                    config.relax.pseudo = true;
-                }
-                "--no-relax-pseudo" => {
-                    config.relax.pseudo = false;
-                }
-                "--relax-compressed" => {
-                    config.relax.compressed = true;
-                }
-                "--no-relax-compressed" => {
-                    config.relax.compressed = false;
                 }
                 "-h" | "--help" => {
                     return Err(print_assemble_help(&config));
                 }
                 _ => {
+                    if parse_relax_option(arg, &mut config.relax) {
+                        i += 1;
+                        continue;
+                    }
                     if arg.starts_with('-') {
                         return Err(format!("Error: unknown option: {}", arg));
                     }
@@ -274,14 +280,8 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
 
         match arg.as_str() {
             "-e" | "--executable" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(format!(
-                        "Error: {} requires an argument",
-                        args[i - 1]
-                    ));
-                }
-                config.executable = args[i].clone();
+                config.executable =
+                    require_option_value(args, &mut i, arg.as_str())?;
                 has_explicit_executable = true;
             }
             "--check-abi" => {
@@ -291,15 +291,10 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                 config.check_abi = false;
             }
             "-s" | "--steps" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(format!(
-                        "Error: {} requires an argument",
-                        args[i - 1]
-                    ));
-                }
-                config.max_steps = args[i].parse::<usize>().map_err(|_| {
-                    format!("Error: invalid number of steps: {}", args[i])
+                let value =
+                    require_option_value(args, &mut i, arg.as_str())?;
+                config.max_steps = value.parse::<usize>().map_err(|_| {
+                    format!("Error: invalid number of steps: {}", value)
                 })?;
             }
             "--hex" => config.hex_mode = true,
@@ -310,27 +305,17 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
             "--no-verbose-instructions" => config.verbose_instructions = false,
             "-v" | "--verbose" => config.verbose = true,
             "-t" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err("Error: -t requires an argument".to_string());
-                }
-                config.text_start = parse_address(&args[i])?;
+                let value = require_option_value(args, &mut i, "-t")?;
+                config.text_start = parse_address(&value)?;
             }
-            "--no-relax" => {
-                config.relax =
-                    Relax { gp: Some(false), pseudo: false, compressed: false };
-            }
-            "--relax-gp" => config.relax.gp = Some(true),
-            "--no-relax-gp" => config.relax.gp = Some(false),
-            "--relax-pseudo" => config.relax.pseudo = true,
-            "--no-relax-pseudo" => config.relax.pseudo = false,
-            "--relax-compressed" => config.relax.compressed = true,
-            "--no-relax-compressed" => config.relax.compressed = false,
             "-h" | "--help" => {
                 return Err(print_simulator_help(&config));
             }
             _ => {
-                if arg.starts_with("--dump-") {
+                if parse_relax_option(arg, &mut config.relax) {
+                    i += 1;
+                    continue;
+                } else if arg.starts_with("--dump-") {
                     return Err("Error: dump options (--dump-*) are not allowed with simulator subcommands (run/debug/disassemble/trace)".to_string());
                 } else if arg.starts_with('-') {
                     return Err(format!("Error: unknown option: {}", arg));

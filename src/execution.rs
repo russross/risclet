@@ -565,6 +565,81 @@ fn print_instruction_trace(
     }
 }
 
+fn disassembly_for_instruction(
+    config: &Config,
+    instruction: &Rc<Instruction>,
+    instructions: &[Rc<Instruction>],
+    addresses: &HashMap<u32, usize>,
+    global_pointer: u32,
+    address_symbols: &HashMap<u32, String>,
+    verbose: bool,
+) -> String {
+    let fields = if verbose {
+        &instruction.verbose_fields
+    } else {
+        &instructions[addresses[&instruction.address]].pseudo_fields
+    };
+    fields_to_string(
+        config,
+        fields,
+        instruction.address,
+        global_pointer,
+        instruction.length == 2,
+        None,
+        address_symbols,
+    )
+}
+
+fn flush_pending_pseudo_effects(
+    pending_pseudo_effects: &mut Vec<Effects>,
+    instructions: &[Rc<Instruction>],
+    addresses: &HashMap<u32, usize>,
+    config: &Config,
+    global_pointer: u32,
+    address_symbols: &HashMap<u32, String>,
+) {
+    if pending_pseudo_effects.is_empty() {
+        return;
+    }
+
+    let merged_effects = merge_pseudo_effects(pending_pseudo_effects);
+    let first_inst = &pending_pseudo_effects[0].instruction;
+    let disassembly = disassembly_for_instruction(
+        config,
+        first_inst,
+        instructions,
+        addresses,
+        global_pointer,
+        address_symbols,
+        false,
+    );
+    print_instruction_trace(&merged_effects, first_inst, &disassembly, config.hex_mode);
+    pending_pseudo_effects.clear();
+}
+
+fn print_ecall_trace_line(
+    m: &Machine,
+    instruction: &Rc<Instruction>,
+    instructions: &[Rc<Instruction>],
+    addresses: &HashMap<u32, usize>,
+    config: &Config,
+) {
+    let disassembly = disassembly_for_instruction(
+        config,
+        instruction,
+        instructions,
+        addresses,
+        m.global_pointer,
+        &m.address_symbols,
+        true,
+    );
+    if let Some(syscall_sig) = m.ecall_signature_for_display(config.hex_mode) {
+        println!("{}{}", disassembly, syscall_sig);
+    } else {
+        println!("{}", disassembly);
+    }
+}
+
 pub fn trace(
     m: &mut Machine,
     instructions: &[Rc<Instruction>],
@@ -604,75 +679,21 @@ pub fn trace(
         // Special handling for ecall in trace mode: need to print before execution,
         // but also need to flush any pending pseudo effects first (in pseudo-mode)
         let is_ecall = matches!(instruction.op, Op::Ecall);
-        if is_ecall
-            && matches!(config.mode, Mode::Trace)
-            && !config.verbose_instructions
-        {
-            // In pseudo-mode with ecall: flush pending effects before printing ecall line
-            if !pending_pseudo_effects.is_empty() {
-                let merged_effects =
-                    merge_pseudo_effects(&pending_pseudo_effects);
-                let first_inst = &pending_pseudo_effects[0].instruction;
-                let fields =
-                    &instructions[addresses[&first_inst.address]].pseudo_fields;
-                let disassembly = fields_to_string(
+        if is_ecall && matches!(config.mode, Mode::Trace) {
+            if !config.verbose_instructions {
+                // In pseudo-mode with ecall: flush pending effects before printing ecall line
+                flush_pending_pseudo_effects(
+                    &mut pending_pseudo_effects,
+                    instructions,
+                    addresses,
                     config,
-                    fields,
-                    first_inst.address,
                     m.global_pointer,
-                    first_inst.length == 2,
-                    None,
                     &m.address_symbols,
                 );
-                print_instruction_trace(
-                    &merged_effects,
-                    first_inst,
-                    &disassembly,
-                    config.hex_mode,
-                );
-                pending_pseudo_effects.clear();
             }
 
-            // Now print ecall line with syscall signature before execution
-            let fields = &instruction.verbose_fields;
-            let disassembly = fields_to_string(
-                config,
-                fields,
-                instruction.address,
-                m.global_pointer,
-                instruction.length == 2,
-                None,
-                &m.address_symbols,
-            );
-            if let Some(syscall_sig) =
-                m.ecall_signature_for_display(config.hex_mode)
-            {
-                println!("{}{}", disassembly, syscall_sig);
-            } else {
-                println!("{}", disassembly);
-            }
-        } else if is_ecall
-            && matches!(config.mode, Mode::Trace)
-            && config.verbose_instructions
-        {
-            // In verbose-mode with ecall: just print ecall line before execution
-            let fields = &instruction.verbose_fields;
-            let disassembly = fields_to_string(
-                config,
-                fields,
-                instruction.address,
-                m.global_pointer,
-                instruction.length == 2,
-                None,
-                &m.address_symbols,
-            );
-            if let Some(syscall_sig) =
-                m.ecall_signature_for_display(config.hex_mode)
-            {
-                println!("{}{}", disassembly, syscall_sig);
-            } else {
-                println!("{}", disassembly);
-            }
+            // In trace mode, print ecall line with syscall signature before execution
+            print_ecall_trace_line(m, instruction, instructions, addresses, config);
         }
 
         let mut effects = m.execute_and_collect_effects(instruction);
@@ -727,15 +748,14 @@ pub fn trace(
                         println!("    {}", line);
                     }
                 } else {
-                    let fields = &instruction.verbose_fields;
-                    let disassembly = fields_to_string(
+                    let disassembly = disassembly_for_instruction(
                         config,
-                        fields,
-                        instruction.address,
+                        instruction,
+                        instructions,
+                        addresses,
                         m.global_pointer,
-                        instruction.length == 2,
-                        None,
                         &m.address_symbols,
+                        true,
                     );
                     print_instruction_trace(
                         &effects,
@@ -760,31 +780,14 @@ pub fn trace(
 
                     if prev_pseudo_index != Some(current_pseudo_index) {
                         // We've moved to a new pseudo-instruction; print the accumulated effects
-                        if !pending_pseudo_effects.is_empty() {
-                            let merged_effects =
-                                merge_pseudo_effects(&pending_pseudo_effects);
-                            let first_inst =
-                                &pending_pseudo_effects[0].instruction;
-                            let fields = &instructions
-                                [addresses[&first_inst.address]]
-                                .pseudo_fields;
-                            let disassembly = fields_to_string(
-                                config,
-                                fields,
-                                first_inst.address,
-                                m.global_pointer,
-                                first_inst.length == 2,
-                                None,
-                                &m.address_symbols,
-                            );
-                            print_instruction_trace(
-                                &merged_effects,
-                                first_inst,
-                                &disassembly,
-                                config.hex_mode,
-                            );
-                            pending_pseudo_effects.clear();
-                        }
+                        flush_pending_pseudo_effects(
+                            &mut pending_pseudo_effects,
+                            instructions,
+                            addresses,
+                            config,
+                            m.global_pointer,
+                            &m.address_symbols,
+                        );
                         prev_pseudo_index = Some(current_pseudo_index);
                     }
 
@@ -818,24 +821,13 @@ pub fn trace(
         && !config.verbose_instructions
         && !pending_pseudo_effects.is_empty()
     {
-        let merged_effects = merge_pseudo_effects(&pending_pseudo_effects);
-        let first_inst = &pending_pseudo_effects[0].instruction;
-        let fields =
-            &instructions[addresses[&first_inst.address]].pseudo_fields;
-        let disassembly = fields_to_string(
+        flush_pending_pseudo_effects(
+            &mut pending_pseudo_effects,
+            instructions,
+            addresses,
             config,
-            fields,
-            first_inst.address,
             m.global_pointer,
-            first_inst.length == 2,
-            None,
             &m.address_symbols,
-        );
-        print_instruction_trace(
-            &merged_effects,
-            first_inst,
-            &disassembly,
-            config.hex_mode,
         );
     }
 

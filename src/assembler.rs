@@ -71,10 +71,7 @@ pub fn assemble(
     if should_dump_phase(config, Phase::Parse) {
         dump_ast(config, &source);
         if is_terminal_phase(config, Phase::Parse) {
-            println!("\n(No output file generated)");
-            return Err(RiscletError::io(
-                "Dump mode: no ELF generated".to_string(),
-            ));
+            return dump_mode_no_elf_generated();
         }
         println!(); // Separator between phase dumps
     }
@@ -88,10 +85,7 @@ pub fn assemble(
     if should_dump_phase(config, Phase::SymbolLinking) {
         dump_symbols(config, &source, symbol_links);
         if is_terminal_phase(config, Phase::SymbolLinking) {
-            println!("\n(No output file generated)");
-            return Err(RiscletError::io(
-                "Dump mode: no ELF generated".to_string(),
-            ));
+            return dump_mode_no_elf_generated();
         }
         println!(); // Separator between phase dumps
     }
@@ -118,10 +112,7 @@ pub fn assemble(
     if should_dump_phase(config, Phase::Relaxation)
         && is_terminal_phase(config, Phase::Relaxation)
     {
-        println!("\n(No output file generated)");
-        return Err(RiscletError::io(
-            "Dump mode: no ELF generated".to_string(),
-        ));
+        return dump_mode_no_elf_generated();
     }
 
     // ========================================================================
@@ -137,20 +128,14 @@ pub fn assemble(
     if should_dump_phase(config, Phase::Elf) {
         dump_elf(config, &elf_builder);
         if is_terminal_phase(config, Phase::Elf) {
-            println!("\n(No output file generated)");
-            return Err(RiscletError::io(
-                "Dump mode: no ELF generated".to_string(),
-            ));
+            return dump_mode_no_elf_generated();
         }
         println!(); // Separator (though this won't be reached for ELF dumps currently)
     }
 
     // If any dump options were used, we skip generating ELF
     if config.dump.has_dumps() {
-        println!("\n(No output file generated)");
-        return Err(RiscletError::io(
-            "Dump mode: no ELF generated".to_string(),
-        ));
+        return dump_mode_no_elf_generated();
     }
 
     // Find entry point (_start symbol is required for executables)
@@ -166,6 +151,11 @@ pub fn assemble(
     }?;
 
     elf_builder.build(entry_point)
+}
+
+fn dump_mode_no_elf_generated<T>() -> Result<T> {
+    println!("\n(No output file generated)");
+    Err(RiscletError::io("Dump mode: no ELF generated".to_string()))
 }
 
 /// Read source files from config and assemble to ELF bytes
