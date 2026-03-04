@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use crate::Instruction;
 use crate::error::RiscletError;
-use crate::memory::MemoryLayout;
 use crate::riscv::R;
 
 #[derive(Clone)]
@@ -155,12 +154,11 @@ impl Effects {
 
 pub struct ExecutionTrace {
     effects: Vec<Effects>,
-    layout: MemoryLayout,
 }
 
 impl ExecutionTrace {
-    pub fn new(layout: MemoryLayout) -> Self {
-        Self { effects: Vec::new(), layout }
+    pub fn new() -> Self {
+        Self { effects: Vec::new() }
     }
 
     pub fn add(&mut self, effect: Effects) {
@@ -169,51 +167,5 @@ impl ExecutionTrace {
 
     pub fn clear(&mut self) {
         self.effects.clear();
-    }
-
-    pub fn set_most_recent_memory(&self) -> (u32, (u32, usize), (u32, usize)) {
-        let mut most_recent_memory = if self.layout.data_start > 0 {
-            self.layout.data_start
-        } else {
-            self.layout.stack_end.saturating_sub(8)
-        };
-        let mut most_recent_data = (self.layout.data_start, 0);
-        let mut most_recent_stack =
-            (self.layout.stack_end.saturating_sub(8), 0);
-
-        let mut stack = false;
-        let mut data = false;
-
-        for effect in self.effects.iter().rev() {
-            let (address, value_len) = if let Some(read) = &effect.mem_read {
-                (read.address, read.value.len())
-            } else if let Some((_, write)) = &effect.mem_write {
-                (write.address, write.value.len())
-            } else {
-                continue;
-            };
-
-            if !stack && address >= self.layout.stack_start {
-                most_recent_stack = (address, value_len);
-                if !data {
-                    most_recent_memory = address;
-                }
-                stack = true;
-            }
-
-            if !data && address < self.layout.data_end {
-                most_recent_data = (address, value_len);
-                if !stack {
-                    most_recent_memory = address;
-                }
-                data = true;
-            }
-
-            if stack && data {
-                break;
-            }
-        }
-
-        (most_recent_memory, most_recent_data, most_recent_stack)
     }
 }

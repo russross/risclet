@@ -2316,7 +2316,8 @@ fn eval_compressed_operands(
                 symbol_links,
                 pointer,
             )?;
-            let offset_val = evaluated_value_to_pc_relative_i32(val, current_address);
+            let offset_val =
+                evaluated_value_to_pc_relative_i32(val, current_address);
             Ok(EvaluatedCompressedOperands::CBBranch {
                 rs1_prime: *rs1_prime,
                 offset: offset_val,
@@ -2331,7 +2332,8 @@ fn eval_compressed_operands(
                 symbol_links,
                 pointer,
             )?;
-            let offset_val = evaluated_value_to_pc_relative_i32(val, current_address);
+            let offset_val =
+                evaluated_value_to_pc_relative_i32(val, current_address);
             Ok(EvaluatedCompressedOperands::CJOpnd { offset: offset_val })
         }
     }
