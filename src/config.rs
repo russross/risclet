@@ -194,7 +194,8 @@ fn parse_relax_option(arg: &str, relax: &mut Relax) -> bool {
             true
         }
         "--no-relax" => {
-            *relax = Relax { gp: Some(false), pseudo: false, compressed: false };
+            *relax =
+                Relax { gp: Some(false), pseudo: false, compressed: false };
             true
         }
         "--relax-gp" => {
@@ -307,8 +308,7 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                 config.check_abi = false;
             }
             "-s" | "--steps" => {
-                let value =
-                    require_option_value(args, &mut i, arg.as_str())?;
+                let value = require_option_value(args, &mut i, arg.as_str())?;
                 config.max_steps = value.parse::<usize>().map_err(|_| {
                     format!("Error: invalid number of steps: {}", value)
                 })?;
@@ -705,11 +705,15 @@ fn parse_address(s: &str) -> Result<u32, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_cli_args, Mode};
+    use super::{Mode, parse_cli_args};
 
     #[test]
     fn parse_assemble_relax_enables_all_relaxations() {
-        let args = vec!["assemble".to_string(), "--relax".to_string(), "prog.s".to_string()];
+        let args = vec![
+            "assemble".to_string(),
+            "--relax".to_string(),
+            "prog.s".to_string(),
+        ];
         let config = parse_cli_args(&args).expect("parse should succeed");
 
         assert_eq!(config.mode, Mode::Assemble);
@@ -720,7 +724,11 @@ mod tests {
 
     #[test]
     fn parse_simulator_relax_enables_all_relaxations_for_s_files() {
-        let args = vec!["run".to_string(), "--relax".to_string(), "prog.s".to_string()];
+        let args = vec![
+            "run".to_string(),
+            "--relax".to_string(),
+            "prog.s".to_string(),
+        ];
         let config = parse_cli_args(&args).expect("parse should succeed");
 
         assert_eq!(config.mode, Mode::Run);
@@ -746,17 +754,16 @@ mod tests {
 
     #[test]
     fn parse_rejects_subcommand_after_option() {
-        let args = vec![
-            "--hex".to_string(),
-            "run".to_string(),
-            "a.out".to_string(),
-        ];
+        let args =
+            vec!["--hex".to_string(), "run".to_string(), "a.out".to_string()];
 
         let err = match parse_cli_args(&args) {
             Ok(_) => panic!("parse should fail"),
             Err(err) => err,
         };
-        assert!(err.contains("subcommand 'run' must appear before options and file arguments"));
+        assert!(err.contains(
+            "subcommand 'run' must appear before options and file arguments"
+        ));
     }
 
     #[test]
