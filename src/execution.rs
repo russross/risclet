@@ -8,7 +8,7 @@ use crossterm::tty::IsTty;
 use crate::checkabi::CheckABI;
 use crate::config::{Config, Mode};
 use crate::error::{Result, RiscletError};
-use crate::memory::{CpuState, MemoryManager, Segment};
+use crate::memory::{CpuState, MemoryLayout, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
 use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
 
@@ -20,6 +20,9 @@ pub struct Machine {
     pub global_pointer: u32,
     pub address_symbols: HashMap<u32, String>,
     pub other_symbols: HashMap<String, u32>,
+    most_recent_memory: u32,
+    most_recent_data: (u32, usize),
+    most_recent_stack: (u32, usize),
     current_effect: Option<Effects>,
     reservation_set: Option<u32>,
     #[cfg(test)]
@@ -31,6 +34,19 @@ pub struct Machine {
 }
 
 impl Machine {
+    fn default_recent_memory(
+        layout: MemoryLayout,
+    ) -> (u32, (u32, usize), (u32, usize)) {
+        let most_recent_memory = if layout.data_start > 0 {
+            layout.data_start
+        } else {
+            layout.stack_end.saturating_sub(8)
+        };
+        let most_recent_data = (layout.data_start, 0);
+        let most_recent_stack = (layout.stack_end.saturating_sub(8), 0);
+        (most_recent_memory, most_recent_data, most_recent_stack)
+    }
+
     pub fn new(
         segments: Vec<Segment>,
         pc_start: u32,
@@ -44,7 +60,9 @@ impl Machine {
         let mut state = CpuState::new(pc_start);
         state.reset(pc_start, memory.layout.stack_end);
 
-        let trace = ExecutionTrace::new(memory.layout);
+        let trace = ExecutionTrace::new();
+        let (most_recent_memory, most_recent_data, most_recent_stack) =
+            Self::default_recent_memory(memory.layout);
 
         Self {
             state,
@@ -54,6 +72,9 @@ impl Machine {
             global_pointer,
             address_symbols,
             other_symbols,
+            most_recent_memory,
+            most_recent_data,
+            most_recent_stack,
             current_effect: None,
             reservation_set: None,
             #[cfg(test)]
@@ -77,6 +98,11 @@ impl Machine {
         self.memory.reset();
         self.state.reset(self.pc_start, self.memory.layout.stack_end);
         self.trace.clear();
+        let (most_recent_memory, most_recent_data, most_recent_stack) =
+            Self::default_recent_memory(self.memory.layout);
+        self.most_recent_memory = most_recent_memory;
+        self.most_recent_data = most_recent_data;
+        self.most_recent_stack = most_recent_stack;
         self.current_effect = None;
         self.reservation_set = None;
     }
@@ -245,24 +271,63 @@ impl Machine {
 
     pub fn set_most_recent_memory(
         &mut self,
-        _sequence: &[Effects],
-        _index: usize,
+        sequence: &[Effects],
+        index: usize,
     ) {
+        let (
+            mut most_recent_memory,
+            mut most_recent_data,
+            mut most_recent_stack,
+        ) = Self::default_recent_memory(self.memory.layout);
+
+        let mut stack = false;
+        let mut data = false;
+
+        for effect in sequence.iter().take(index).rev() {
+            let (address, value_len) = if let Some(read) = &effect.mem_read {
+                (read.address, read.value.len())
+            } else if let Some((_, write)) = &effect.mem_write {
+                (write.address, write.value.len())
+            } else {
+                continue;
+            };
+
+            if !stack && address >= self.memory.layout.stack_start {
+                most_recent_stack = (address, value_len);
+                if !data {
+                    most_recent_memory = address;
+                }
+                stack = true;
+            }
+
+            if !data && address < self.memory.layout.data_end {
+                most_recent_data = (address, value_len);
+                if !stack {
+                    most_recent_memory = address;
+                }
+                data = true;
+            }
+
+            if stack && data {
+                break;
+            }
+        }
+
+        self.most_recent_memory = most_recent_memory;
+        self.most_recent_data = most_recent_data;
+        self.most_recent_stack = most_recent_stack;
     }
 
     pub fn most_recent_memory(&self) -> u32 {
-        let (addr, _, _) = self.trace.set_most_recent_memory();
-        addr
+        self.most_recent_memory
     }
 
     pub fn most_recent_data(&self) -> (u32, usize) {
-        let (_, addr_size, _) = self.trace.set_most_recent_memory();
-        addr_size
+        self.most_recent_data
     }
 
     pub fn most_recent_stack(&self) -> (u32, usize) {
-        let (_, _, addr_size) = self.trace.set_most_recent_memory();
-        addr_size
+        self.most_recent_stack
     }
 
     pub fn apply(&mut self, effect: &Effects, is_forward: bool) {
@@ -613,7 +678,12 @@ fn flush_pending_pseudo_effects(
         address_symbols,
         false,
     );
-    print_instruction_trace(&merged_effects, first_inst, &disassembly, config.hex_mode);
+    print_instruction_trace(
+        &merged_effects,
+        first_inst,
+        &disassembly,
+        config.hex_mode,
+    );
     pending_pseudo_effects.clear();
 }
 
@@ -693,7 +763,13 @@ pub fn trace(
             }
 
             // In trace mode, print ecall line with syscall signature before execution
-            print_ecall_trace_line(m, instruction, instructions, addresses, config);
+            print_ecall_trace_line(
+                m,
+                instruction,
+                instructions,
+                addresses,
+                config,
+            );
         }
 
         let mut effects = m.execute_and_collect_effects(instruction);
