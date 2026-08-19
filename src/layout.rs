@@ -11,6 +11,32 @@ use crate::elf::compute_header_size;
 use crate::symbols::{BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER};
 use std::collections::HashMap;
 
+/// The size in bytes of every source line for one relaxation iteration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineSizes {
+    by_line: HashMap<LinePointer, u32>,
+}
+
+impl LineSizes {
+    pub fn new() -> Self {
+        Self { by_line: HashMap::new() }
+    }
+
+    pub fn get(&self, pointer: LinePointer) -> u32 {
+        *self.by_line.get(&pointer).unwrap()
+    }
+
+    pub fn set(&mut self, pointer: LinePointer, size: u32) {
+        self.by_line.insert(pointer, size);
+    }
+}
+
+impl Default for LineSizes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Information about a line's position and size in the binary
 ///
 /// This is stored in the Layout structure and represents where a particular
@@ -21,13 +47,13 @@ pub struct LineLayout {
     pub segment: Segment,
     /// Offset within the segment (in bytes)
     pub offset: u32,
-    /// Size in bytes (guessed initially)
+    /// Size in bytes for this layout snapshot
     pub size: u32,
 }
 
 /// Complete layout information for the assembled program
 ///
-/// Created after symbol linking and updated during relaxation iterations.
+/// Created from one relaxation iteration's line sizes.
 /// This structure replaces the scattered layout fields that used to live in
 /// Source, SourceFile, and Line.
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +101,13 @@ impl Layout {
         self.lines.insert(pointer, layout);
     }
 
+    /// Replace every line's size while retaining its current segment and offset.
+    pub fn set_line_sizes(&mut self, line_sizes: &LineSizes) {
+        for (pointer, line) in &mut self.lines {
+            line.size = line_sizes.get(*pointer);
+        }
+    }
+
     /// Set segment start addresses based on nominal text_start
     ///
     /// This computes the concrete segment start addresses in the final binary:
@@ -108,49 +141,30 @@ impl Layout {
         segment_start + line_layout.offset
     }
 
-    /// Create initial layout after symbol linking is complete.
-    ///
-    /// This constructor is called after parsing and symbol linking but before the
-    /// relaxation loop. It initializes the Layout with:
-    /// - Initial size guesses for each line
-    /// - Segment assignments based on directives
-    /// - Computed offsets for each line
-    pub fn new(source: &Source) -> Layout {
+    /// Compute a complete layout snapshot from one set of line sizes.
+    pub fn from_sizes(
+        source: &Source,
+        line_sizes: &LineSizes,
+        nominal_text_start: u32,
+    ) -> Self {
         let mut layout = Layout::new_empty();
 
-        // Track current segment as we iterate through lines
-        let mut current_segment = Segment::Text;
-
-        // Set initial size guesses and segment for all lines
         for (file_index, file) in source.files.iter().enumerate() {
-            for (line_index, line) in file.lines.iter().enumerate() {
+            for line_index in 0..file.lines.len() {
                 let pointer = LinePointer { file_index, line_index };
-
-                // Update current segment based on directives
-                if let LineContent::Directive(directive) = &line.content {
-                    match directive {
-                        Directive::Text => current_segment = Segment::Text,
-                        Directive::Data => current_segment = Segment::Data,
-                        Directive::Bss => current_segment = Segment::Bss,
-                        _ => {}
-                    }
-                }
-
-                let size = guess_line_size(&line.content);
-
                 layout.set(
                     pointer,
                     LineLayout {
-                        segment: current_segment,
-                        offset: 0, // Will be computed by update_addresses
-                        size,
+                        segment: Segment::Text,
+                        offset: 0,
+                        size: line_sizes.get(pointer),
                     },
                 );
             }
         }
 
-        // Compute initial offsets and segment sizes
         layout.update_addresses(source);
+        layout.set_segment_addresses(nominal_text_start);
 
         layout
     }
@@ -199,7 +213,7 @@ impl Layout {
                         }
                     }
 
-                    let size = guess_line_size(&line.content);
+                    let size = self.get(pointer).size;
 
                     // Special handling: __global_pointer$ label is at offset 2048 in data segment
                     let offset = if let LineContent::Label(name) = &line.content
@@ -286,6 +300,18 @@ impl Default for Layout {
 // Layout Computation Functions
 // ==============================================================================
 
+/// Compute initial size estimates for every source line.
+pub fn approximate_line_sizes(source: &Source) -> LineSizes {
+    let mut line_sizes = LineSizes::new();
+    for (file_index, file) in source.files.iter().enumerate() {
+        for (line_index, line) in file.lines.iter().enumerate() {
+            let pointer = LinePointer { file_index, line_index };
+            line_sizes.set(pointer, guess_line_size(&line.content));
+        }
+    }
+    line_sizes
+}
+
 /// Compute the initial size estimate for a line of code/data.
 ///
 /// This provides conservative estimates used during layout computation:
@@ -296,7 +322,7 @@ impl Default for Layout {
 /// - Directives: varies based on operands
 ///
 /// During relaxation, actual sizes may shrink (e.g., pseudo → 4 bytes, instructions → 2 bytes)
-pub fn guess_line_size(content: &LineContent) -> u32 {
+fn guess_line_size(content: &LineContent) -> u32 {
     (match content {
         LineContent::Instruction(inst) => match inst {
             // Compressed instructions are always 2 bytes
