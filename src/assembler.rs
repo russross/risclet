@@ -12,7 +12,7 @@ use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
 use crate::error::{Result, RiscletError};
 use crate::expressions::{SymbolValues, eval_symbol_values};
-use crate::layout::Layout;
+use crate::layout::{Layout, LineSizes, approximate_line_sizes};
 use crate::parser::parse;
 use crate::symbols::{
     BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER, SymbolLinks,
@@ -93,9 +93,6 @@ pub fn assemble(
     // Auto-detect GP initialization and resolve relaxation setting
     apply_gp_auto_detection(config, &source);
 
-    // Create initial layout after symbol linking
-    let mut layout = Layout::new(&source);
-
     // ========================================================================
     // Phase 3: Relaxation - iteratively compute offsets and encode until stable
     // ========================================================================
@@ -105,8 +102,9 @@ pub fn assemble(
         print_input_statistics(&source, symbol_links);
     }
 
-    let (text_bytes, data_bytes, _bss_size, symbol_values) =
-        relaxation_loop(config, &source, symbol_links, &mut layout)?;
+    let initial_line_sizes = approximate_line_sizes(&source);
+    let RelaxedAssembly { layout, symbol_values, text_bytes, data_bytes } =
+        relaxation_loop(config, &source, symbol_links, initial_line_sizes)?;
 
     // Checkpoint: after relaxation, check if we should exit before ELF generation
     if should_dump_phase(config, Phase::Relaxation)
@@ -176,7 +174,15 @@ pub fn assemble_files(config: &mut Config) -> Result<Vec<u8>> {
     assemble(config, sources)
 }
 
-/// Iterate until line sizes and offsets are stable
+/// The stable products of the relaxation phase.
+pub struct RelaxedAssembly {
+    pub layout: Layout,
+    pub symbol_values: SymbolValues,
+    pub text_bytes: Vec<u8>,
+    pub data_bytes: Vec<u8>,
+}
+
+/// Iterate until line sizes and offsets are stable.
 ///
 /// This function repeatedly:
 /// 1. Computes addresses/offsets based on current size guesses
@@ -186,14 +192,15 @@ pub fn assemble_files(config: &mut Config) -> Result<Vec<u8>> {
 /// 5. Checks if any sizes changed from the guess
 ///
 /// Loops until there are no size changes or max iterations reached.
-/// Returns Ok((text, data, bss_size, symbol_values)) with the final encoding and symbol values.
+/// Returns the stable layout, symbol values, and encoded segments.
 pub fn relaxation_loop(
     config: &Config,
     source: &Source,
     symbol_links: &SymbolLinks,
-    layout: &mut Layout,
-) -> Result<(Vec<u8>, Vec<u8>, u32, SymbolValues)> {
+    initial_line_sizes: LineSizes,
+) -> Result<RelaxedAssembly> {
     const MAX_ITERATIONS: usize = 10;
+    let mut line_sizes = initial_line_sizes;
 
     if config.verbose {
         eprintln!("Relaxation:");
@@ -204,8 +211,9 @@ pub fn relaxation_loop(
     for iteration in 0..MAX_ITERATIONS {
         let pass_number = iteration + 1;
 
-        // Step 1: Calculate addresses based on current size guesses
-        layout.update_addresses(source);
+        // Step 1: Calculate a complete layout from the current size estimates
+        let mut layout =
+            Layout::from_sizes(source, &line_sizes, config.text_start);
 
         if config.verbose {
             eprintln!(
@@ -217,19 +225,19 @@ pub fn relaxation_loop(
             );
         }
 
-        // Step 2: Compute segment addresses and calculate all symbol values upfront
-        layout.set_segment_addresses(config.text_start);
-        let symbol_values = eval_symbol_values(source, symbol_links, layout)?;
+        // Step 2: Calculate all symbol values upfront
+        let symbol_values = eval_symbol_values(source, symbol_links, &layout)?;
 
         // Dump symbol values if requested
         if let Some(ref spec) = config.dump.dump_values {
-            dump_values(pass_number, false, source, layout, spec);
+            dump_values(pass_number, false, source, &layout, spec);
         }
 
-        // Step 3: Encode everything and update line sizes
-        // Encode and collect results
-        let (any_changed, text_bytes, data_bytes, bss_size) =
-            encode(config, source, symbol_links, &symbol_values, layout)?;
+        // Step 3: Encode everything and produce the next size estimates
+        let encoded =
+            encode(config, source, symbol_links, &symbol_values, &layout)?;
+        let any_changed = encoded.line_sizes != line_sizes;
+        layout.set_line_sizes(&encoded.line_sizes);
 
         // Dump generated code if requested
         if let Some(ref spec) = config.dump.dump_code {
@@ -237,9 +245,9 @@ pub fn relaxation_loop(
                 pass_number,
                 !any_changed, // is_final if no changes
                 source,
-                layout,
-                &text_bytes,
-                &data_bytes,
+                &layout,
+                &encoded.text_bytes,
+                &encoded.data_bytes,
                 spec,
             );
         }
@@ -248,7 +256,7 @@ pub fn relaxation_loop(
         if !any_changed {
             // Dump final symbol values if requested
             if let Some(ref spec) = config.dump.dump_values {
-                dump_values(pass_number, true, source, layout, spec);
+                dump_values(pass_number, true, source, &layout, spec);
             }
             if config.verbose {
                 eprintln!(
@@ -257,11 +265,15 @@ pub fn relaxation_loop(
                     if pass_number == 1 { "" } else { "es" }
                 );
             }
-            return Ok((text_bytes, data_bytes, bss_size, symbol_values));
+            return Ok(RelaxedAssembly {
+                layout,
+                symbol_values,
+                text_bytes: encoded.text_bytes,
+                data_bytes: encoded.data_bytes,
+            });
         }
 
-        // Sizes changed, discard encoded data and loop again
-        // (The encoder already updated source.lines[].size)
+        line_sizes = encoded.line_sizes;
     }
 
     Err(RiscletError::io(format!(

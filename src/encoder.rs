@@ -18,33 +18,36 @@ use crate::ast::{
 use crate::config::Config;
 use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues, eval_expr};
-use crate::layout::{Layout, LineLayout};
+use crate::layout::{Layout, LineLayout, LineSizes};
 use crate::symbols::SymbolLinks;
 
 // ============================================================================
 // Public API
 // ============================================================================
 
-/// Encode all lines and track if any sizes changed
-///
-/// Returns (any_changed, text_bytes, data_bytes, bss_size) where any_changed
-/// is true if any line's actual size differs from its guessed size.
+/// The code and line sizes produced by one encoding pass.
+pub struct EncodedPass {
+    pub line_sizes: LineSizes,
+    pub text_bytes: Vec<u8>,
+    pub data_bytes: Vec<u8>,
+}
+
+/// Encode all lines using a read-only layout snapshot.
 pub fn encode(
     config: &Config,
     source: &Source,
     symbol_links: &SymbolLinks,
     symbol_values: &SymbolValues,
-    layout: &mut Layout,
-) -> Result<(bool, Vec<u8>, Vec<u8>, u32)> {
+    layout: &Layout,
+) -> Result<EncodedPass> {
+    let mut line_sizes = LineSizes::new();
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
-    let mut bss_size: u32 = 0;
-    let mut any_changed = false;
 
     for file_index in 0..source.files.len() {
         for line_index in 0..source.files[file_index].lines.len() {
             let pointer = LinePointer { file_index, line_index };
-            let &LineLayout { segment, offset, size } = layout.get(pointer);
+            let &LineLayout { segment, .. } = layout.get(pointer);
             let current_address = layout.get_line_address(pointer);
             let data_start = layout.data_start;
 
@@ -78,12 +81,7 @@ pub fn encode(
                 }
             };
 
-            if size != actual_size {
-                let updated_layout =
-                    LineLayout { segment, offset, size: actual_size };
-                layout.set(pointer, updated_layout);
-                any_changed = true;
-            }
+            line_sizes.set(pointer, actual_size);
 
             if let Some(bytes) = bytes {
                 match segment {
@@ -91,13 +89,11 @@ pub fn encode(
                     Segment::Data => data_bytes.extend_from_slice(&bytes),
                     Segment::Bss => unreachable!(),
                 }
-            } else {
-                bss_size += actual_size;
             }
         }
     }
 
-    Ok((any_changed, text_bytes, data_bytes, bss_size))
+    Ok(EncodedPass { line_sizes, text_bytes, data_bytes })
 }
 
 /// Encode a single line

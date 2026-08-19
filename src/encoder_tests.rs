@@ -6,7 +6,7 @@
 use crate::assembler::relaxation_loop;
 use crate::ast::{Source, SourceFile};
 use crate::config::{Config, Relax};
-use crate::layout::Layout;
+use crate::layout::approximate_line_sizes;
 use crate::parser::parse;
 use crate::symbols::{create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
@@ -97,10 +97,11 @@ fn assemble(
 
     // Converge: repeatedly compute offsets, evaluate expressions, and encode
     // until line sizes stabilize. Returns the final encoded segments.
-    let mut layout = Layout::new(&source);
-    relaxation_loop(config, &source, &symbols, &mut layout)
-        .map(|(text_bytes, data_bytes, bss_size, _symbol_values)| {
-            (text_bytes, data_bytes, bss_size)
+    let initial_line_sizes = approximate_line_sizes(&source);
+    relaxation_loop(config, &source, &symbols, initial_line_sizes)
+        .map(|relaxed| {
+            let bss_size = relaxed.layout.bss_size;
+            (relaxed.text_bytes, relaxed.data_bytes, bss_size)
         })
         .map_err(|e| e.with_source_context())
 }
@@ -1543,6 +1544,27 @@ nearby_target:
         0xef, 0x00, 0xc0, 0x00, // jal ra,12 <nearby_target>
         0x13, 0x00, 0x00, 0x00, // nop
         0x13, 0x00, 0x00, 0x00, // nop
+        0x13, 0x00, 0x00, 0x00, // nop
+    ];
+
+    assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_convergence_alignment_after_call_relaxation() {
+    let source = r#"
+.text
+_start:
+    call target
+    .balign 16
+target:
+    nop
+"#;
+
+    let expected = &[
+        0xef, 0x00, 0xc0, 0x00, // jal ra,12 <target>
+        0x00, 0x00, 0x00, 0x00, // alignment padding
+        0x00, 0x00, 0x00, 0x00, // alignment padding
         0x13, 0x00, 0x00, 0x00, // nop
     ];
 
