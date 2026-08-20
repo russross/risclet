@@ -9,8 +9,6 @@ on:
       - main
     tags:
       - 'v*.*.*' # Trigger on tags like v1.0.0, v2.3.4 etc.
-    paths:
-      - Cargo.toml
 
 # Permissions needed by the workflow to create releases and upload assets
 permissions:
@@ -103,8 +101,11 @@ jobs:
               exit 1
             fi
           elif [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
-            echo "Cargo package version did not change; no release is needed"
-            exit 0
+            if git rev-parse --verify "refs/tags/$TAG_NAME^{commit}" >/dev/null 2>&1; then
+              echo "Cargo package version $CURRENT_VERSION is already tagged"
+              exit 0
+            fi
+            echo "Retrying unpublished Cargo package version $CURRENT_VERSION"
           else
             python3 .github/scripts/release_version.py \
               "$PREVIOUS_VERSION" "$CURRENT_VERSION"

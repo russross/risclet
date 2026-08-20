@@ -161,13 +161,11 @@ impl Machine {
 
     pub fn get(&mut self, reg: usize) -> i32 {
         let val = self.state.get_reg(reg);
-        if reg != 0 && self.current_effect.is_some() {
-            let effects = self.current_effect.as_mut().unwrap();
-            if !effects.reg_reads.iter().any(|r| r.register == reg) {
-                effects
-                    .reg_reads
-                    .push(RegisterValue { register: reg, value: val });
-            }
+        if reg != 0
+            && let Some(effects) = &mut self.current_effect
+            && !effects.reg_reads.iter().any(|r| r.register == reg)
+        {
+            effects.reg_reads.push(RegisterValue { register: reg, value: val });
         }
         val
     }
