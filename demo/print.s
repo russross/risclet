@@ -1,4 +1,4 @@
-                .global print_string, print_int, print_hex, print_set
+                .global print_string, print_int
                 .equ    stdout, 1
                 .equ    sys_write, 64
                 .equ    sys_exit, 93
