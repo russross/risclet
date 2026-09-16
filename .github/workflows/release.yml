@@ -19,10 +19,7 @@ defaults:
   run:
     shell: sh
 
-# Environment variables available to all jobs
 env:
-  # Fail the build if there are warnings
-  RUSTFLAGS: --deny warnings
   # Set the binary name of your crate here
   BINARY_NAME: "risclet"
 
@@ -157,6 +154,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare_release]
     if: needs.prepare_release.outputs.should_release == 'true'
+    env:
+      RUSTFLAGS: "--deny warnings -C target-feature=+crt-static"
     container:
       image: ghcr.io/cross-rs/cross:main
 
@@ -194,6 +193,14 @@ jobs:
             echo "::error::Binary not found at $SRC_PATH"
             exit 1
           fi
+          if readelf -lW "$SRC_PATH" | grep -q ' INTERP '; then
+            echo "::error::$SRC_PATH has a dynamic interpreter"
+            exit 1
+          fi
+          if readelf -dW "$SRC_PATH" 2>/dev/null | grep -q '(NEEDED)'; then
+            echo "::error::$SRC_PATH has shared-library dependencies"
+            exit 1
+          fi
           mv "$SRC_PATH" "$ASSET_NAME"
           echo "asset_path=$ASSET_NAME" >> "$GITHUB_OUTPUT"
 
@@ -213,6 +220,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [prepare_release]
     if: needs.prepare_release.outputs.should_release == 'true'
+    env:
+      RUSTFLAGS: "--deny warnings"
     strategy:
       fail-fast: false
       matrix:
