@@ -2,7 +2,9 @@ use std::rc::Rc;
 
 use crate::execution::{Instruction, Machine};
 use crate::riscv::{A_REGS, Op, R, RA, S_REGS, SP, T_REGS, ZERO};
-use crate::trace::{Effects, MemoryValue, RegisterValue, RegisterWrite};
+use crate::trace::{
+    Effects, FrameChange, MemoryWrite, RegisterValue, RegisterWrite,
+};
 
 /// Size category for shadow memory tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,7 +247,7 @@ impl CheckABI {
             // or written to memory but nothing else
             if self.save_only[x] {
                 match &effects.mem_write {
-                    Some((_, MemoryValue { value: store_val, .. }))
+                    Some(MemoryWrite { new_value: store_val, .. })
                         if store_val.len() == 4 =>
                     {
                         // 32-bit word write to memory is okay
@@ -316,7 +318,8 @@ impl CheckABI {
                 self.at_entry_sp = m.get_reg(SP) as u32;
 
                 // capture the stack start in the Effect for the tui
-                effects.function_start = Some(m.get_reg(SP) as u32);
+                effects.frame_change =
+                    Some(FrameChange::Enter(m.get_reg(SP) as u32));
 
                 // invalidate t registers
                 for &x in &T_REGS {
@@ -394,7 +397,8 @@ impl CheckABI {
                 }
 
                 // record sp at function exit in Effects for the tui
-                effects.function_end = Some(m.get_reg(2) as u32);
+                effects.frame_change =
+                    Some(FrameChange::Leave(m.get_reg(2) as u32));
 
                 // pop previous function context
                 if let Some(FunctionRegisters {
@@ -426,14 +430,14 @@ impl CheckABI {
 
             // stores
             Op::Sb { .. } | Op::Sh { .. } | Op::Sw { .. } => {
-                let Some((_, write)) = &effects.mem_write else {
+                let Some(write) = &effects.mem_write else {
                     return Err(
                         "store instruction with no memory write".to_string()
                     );
                 };
 
                 let addr = write.address;
-                let byte_count = write.value.len();
+                let byte_count = write.new_value.len();
                 let shadow_size = ShadowSize::from_byte_count(byte_count);
 
                 // insist on aligned writes
@@ -568,9 +572,9 @@ impl CheckABI {
                 }
 
                 // read syscall
-                if let Some((_, write)) = &effects.mem_write {
+                if let Some(write) = &effects.mem_write {
                     let addr = write.address;
-                    let size = write.value.len();
+                    let size = write.new_value.len();
 
                     for address in addr..addr + (size as u32) {
                         // do not allow overwrite of non-byte data

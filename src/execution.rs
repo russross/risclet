@@ -10,7 +10,10 @@ use crate::config::{Config, Mode};
 use crate::error::{Result, RiscletError};
 use crate::memory::{CpuState, MemoryLayout, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
-use crate::trace::{Effects, MemoryValue, RegisterValue, RegisterWrite};
+use crate::trace::{
+    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterValue,
+    RegisterWrite,
+};
 
 pub struct Machine {
     state: CpuState,
@@ -151,10 +154,11 @@ impl Machine {
             && let Ok(old_val) = self.memory.load(addr, raw.len() as u32)
         {
             assert!(effects.mem_write.is_none());
-            effects.mem_write = Some((
-                MemoryValue { address: addr, value: old_val },
-                MemoryValue { address: addr, value: raw.to_vec() },
-            ));
+            effects.mem_write = Some(MemoryWrite {
+                address: addr,
+                old_value: old_val,
+                new_value: raw.to_vec(),
+            });
         }
         self.memory.store(addr, raw)
     }
@@ -286,8 +290,8 @@ impl Machine {
         for effect in sequence.iter().take(index).rev() {
             let (address, value_len) = if let Some(read) = &effect.mem_read {
                 (read.address, read.value.len())
-            } else if let Some((_, write)) = &effect.mem_write {
-                (write.address, write.value.len())
+            } else if let Some(write) = &effect.mem_write {
+                (write.address, write.new_value.len())
             } else {
                 continue;
             };
@@ -341,13 +345,14 @@ impl Machine {
             self.set(write.register, value);
         }
 
-        if let Some((old, new)) = &effect.mem_write {
-            let store = if is_forward { new } else { old };
-            self.store(store.address, &store.value)
+        if let Some(write) = &effect.mem_write {
+            let value =
+                if is_forward { &write.new_value } else { &write.old_value };
+            self.store(write.address, value)
                 .expect("Memory should be valid during replay");
         }
 
-        if let Some(output) = &effect.stdout {
+        if let Some(output) = effect.stdout() {
             if is_forward {
                 self.stdout_mut().extend(output);
             } else {
@@ -356,7 +361,7 @@ impl Machine {
             }
         }
 
-        if let Some(input) = &effect.stdin {
+        if let Some(input) = effect.stdin() {
             if is_forward {
                 self.stdout_mut().extend(input);
             } else {
@@ -365,20 +370,14 @@ impl Machine {
             }
         }
 
-        if let Some(frame) = effect.function_start {
-            if is_forward {
-                self.push_stack_frame(frame);
-            } else {
-                self.pop_stack_frame();
-            }
-        }
-
-        if let Some(frame) = effect.function_end {
-            if is_forward {
-                self.pop_stack_frame();
-            } else {
+        match (effect.frame_change, is_forward) {
+            (Some(FrameChange::Enter(frame)), true)
+            | (Some(FrameChange::Leave(frame)), false) => {
                 self.push_stack_frame(frame);
             }
+            (Some(FrameChange::Enter(_)), false)
+            | (Some(FrameChange::Leave(_)), true) => self.pop_stack_frame(),
+            (None, _) => {}
         }
     }
 
@@ -781,9 +780,9 @@ pub fn trace(
         i += 1;
 
         // Echo stdout for run and debug modes (trace mode handles printing itself)
-        if !effects.terminate
+        if !effects.is_terminal()
             && matches!(config.mode, Mode::Run | Mode::Debug)
-            && let Some(output) = &effects.stdout
+            && let Some(output) = effects.stdout()
         {
             let mut handle = io::stdout().lock();
             if let Err(e) = handle.write(output) {
@@ -795,9 +794,9 @@ pub fn trace(
         }
 
         // Echo stdin for debug mode only
-        if !effects.terminate
+        if !effects.is_terminal()
             && echo_in
-            && let Some(input) = &effects.stdin
+            && let Some(input) = effects.stdin()
         {
             let mut handle = io::stdout().lock();
             if let Err(e) = handle.write(input) {
@@ -809,7 +808,7 @@ pub fn trace(
         }
 
         // Perform ABI checking if enabled
-        if !effects.terminate
+        if !effects.is_terminal()
             && config.check_abi
             && let Err(msg) = abi.check_instruction(
                 m,
@@ -881,7 +880,7 @@ pub fn trace(
             }
         }
 
-        let terminate = effects.terminate;
+        let terminate = effects.is_terminal();
         sequence.push(effects);
         if terminate {
             break;
@@ -889,7 +888,7 @@ pub fn trace(
 
         if steps == config.max_steps {
             if let Some(last) = sequence.last_mut()
-                && last.other_message.is_none()
+                && last.other_message().is_none()
             {
                 last.error(RiscletError::execution_error(format!(
                     "stopped after {} steps",

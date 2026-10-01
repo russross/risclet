@@ -11,6 +11,13 @@ pub struct MemoryValue {
 }
 
 #[derive(Clone)]
+pub struct MemoryWrite {
+    pub address: u32,
+    pub old_value: Vec<u8>,
+    pub new_value: Vec<u8>,
+}
+
+#[derive(Clone)]
 pub struct RegisterValue {
     pub register: usize,
 }
@@ -29,6 +36,21 @@ pub enum SyscallInfo {
     Read { fd: i32, buf_addr: u32, count: i32, data: Vec<u8> },
 }
 
+// Syscall payloads and errors are allocated only for instructions that need them.
+#[derive(Clone, Default)]
+pub struct ExtraEffects {
+    pub stdin: Option<Vec<u8>>,
+    pub stdout: Option<Vec<u8>>,
+    pub syscall: Option<SyscallInfo>,
+    pub other_message: Option<RiscletError>,
+}
+
+#[derive(Clone, Copy)]
+pub enum FrameChange {
+    Enter(u32),
+    Leave(u32),
+}
+
 #[derive(Clone)]
 pub struct Effects {
     pub instruction: Rc<Instruction>,
@@ -36,14 +58,9 @@ pub struct Effects {
     pub pc: (u32, u32),
     pub reg_write: Option<RegisterWrite>,
     pub mem_read: Option<MemoryValue>,
-    pub mem_write: Option<(MemoryValue, MemoryValue)>,
-    pub stdin: Option<Vec<u8>>,
-    pub stdout: Option<Vec<u8>>,
-    pub syscall: Option<SyscallInfo>,
-    pub other_message: Option<RiscletError>,
-    pub terminate: bool,
-    pub function_start: Option<u32>,
-    pub function_end: Option<u32>,
+    pub mem_write: Option<MemoryWrite>,
+    extra: Option<Box<ExtraEffects>>,
+    pub frame_change: Option<FrameChange>,
 }
 
 impl Effects {
@@ -54,26 +71,46 @@ impl Effects {
             reg_write: None,
             mem_read: None,
             mem_write: None,
-            stdin: None,
-            stdout: None,
-            syscall: None,
-            other_message: None,
-            terminate: false,
-            function_start: None,
-            function_end: None,
+            extra: None,
+            frame_change: None,
         }
     }
 
     pub fn error(&mut self, error: RiscletError) {
-        self.other_message = Some(error);
-        self.terminate = true;
+        self.extra_mut().other_message = Some(error);
+    }
+
+    // Ordinary instructions leave the optional extra record unallocated.
+    pub fn extra_mut(&mut self) -> &mut ExtraEffects {
+        self.extra.get_or_insert_with(Box::default)
+    }
+
+    pub fn other_message(&self) -> Option<&RiscletError> {
+        self.extra.as_ref()?.other_message.as_ref()
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.other_message().is_some()
+    }
+
+    // Borrowed payloads support reporting and replay without allocating a record.
+    pub fn stdin(&self) -> Option<&[u8]> {
+        self.extra.as_ref()?.stdin.as_deref()
+    }
+
+    pub fn stdout(&self) -> Option<&[u8]> {
+        self.extra.as_ref()?.stdout.as_deref()
+    }
+
+    pub fn syscall(&self) -> Option<&SyscallInfo> {
+        self.extra.as_ref()?.syscall.as_ref()
     }
 
     pub fn report(&self, hex_mode: bool) -> Vec<String> {
         let mut lines = Vec::new();
 
         // Handle syscalls specially - they replace normal output formatting
-        if let Some(syscall) = &self.syscall {
+        if let Some(syscall) = self.syscall() {
             match syscall {
                 SyscallInfo::Exit(status) => {
                     lines.push(format!("exit({})", status));
@@ -148,7 +185,7 @@ impl Effects {
             }
             lines.push(parts.join(", "));
 
-            if let Some(error) = &self.other_message {
+            if let Some(error) = self.other_message() {
                 lines.push(error.message());
             }
         }

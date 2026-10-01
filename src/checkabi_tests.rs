@@ -139,7 +139,7 @@ fn run_with_abi_check(source: &str) -> AbiTestResult {
 
     // Check for ABI violations in the effects
     for effect in effects {
-        if let Some(err) = effect.other_message.as_ref() {
+        if let Some(err) = effect.other_message() {
             // Only treat AbiViolation errors as ABI violations, not other errors
             if matches!(err, crate::error::RiscletError::AbiViolation(_)) {
                 return AbiTestResult::Violation(err.to_string());

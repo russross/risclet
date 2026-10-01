@@ -968,14 +968,14 @@ impl Op {
                         m.store(buf_addr, &read_buffer)?;
                         m.set(A0, read_buffer.len() as i32);
                         m.stdin_mut().extend_from_slice(&read_buffer);
-                        m.current_effect_mut().unwrap().syscall =
+                        m.current_effect_mut().unwrap().extra_mut().syscall =
                             Some(SyscallInfo::Read {
                                 fd,
                                 buf_addr,
                                 count,
                                 data: read_buffer.clone(),
                             });
-                        m.current_effect_mut().unwrap().stdin =
+                        m.current_effect_mut().unwrap().extra_mut().stdin =
                             Some(read_buffer);
                     }
                     64 => {
@@ -1001,20 +1001,20 @@ impl Op {
                         m.write_stdout(&write_buffer)?;
                         m.set(A0, write_buffer.len() as i32);
                         m.stdout_mut().extend_from_slice(&write_buffer);
-                        m.current_effect_mut().unwrap().syscall =
+                        m.current_effect_mut().unwrap().extra_mut().syscall =
                             Some(SyscallInfo::Write {
                                 fd,
                                 buf_addr,
                                 count,
                                 data: write_buffer.clone(),
                             });
-                        m.current_effect_mut().unwrap().stdout =
+                        m.current_effect_mut().unwrap().extra_mut().stdout =
                             Some(write_buffer);
                     }
                     93 => {
                         // exit system call
                         let status = m.get(A0) & 0xff;
-                        m.current_effect_mut().unwrap().syscall =
+                        m.current_effect_mut().unwrap().extra_mut().syscall =
                             Some(SyscallInfo::Exit(status));
                         return Err(RiscletError::Exit(status));
                     }

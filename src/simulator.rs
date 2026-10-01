@@ -102,7 +102,7 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
     // Handle exit codes and errors from trace execution
     if config.mode == Mode::Trace {
         if let Some(effects) = sequence.last()
-            && let Some(error) = &effects.other_message
+            && let Some(error) = effects.other_message()
         {
             match error {
                 RiscletError::Exit(code) => {
@@ -134,7 +134,7 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
     }
 
     if let Some(effects) = sequence.last()
-        && let Some(error) = &effects.other_message
+        && let Some(error) = effects.other_message()
     {
         match error {
             RiscletError::Exit(code) => {

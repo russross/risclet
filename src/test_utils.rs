@@ -1,8 +1,110 @@
 #[cfg(test)]
 mod tests {
+    use crate::error::RiscletError;
     use crate::execution::{Instruction, Machine, MachineBuilder};
     use crate::riscv::{Op, ZERO};
+    use crate::trace::{Effects, FrameChange, SyscallInfo};
     use std::rc::Rc;
+
+    fn instruction(machine: &Machine, op: Op) -> Rc<Instruction> {
+        Rc::new(Instruction {
+            address: machine.pc(),
+            op,
+            length: 4,
+            pseudo_index: 0,
+            verbose_fields: Vec::new(),
+            pseudo_fields: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn test_atomic_memory_write_replays_both_values() {
+        let mut machine = Machine::for_testing();
+        let address = machine.stack_start();
+        machine.store(address, &17_i32.to_le_bytes()).unwrap();
+        machine.set(5, address as i32);
+        machine.set(6, 9);
+        let inst = instruction(
+            &machine,
+            Op::AmoaddW { rd: 7, rs1: 5, rs2: 6, aq: false, rl: false },
+        );
+
+        // Atomic instructions retain their read as well as the before/after write.
+        let effects = machine.execute_and_collect_effects(&inst);
+        let read = effects.mem_read.as_ref().expect("memory read");
+        let write = effects.mem_write.as_ref().expect("memory write");
+        assert_eq!(read.address, address);
+        assert_eq!(read.value, 17_i32.to_le_bytes());
+        assert_eq!(write.address, address);
+        assert_eq!(write.old_value, 17_i32.to_le_bytes());
+        assert_eq!(write.new_value, 26_i32.to_le_bytes());
+
+        // Reverse replay restores memory and the destination register together.
+        machine.apply(&effects, false);
+        assert_eq!(machine.load_i32(address).unwrap(), 17);
+        assert_eq!(machine.get_reg(7), 0);
+        machine.apply(&effects, true);
+        assert_eq!(machine.load_i32(address).unwrap(), 26);
+        assert_eq!(machine.get_reg(7), 17);
+    }
+
+    #[test]
+    fn test_boxed_io_and_error_survive_clone_and_replay() {
+        let mut machine = Machine::for_testing();
+        let inst = instruction(&machine, Op::Ecall);
+        let mut effects = Effects::new(&inst);
+        assert!(effects.stdin().is_none());
+        assert!(effects.stdout().is_none());
+        assert!(effects.syscall().is_none());
+        assert!(!effects.is_terminal());
+
+        // I/O payloads and a later failure coexist without losing replay data.
+        let extra = effects.extra_mut();
+        extra.stdin = Some(b"in".to_vec());
+        extra.stdout = Some(b"out".to_vec());
+        extra.syscall = Some(SyscallInfo::Write {
+            fd: 1,
+            buf_addr: 0x1000,
+            count: 3,
+            data: b"out".to_vec(),
+        });
+        effects.error(RiscletError::io("output failed".to_string()));
+        let cloned = effects.clone();
+        effects.extra_mut().stdout.as_mut().unwrap().clear();
+        assert_eq!(cloned.stdout(), Some(b"out".as_slice()));
+        assert!(cloned.is_terminal());
+        assert_eq!(cloned.other_message().unwrap().message(), "output failed");
+        assert_eq!(cloned.report(false)[0], "write(1, 0x1000, 3)");
+
+        // Output and echoed input retain their existing order in debugger replay.
+        machine.apply(&cloned, true);
+        assert_eq!(machine.stdout(), b"outin");
+        machine.apply(&cloned, false);
+        assert!(machine.stdout().is_empty());
+    }
+
+    #[test]
+    fn test_frame_changes_replay_in_both_directions() {
+        let mut machine = Machine::for_testing();
+        let inst =
+            instruction(&machine, Op::Addi { rd: ZERO, rs1: ZERO, imm: 0 });
+        let mut enter = Effects::new(&inst);
+        enter.frame_change = Some(FrameChange::Enter(0x1000));
+        let mut leave = Effects::new(&inst);
+        leave.frame_change = Some(FrameChange::Leave(0x1000));
+
+        // Calls push frames and returns pop them during forward replay.
+        machine.apply(&enter, true);
+        assert_eq!(machine.stack_frames(), &[0x1000]);
+        machine.apply(&leave, true);
+        assert!(machine.stack_frames().is_empty());
+
+        // Backward replay reverses each operation with the same frame address.
+        machine.apply(&leave, false);
+        assert_eq!(machine.stack_frames(), &[0x1000]);
+        machine.apply(&enter, false);
+        assert!(machine.stack_frames().is_empty());
+    }
 
     #[test]
     fn test_create_test_machine() {
@@ -185,7 +287,7 @@ mod tests {
 
         // Verify that a syscall was recorded
         assert!(
-            effects.syscall.is_some(),
+            effects.syscall().is_some(),
             "Exit syscall should be recorded in effects"
         );
 
