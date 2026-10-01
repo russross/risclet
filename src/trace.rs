@@ -13,7 +13,13 @@ pub struct MemoryValue {
 #[derive(Clone)]
 pub struct RegisterValue {
     pub register: usize,
-    pub value: i32,
+}
+
+#[derive(Clone, Copy)]
+pub struct RegisterWrite {
+    pub register: usize,
+    pub old_value: i32,
+    pub new_value: i32,
 }
 
 #[derive(Clone)]
@@ -28,8 +34,7 @@ pub struct Effects {
     pub instruction: Rc<Instruction>,
 
     pub pc: (u32, u32),
-    pub reg_reads: Vec<RegisterValue>,
-    pub reg_write: Option<(RegisterValue, RegisterValue)>,
+    pub reg_write: Option<RegisterWrite>,
     pub mem_read: Option<MemoryValue>,
     pub mem_write: Option<(MemoryValue, MemoryValue)>,
     pub stdin: Option<Vec<u8>>,
@@ -46,7 +51,6 @@ impl Effects {
         Effects {
             instruction: instruction.clone(),
             pc: (0, 0),
-            reg_reads: Vec::new(),
             reg_write: None,
             mem_read: None,
             mem_write: None,
@@ -125,8 +129,9 @@ impl Effects {
         } else {
             // Normal instruction effect reporting
             let mut parts = Vec::new();
-            if let Some((_, RegisterValue { register: rd, value: val })) =
-                self.reg_write
+            if let Some(RegisterWrite {
+                register: rd, new_value: val, ..
+            }) = self.reg_write
             {
                 if hex_mode {
                     parts.push(format!("{} <- 0x{:x}", R[rd], val));
@@ -149,23 +154,5 @@ impl Effects {
         }
 
         lines
-    }
-}
-
-pub struct ExecutionTrace {
-    effects: Vec<Effects>,
-}
-
-impl ExecutionTrace {
-    pub fn new() -> Self {
-        Self { effects: Vec::new() }
-    }
-
-    pub fn add(&mut self, effect: Effects) {
-        self.effects.push(effect);
-    }
-
-    pub fn clear(&mut self) {
-        self.effects.clear();
     }
 }

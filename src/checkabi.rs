@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::execution::{Instruction, Machine};
 use crate::riscv::{A_REGS, Op, R, RA, S_REGS, SP, T_REGS, ZERO};
-use crate::trace::{Effects, MemoryValue, RegisterValue};
+use crate::trace::{Effects, MemoryValue, RegisterValue, RegisterWrite};
 
 /// Size category for shadow memory tracking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,12 +229,13 @@ impl CheckABI {
         m: &Machine,
         instruction: &Rc<Instruction>,
         effects: &mut Effects,
+        reg_reads: &[RegisterValue],
     ) -> Result<(), String> {
         // start with checks applicable to all instructions
         // this allows us to make basic assumptions later
 
         // first check that all input registers are valid values
-        for read in &effects.reg_reads {
+        for read in reg_reads {
             let x = read.register;
             if !self.valid[x] || self.registers[x].is_none() {
                 return Err(format!("Cannot use uninitialized {}", R[x]));
@@ -261,7 +262,7 @@ impl CheckABI {
         }
 
         // next record register write
-        if let Some((_, write)) = &effects.reg_write {
+        if let Some(write) = &effects.reg_write {
             let x = write.register;
             self.valid[x] = true;
             self.save_only[x] = false;
@@ -271,9 +272,8 @@ impl CheckABI {
                 instruction.op,
                 Op::Addi { rd: 1..32, rs1: 1..32, imm: 0 }
             ) {
-                assert!(effects.reg_reads.len() == 1);
-                self.registers[x] =
-                    self.registers[effects.reg_reads[0].register];
+                assert!(reg_reads.len() == 1);
+                self.registers[x] = self.registers[reg_reads[0].register];
             } else {
                 self.registers[x] = Some(self.new_n());
             }
@@ -289,7 +289,7 @@ impl CheckABI {
             // function call
             Op::Jal { rd: 1..32, .. } | Op::Jalr { rd: 1..32, .. } => {
                 // must use ra for return address
-                let Some((_, RegisterValue { register: RA, .. })) =
+                let Some(RegisterWrite { register: RA, .. }) =
                     effects.reg_write
                 else {
                     return Err(

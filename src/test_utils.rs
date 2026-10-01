@@ -17,6 +17,84 @@ mod tests {
     }
 
     #[test]
+    fn test_register_write_replays_old_and_new_values() {
+        let mut machine = Machine::for_testing();
+        machine.set(5, -17);
+        let instruction = Rc::new(Instruction {
+            address: machine.pc(),
+            op: Op::Addi { rd: 5, rs1: 5, imm: 6 },
+            length: 4,
+            pseudo_index: 0,
+            verbose_fields: Vec::new(),
+            pseudo_fields: Vec::new(),
+        });
+
+        // An in-place update records the original value before changing the register.
+        let effects = machine.execute_and_collect_effects(&instruction);
+        let write = effects.reg_write.as_ref().expect("register write");
+        assert_eq!(write.register, 5);
+        assert_eq!(write.old_value, -17);
+        assert_eq!(write.new_value, -11);
+        assert_eq!(effects.report(false), vec!["t0 <- -11"]);
+        assert_eq!(effects.report(true), vec!["t0 <- 0xfffffff5"]);
+
+        // Replaying in either direction restores the value and instruction position.
+        machine.apply(&effects, false);
+        assert_eq!(machine.get_reg(5), -17);
+        assert_eq!(machine.pc(), instruction.address);
+        machine.apply(&effects, true);
+        assert_eq!(machine.get_reg(5), -11);
+        assert_eq!(machine.pc(), instruction.address + instruction.length);
+    }
+
+    #[test]
+    fn test_register_reads_are_scoped_to_instruction_execution() {
+        let mut machine = Machine::for_testing();
+        machine.set(5, 7);
+        let instruction = Rc::new(Instruction {
+            address: machine.pc(),
+            op: Op::Add { rd: 6, rs1: 5, rs2: 5 },
+            length: 4,
+            pseudo_index: 0,
+            verbose_fields: Vec::new(),
+            pseudo_fields: Vec::new(),
+        });
+
+        // Repeated reads retain one input register, even when it is read twice.
+        let effects = machine.execute_and_collect_effects(&instruction);
+        let reads = machine.register_reads();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].register, 5);
+        assert_eq!(machine.get_reg(6), 14);
+
+        // Reads outside execution and replay do not append inputs or alter the record.
+        machine.get(7);
+        machine.apply(&effects, false);
+        assert_eq!(machine.get_reg(6), 0);
+        machine.apply(&effects, true);
+        assert_eq!(machine.get_reg(6), 14);
+        assert_eq!(machine.register_reads().len(), 1);
+
+        // The next instruction replaces the inputs and excludes the zero register.
+        let next = Rc::new(Instruction {
+            address: machine.pc(),
+            op: Op::Add { rd: 7, rs1: ZERO, rs2: 6 },
+            length: 4,
+            pseudo_index: 0,
+            verbose_fields: Vec::new(),
+            pseudo_fields: Vec::new(),
+        });
+        machine.execute_and_collect_effects(&next);
+        let reads = machine.register_reads();
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].register, 6);
+
+        // Reset removes the last instruction's inputs along with the CPU state.
+        machine.reset();
+        assert!(machine.register_reads().is_empty());
+    }
+
+    #[test]
     fn test_zero_register_write_not_recorded_as_effect() {
         // Verify that writes to x0 (zero register) are not recorded in effects.
         // This prevents spurious "zero <- ..." messages in the debugger.

@@ -10,12 +10,11 @@ use crate::config::{Config, Mode};
 use crate::error::{Result, RiscletError};
 use crate::memory::{CpuState, MemoryLayout, MemoryManager, Segment};
 use crate::riscv::{Field, Op, fields_to_string};
-use crate::trace::{Effects, ExecutionTrace, MemoryValue, RegisterValue};
+use crate::trace::{Effects, MemoryValue, RegisterValue, RegisterWrite};
 
 pub struct Machine {
     state: CpuState,
     memory: MemoryManager,
-    trace: ExecutionTrace,
     pc_start: u32,
     pub global_pointer: u32,
     pub address_symbols: HashMap<u32, String>,
@@ -24,6 +23,8 @@ pub struct Machine {
     most_recent_data: (u32, usize),
     most_recent_stack: (u32, usize),
     current_effect: Option<Effects>,
+    // Register reads belong to the current instruction's ABI validation.
+    reg_reads: Vec<RegisterValue>,
     reservation_set: Option<u32>,
     #[cfg(test)]
     stdin_data: Vec<u8>,
@@ -60,14 +61,12 @@ impl Machine {
         let mut state = CpuState::new(pc_start);
         state.reset(pc_start, memory.layout.stack_end);
 
-        let trace = ExecutionTrace::new();
         let (most_recent_memory, most_recent_data, most_recent_stack) =
             Self::default_recent_memory(memory.layout);
 
         Self {
             state,
             memory,
-            trace,
             pc_start,
             global_pointer,
             address_symbols,
@@ -76,6 +75,7 @@ impl Machine {
             most_recent_data,
             most_recent_stack,
             current_effect: None,
+            reg_reads: Vec::new(),
             reservation_set: None,
             #[cfg(test)]
             stdin_data: Vec::new(),
@@ -97,13 +97,13 @@ impl Machine {
     pub fn reset(&mut self) {
         self.memory.reset();
         self.state.reset(self.pc_start, self.memory.layout.stack_end);
-        self.trace.clear();
         let (most_recent_memory, most_recent_data, most_recent_stack) =
             Self::default_recent_memory(self.memory.layout);
         self.most_recent_memory = most_recent_memory;
         self.most_recent_data = most_recent_data;
         self.most_recent_stack = most_recent_stack;
         self.current_effect = None;
+        self.reg_reads.clear();
         self.reservation_set = None;
     }
 
@@ -162,10 +162,10 @@ impl Machine {
     pub fn get(&mut self, reg: usize) -> i32 {
         let val = self.state.get_reg(reg);
         if reg != 0
-            && let Some(effects) = &mut self.current_effect
-            && !effects.reg_reads.iter().any(|r| r.register == reg)
+            && self.current_effect.is_some()
+            && !self.reg_reads.iter().any(|r| r.register == reg)
         {
-            effects.reg_reads.push(RegisterValue { register: reg, value: val });
+            self.reg_reads.push(RegisterValue { register: reg });
         }
         val
     }
@@ -178,10 +178,11 @@ impl Machine {
         {
             assert!(effects.reg_write.is_none());
             let old_val = self.state.get_reg(reg);
-            effects.reg_write = Some((
-                RegisterValue { register: reg, value: old_val },
-                RegisterValue { register: reg, value },
-            ));
+            effects.reg_write = Some(RegisterWrite {
+                register: reg,
+                old_value: old_val,
+                new_value: value,
+            });
         }
         self.state.set_reg(reg, value);
     }
@@ -244,6 +245,8 @@ impl Machine {
         &mut self,
         instruction: &Rc<Instruction>,
     ) -> Effects {
+        // Reuse the read buffer while keeping each instruction's inputs separate.
+        self.reg_reads.clear();
         self.current_effect = Some(Effects::new(instruction));
 
         let exec_res = instruction.op.execute(self, instruction.length);
@@ -261,7 +264,6 @@ impl Machine {
             effects.error(msg);
         }
 
-        self.trace.add(effects.clone());
         self.current_effect = None;
 
         effects
@@ -333,9 +335,10 @@ impl Machine {
         self.set_pc(if is_forward { new_pc } else { old_pc })
             .expect("PC should be valid during replay");
 
-        if let Some((old, new)) = &effect.reg_write {
-            let write = if is_forward { new } else { old };
-            self.set(write.register, write.value);
+        if let Some(write) = &effect.reg_write {
+            let value =
+                if is_forward { write.new_value } else { write.old_value };
+            self.set(write.register, value);
         }
 
         if let Some((old, new)) = &effect.mem_write {
@@ -441,6 +444,10 @@ impl Machine {
 
     pub fn get_reg(&self, reg: usize) -> i32 {
         self.state.get_reg(reg)
+    }
+
+    pub(crate) fn register_reads(&self) -> &[RegisterValue] {
+        &self.reg_reads
     }
 
     pub fn current_effect_mut(&mut self) -> Option<&mut Effects> {
@@ -804,8 +811,12 @@ pub fn trace(
         // Perform ABI checking if enabled
         if !effects.terminate
             && config.check_abi
-            && let Err(msg) =
-                abi.check_instruction(m, instruction, &mut effects)
+            && let Err(msg) = abi.check_instruction(
+                m,
+                instruction,
+                &mut effects,
+                m.register_reads(),
+            )
         {
             effects.error(RiscletError::abi_violation(msg));
         }
@@ -920,7 +931,7 @@ fn merge_pseudo_effects(effects_list: &[Effects]) -> Effects {
     // Keep only the final register write (from the last instruction that wrote a register)
     for effects in &effects_list[1..] {
         if effects.reg_write.is_some() {
-            merged.reg_write = effects.reg_write.clone();
+            merged.reg_write = effects.reg_write;
         }
         if effects.mem_read.is_some() {
             merged.mem_read = effects.mem_read.clone();
