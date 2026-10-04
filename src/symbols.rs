@@ -18,7 +18,7 @@
 //! ## Numeric Labels
 //! - Can be reused (e.g., multiple "1:" labels in a file)
 //! - Referenced as "Nf" (forward) or "Nb" (backward)
-//! - Scope is limited: flushed when crossing non-numeric labels or segment boundaries
+//! - References cross regular labels; scope ends at segment or file boundaries
 //! - Cannot be declared global
 //!
 //! # Linking Process
@@ -219,11 +219,10 @@ fn is_numeric_forward_ref(symbol: &str) -> Option<u32> {
     symbol.strip_suffix('f').and_then(|num_str| num_str.parse::<u32>().ok())
 }
 
-/// Flushes numeric labels when crossing a non-numeric label or segment boundary.
+/// Flushes numeric labels at segment boundaries and the end of a file.
 ///
-/// Numeric labels (e.g., "1:", "2:") have limited scope and are cleared when:
-/// - A non-numeric label is encountered
-/// - A segment boundary (.text, .data, .bss) is crossed
+/// Numeric labels (e.g., "1:", "2:") are cleared at segment boundaries
+/// (.text, .data, .bss) and at the end of each file.
 ///
 /// This function removes all backward references ("1b", "2b") from the definitions
 /// and checks for any unresolved forward references ("1f", "2f"). If any forward
@@ -262,7 +261,7 @@ fn flush_numeric_labels(
 /// - Symbol references (backward, forward, and numeric labels)
 /// - Symbol definitions (labels and .equ directives)
 /// - Global symbol declarations
-/// - Numeric label scoping (flushed at non-numeric labels and segment boundaries)
+/// - Numeric label scoping (flushed at segment and file boundaries)
 ///
 /// Returns:
 /// - Global definitions exported from this file
@@ -307,7 +306,6 @@ fn link_file(
         let new_definition = process_symbol_definitions(
             line,
             line_ptr,
-            &locations,
             &mut definitions,
             &mut unresolved,
             &mut unfinalized_globals,
@@ -446,7 +444,6 @@ fn process_symbol_references(
 fn process_symbol_definitions(
     line: &Line,
     line_ptr: LinePointer,
-    locations: &[Location],
     definitions: &mut HashMap<String, LinePointer>,
     unresolved: &mut Vec<UnresolvedReference>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
@@ -469,9 +466,7 @@ fn process_symbol_definitions(
                     label,
                     line_ptr,
                     &line.location,
-                    locations,
                     definitions,
-                    unresolved,
                     unfinalized_globals,
                 )
             }
@@ -530,14 +525,9 @@ fn process_regular_label(
     label: &str,
     line_ptr: LinePointer,
     line_location: &Location,
-    locations: &[Location],
     definitions: &mut HashMap<String, LinePointer>,
-    unresolved: &mut Vec<UnresolvedReference>,
     unfinalized_globals: &mut HashMap<String, UnfinalizedGlobal>,
 ) -> Result<Option<String>, RiscletError> {
-    // Non-numeric labels flush all numeric label scopes
-    flush_numeric_labels(locations, definitions, unresolved)?;
-
     // Check for duplicate label
     if definitions.contains_key(label) {
         return Err(RiscletError::from_context(

@@ -36,10 +36,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"example.s", "example.asm"} {
-		if !header.MatchFileName(name) {
-			return fmt.Errorf("filetype detection failed for %s", name)
-		}
+	if !header.MatchFileName("example.s") {
+		return fmt.Errorf("filetype detection failed for example.s")
 	}
 	if header.MatchFileName("example.txt") {
 		return fmt.Errorf("filetype detection matched example.txt")

@@ -20,8 +20,7 @@
           "risclet"
         ],
         "extensions": [
-          ".s",
-          ".asm"
+          ".s"
         ],
         "configuration": "./language-configuration.json"
       }

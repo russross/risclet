@@ -357,9 +357,11 @@ mod tests {
     fn test_numeric_label_reuse_forward() {
         let source_text = "
                  beq a0, a1, 1f
+             first_function:
              1:
                  addi a0, a0, 1
                  beq a0, a1, 1f
+             second_function:
              1:
                  ret
          ";
@@ -433,9 +435,11 @@ mod tests {
     fn test_numeric_label_reuse_backward() {
         let source_text = "
             1:
+            first_function:
                 addi a0, a0, 1
                 beq a0, a1, 1b
             1:
+            second_function:
                 addi a1, a1, 1
                 bne a0, a1, 1b
         ";
@@ -506,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric_labels_blocked_by_non_numeric() {
+    fn test_numeric_labels_backward_cross_regular_label() {
         let source_text = "
             1:
                 addi a0, a0, 1
@@ -515,23 +519,19 @@ mod tests {
         ";
 
         let source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&source);
+        let symbols = link_symbols(&source).unwrap();
 
-        // Should fail because numeric label reference crosses a non-numeric label
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail when numeric reference crosses non-numeric label"
-        );
-
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("1b") || err_msg.contains("Undefined"),
-            "Error should mention the unresolved numeric label"
+        // Regular labels preserve the numeric definitions and pending references.
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "1b").unwrap(),
+            "1b",
+            find_line_by_label(&source, "1").unwrap(),
         );
     }
 
     #[test]
-    fn test_numeric_labels_forward_blocked_by_non_numeric() {
+    fn test_numeric_labels_forward_cross_regular_label() {
         let source_text = "
                 beq a0, a1, 1f
             regular_label:
@@ -540,18 +540,14 @@ mod tests {
         ";
 
         let source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&source);
+        let symbols = link_symbols(&source).unwrap();
 
-        // Should fail because numeric forward reference crosses a non-numeric label
-        assert!(
-            result.is_err(),
-            "Symbol linking should fail when numeric forward reference crosses non-numeric label"
-        );
-
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("1f") || err_msg.contains("numeric"),
-            "Error should mention the unresolved numeric label"
+        // Regular labels preserve the numeric definitions and pending references.
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "1f").unwrap(),
+            "1f",
+            find_line_by_label(&source, "1").unwrap(),
         );
     }
 
@@ -1253,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_numeric_forward_crosses_nonnumeric_label() {
+    fn test_numeric_forward_crosses_nonnumeric_label() {
         let source_text = "
             beq a0, a1, 1f
             middle:
@@ -1263,19 +1259,14 @@ mod tests {
         ";
 
         let source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&source);
+        let symbols = link_symbols(&source).unwrap();
 
-        assert!(
-            result.is_err(),
-            "Numeric forward ref should not cross non-numeric label"
-        );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("1f")
-                || err.contains("numeric")
-                || err.contains("Unresolved"),
-            "Error should mention unresolved numeric label: {}",
-            err
+        // Regular labels preserve the numeric definitions and pending references.
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "1f").unwrap(),
+            "1f",
+            find_line_by_label(&source, "1").unwrap(),
         );
     }
 
@@ -1303,7 +1294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_numeric_backward_crosses_nonnumeric() {
+    fn test_numeric_backward_crosses_nonnumeric() {
         let source_text = "
             1:
                 nop
@@ -1313,17 +1304,14 @@ mod tests {
         ";
 
         let source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&source);
+        let symbols = link_symbols(&source).unwrap();
 
-        assert!(
-            result.is_err(),
-            "Numeric backward ref should not cross non-numeric label"
-        );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("1b") || err.contains("Undefined"),
-            "Error should mention undefined symbol: {}",
-            err
+        // Regular labels preserve the numeric definitions and pending references.
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "1b").unwrap(),
+            "1b",
+            find_line_by_label(&source, "1").unwrap(),
         );
     }
 
@@ -1355,7 +1343,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_multiple_numeric_labels_all_flushed() {
+    fn test_multiple_numeric_labels_cross_regular_label() {
         let source_text = "
             1:
             2:
@@ -1369,13 +1357,27 @@ mod tests {
         ";
 
         let source = create_source(vec![("test.s", source_text)]).unwrap();
-        let result = link_symbols(&source);
+        let symbols = link_symbols(&source).unwrap();
 
-        assert!(
-            result.is_err(),
-            "All numeric labels should be flushed by non-numeric label"
+        // Regular labels preserve the numeric definitions and pending references.
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "1b").unwrap(),
+            "1b",
+            find_line_by_label(&source, "1").unwrap(),
         );
-        // Should fail on the first backward reference that can't be resolved
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "2b").unwrap(),
+            "2b",
+            find_line_by_label(&source, "2").unwrap(),
+        );
+        assert_reference(
+            &symbols,
+            find_referencing_line(&source, "3b").unwrap(),
+            "3b",
+            find_line_by_label(&source, "3").unwrap(),
+        );
     }
 
     // ============================================================================
@@ -1418,7 +1420,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Numeric labels after non-numeric should work in new scope"
+            "Numeric labels can be defined after regular labels"
         );
 
         // Verify the references point to the labels after 'named'

@@ -484,6 +484,7 @@ Examples:
   risclet prog.s lib.s             # Assemble both files and run
   risclet a.out                    # Run a.out
   risclet run prog.s               # Assemble and run prog.s (exit after completion)
+  risclet debug prog.s             # Assemble and debug prog.s with interactive TUI
   risclet trace a.out --check-abi  # Trace a.out with ABI checking
   risclet disassemble prog.s       # Assemble and disassemble
   risclet assemble -o prog prog.s  # Assemble to disk as 'prog'
