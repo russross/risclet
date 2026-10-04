@@ -6,6 +6,8 @@ const oniguruma = require('vscode-oniguruma');
 
 // Use VS Code's tokenizer and regex engine, carrying state between source lines.
 async function main() {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+  assert.ok(manifest.contributes.languages[0].extensions.includes('.s'));
   const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));
   await oniguruma.loadWASM(wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.byteLength));
   const registry = new textmate.Registry({

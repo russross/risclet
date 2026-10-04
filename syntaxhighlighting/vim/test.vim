@@ -1,6 +1,15 @@
-" Run from the repository root: vim -Nu NONE -n -es -S vim/test.vim
-source vim/syntax/risclet.vim
-let s:cases = json_decode(join(readfile('tests/highlighting.json'), "\n"))
+" Run from the repository root: vim -Nu NONE -n -es -S syntaxhighlighting/vim/test.vim
+" Exercise filename detection independently of Vim's bundled assembly detectors.
+source syntaxhighlighting/vim/ftdetect/risclet.vim
+doautocmd BufNewFile example.s
+call assert_equal('risclet', &filetype)
+setlocal filetype=
+doautocmd BufRead example.s
+call assert_equal('risclet', &filetype)
+
+" Shared fixtures use byte columns and editor-specific expected token names.
+source syntaxhighlighting/vim/syntax/risclet.vim
+let s:cases = json_decode(join(readfile('syntaxhighlighting/tests/highlighting.json'), "\n"))
 call setline(1, map(copy(s:cases), 'v:val.line'))
 
 " Check actual syntax groups, including line recovery after malformed literals.

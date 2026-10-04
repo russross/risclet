@@ -1,0 +1,2011 @@
+[
+  {
+    "line": "add",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sub",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sll",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "slt",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sltu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "xor",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "srl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sra",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "or",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "and",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "mul",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "mulh",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "mulhsu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "mulhu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "div",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "divu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "rem",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "remu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "addi",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "slli",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "slti",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sltiu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "xori",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ori",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "andi",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "srli",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "srai",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "jalr",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "beq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bne",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "blt",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bge",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bltu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bgeu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bgez",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bnez",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lui",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "auipc",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "jal",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "fence",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "fence.tso",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "fence.i",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ecall",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ebreak",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lb",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lh",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lw",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lbu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lhu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sb",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sh",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sw",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "li",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "la",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "call",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "tail",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "mv",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ret",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "nop",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "neg",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "seqz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "snez",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sltz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sgtz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "beqz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "blez",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bltz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bgtz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bgt",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ble",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bgtu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bleu",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "j",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "jr",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "not",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.add",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.mv",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.jr",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.jalr",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.li",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.lui",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.addi",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.addi16sp",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.addi4spn",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.slli",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.lwsp",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.swsp",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.lw",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.sw",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.and",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.or",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.xor",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.sub",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.srli",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.srai",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.andi",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.beqz",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.bnez",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.j",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.jal",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.nop",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.ebreak",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lr.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lr.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lr.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "lr.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sc.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sc.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sc.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sc.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoswap.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoswap.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoswap.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoswap.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoadd.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoadd.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoadd.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoadd.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoxor.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoxor.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoxor.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoxor.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoand.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoand.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoand.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoand.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoor.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoor.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoor.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amoor.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomin.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomin.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomin.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomin.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomax.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomax.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomax.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomax.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amominu.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amominu.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amominu.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amominu.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomaxu.w",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomaxu.w.aq",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomaxu.w.rel",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "amomaxu.w.aqrl",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": ".global",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".globl",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".equ",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".set",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".text",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".data",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".bss",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".space",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".balign",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".string",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".asciz",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".byte",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".2byte",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".4byte",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": "start: add a0, a1, x31",
+    "checks": [
+      [
+        0,
+        "Label",
+        "entity.name.label"
+      ],
+      [
+        7,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        11,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        15,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        19,
+        "Register",
+        "variable.language.register"
+      ]
+    ]
+  },
+  {
+    "line": "add: la fp, add",
+    "checks": [
+      [
+        0,
+        "Label",
+        "entity.name.label"
+      ],
+      [
+        5,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        8,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        12,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
+  },
+  {
+    "line": "1: j 1b",
+    "checks": [
+      [
+        0,
+        "Label",
+        "entity.name.label"
+      ],
+      [
+        3,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        5,
+        "Reference",
+        "entity.name.label"
+      ]
+    ]
+  },
+  {
+    "line": "j 2 f",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        2,
+        "Reference",
+        "entity.name.label"
+      ],
+      [
+        4,
+        "Reference",
+        "entity.name.label"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, 0xfe",
+    "checks": [
+      [
+        7,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": ".4byte 0b101, 0o77, 077, 42",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ],
+      [
+        7,
+        "Number",
+        "constant.numeric"
+      ],
+      [
+        14,
+        "Number",
+        "constant.numeric"
+      ],
+      [
+        20,
+        "Number",
+        "constant.numeric"
+      ],
+      [
+        25,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": ".equ size, . + 4 << 2",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ],
+      [
+        5,
+        "Symbol",
+        "variable.other.symbol"
+      ],
+      [
+        11,
+        "Address",
+        "constant.language.current-address"
+      ],
+      [
+        13,
+        "Operator",
+        "keyword.operator"
+      ],
+      [
+        15,
+        "Number",
+        "constant.numeric"
+      ],
+      [
+        17,
+        "Operator",
+        "keyword.operator"
+      ]
+    ]
+  },
+  {
+    "line": "fence iorw, rw # fence",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        6,
+        "Fence",
+        "constant.language.fence"
+      ],
+      [
+        12,
+        "Fence",
+        "constant.language.fence"
+      ],
+      [
+        15,
+        "Comment",
+        "comment.line.number-sign"
+      ]
+    ]
+  },
+  {
+    "line": "lw a0, 4(sp)",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        3,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        7,
+        "Number",
+        "constant.numeric"
+      ],
+      [
+        9,
+        "Register",
+        "variable.language.register"
+      ]
+    ]
+  },
+  {
+    "line": ".string \"hello # world\" # comment",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ],
+      [
+        9,
+        "String",
+        "string.quoted.double"
+      ],
+      [
+        15,
+        "String",
+        "string.quoted.double"
+      ],
+      [
+        24,
+        "Comment",
+        "comment.line.number-sign"
+      ]
+    ]
+  },
+  {
+    "line": ".string \"bad\\q\"",
+    "checks": [
+      [
+        9,
+        "String",
+        "string.quoted.double"
+      ],
+      [
+        12,
+        "EscapeError",
+        "invalid.illegal.escape"
+      ]
+    ]
+  },
+  {
+    "line": ".string \"unterminated",
+    "checks": []
+  },
+  {
+    "line": "add a0, a1, a2 # recovered",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        4,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        16,
+        "Comment",
+        "comment.line.number-sign"
+      ]
+    ]
+  },
+  {
+    "line": ".byte 'a', '\\n'",
+    "checks": [
+      [
+        6,
+        "Character",
+        "constant.character"
+      ],
+      [
+        11,
+        "Character",
+        "constant.character"
+      ]
+    ]
+  },
+  {
+    "line": ".byte 'bad",
+    "checks": [
+      [
+        6,
+        "CharacterError",
+        "invalid.illegal.character"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, 0x",
+    "checks": [
+      [
+        7,
+        "NumericError",
+        "invalid.illegal.numeric"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, 0o",
+    "checks": [
+      [
+        7,
+        "NumericError",
+        "invalid.illegal.numeric"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, 08",
+    "checks": [
+      [
+        7,
+        "Number",
+        "constant.numeric"
+      ],
+      [
+        8,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": ".word 4",
+    "checks": [
+      [
+        0,
+        "StatementError",
+        "invalid.illegal.statement"
+      ]
+    ]
+  },
+  {
+    "line": ".section .text",
+    "checks": [
+      [
+        0,
+        "StatementError",
+        "invalid.illegal.statement"
+      ]
+    ]
+  },
+  {
+    "line": "ADD a0, a1, a2",
+    "checks": [
+      [
+        0,
+        "StatementError",
+        "invalid.illegal.statement"
+      ]
+    ]
+  },
+  {
+    "line": "amoadd.w.rl a0, a1, (a2)",
+    "checks": [
+      [
+        0,
+        "StatementError",
+        "invalid.illegal.statement"
+      ]
+    ]
+  },
+  {
+    "line": "la a0, x32",
+    "checks": [
+      [
+        7,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
+  },
+  {
+    "line": "# add a0, \"text\"",
+    "checks": [
+      [
+        0,
+        "Comment",
+        "comment.line.number-sign"
+      ],
+      [
+        2,
+        "Comment",
+        "comment.line.number-sign"
+      ]
+    ]
+  }
+]
