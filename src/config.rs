@@ -38,6 +38,7 @@ pub struct Config {
     // Display options (for debug/disassemble modes)
     pub hex_mode: bool,
     pub show_addresses: bool,
+    pub show_encoding: bool,
     pub verbose_instructions: bool,
 
     // Assembler-specific options
@@ -85,6 +86,7 @@ impl Config {
             check_abi: false,
             hex_mode: false,
             show_addresses: false,
+            show_encoding: false,
             verbose_instructions: false,
             input_files: Vec::new(),
             output_file: OUTPUT_FILE_DEFAULT.to_string(),
@@ -107,6 +109,7 @@ impl Config {
             check_abi: false,
             hex_mode: false,
             show_addresses,
+            show_encoding: show_addresses,
             verbose_instructions: false,
             input_files: Vec::new(),
             output_file: OUTPUT_FILE_DEFAULT.to_string(),
@@ -313,6 +316,8 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
                     format!("Error: invalid number of steps: {}", value)
                 })?;
             }
+            "--show-encoding" => config.show_encoding = true,
+            "--no-show-encoding" => config.show_encoding = false,
             "--hex" => config.hex_mode = true,
             "--no-hex" => config.hex_mode = false,
             "--show-addresses" => config.show_addresses = true,
@@ -623,6 +628,13 @@ fn print_simulator_help(config: &Config) -> String {
                 "off"
             }
         ));
+    }
+
+    if matches!(config.mode, Mode::Disassemble | Mode::Trace) {
+        help.push_str("  --show-encoding               Show original instruction hex (default: on)\n");
+        help.push_str(
+            "  --no-show-encoding            Hide original instruction hex\n",
+        );
     }
 
     help.push('\n');

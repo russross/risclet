@@ -6,7 +6,7 @@ use crate::config::{Config, Mode};
 use crate::elf_loader::{ElfInput, load_elf};
 use crate::error::{Result, RiscletError};
 use crate::execution::{Instruction, add_local_labels, trace};
-use crate::riscv::{Op, fields_to_string, get_pseudo_sequence};
+use crate::riscv::{Op, get_pseudo_sequence};
 use crate::ui::Tui;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -20,6 +20,7 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
         let (inst, length) = m.load_instruction(pc)?;
         let instruction = Instruction {
             address: pc,
+            encoding: inst as u32,
             op: Op::new(inst),
             length,
             pseudo_index: 0,
@@ -65,29 +66,28 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
         for instruction in &instructions {
             if !config.verbose_instructions && instruction.pseudo_index == prev
             {
+                if config.show_encoding {
+                    println!(
+                        "{}",
+                        instruction.encoding_prefix(config).trim_end()
+                    );
+                }
                 continue;
             } else {
                 prev = instruction.pseudo_index;
             }
 
-            // Choose fields based on verbose_instructions setting
-            let fields = if config.verbose_instructions {
-                &instruction.verbose_fields
-            } else {
-                &instruction.pseudo_fields
-            };
-
+            // Listings omit trailing padding while trace reserves space for effects.
             println!(
                 "{}",
-                fields_to_string(
-                    config,
-                    fields,
-                    instruction.address,
-                    m.global_pointer,
-                    instruction.length == 2,
-                    None,
-                    &m.address_symbols
-                )
+                instruction
+                    .listing(
+                        config,
+                        m.global_pointer,
+                        &m.address_symbols,
+                        config.verbose_instructions,
+                    )
+                    .trim_end()
             );
         }
         return Ok(());

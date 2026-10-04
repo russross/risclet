@@ -9,6 +9,11 @@ By default, risclet assembles `*.s` files in the current directory in memory,
 or loads `a.out` if no assembly files are present, then runs the program and
 exits. File arguments select specific assembly files or an executable.
 
+Disassembly and trace show original instruction encodings in hexadecimal by
+default: four digits for compressed instructions and eight for standard
+instructions. Combined pseudo-instructions show additional encodings on
+continuation rows. Use `--no-show-encoding` to hide this column.
+
 Use `risclet debug` to launch the interactive debugger, which does the following:
 
 *   Loads `a.out` and disassembles it as an rv32imac binary

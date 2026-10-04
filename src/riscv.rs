@@ -1915,6 +1915,19 @@ pub fn get_pseudo_sequence(
     }
 }
 
+pub fn format_instruction_address(
+    config: &crate::config::Config,
+    pc: u32,
+) -> String {
+    if !config.show_addresses {
+        String::new()
+    } else if config.hex_mode {
+        format!("0x{:5x} ", pc)
+    } else {
+        format!("{:>7} ", pc)
+    }
+}
+
 pub fn fields_to_string(
     config: &crate::config::Config,
     fields: &[Field],
@@ -1924,13 +1937,7 @@ pub fn fields_to_string(
     arrow: Option<&str>,
     symbols: &HashMap<u32, String>,
 ) -> String {
-    let addr_part = if !config.show_addresses {
-        String::new()
-    } else if config.hex_mode {
-        format!("0x{:5x} ", pc)
-    } else {
-        format!("{:>7} ", pc)
-    };
+    let addr_part = format_instruction_address(config, pc);
 
     let mut label = if let Some(label) = symbols.get(&pc) {
         label.chars().collect()

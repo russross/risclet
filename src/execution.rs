@@ -9,7 +9,7 @@ use crate::checkabi::CheckABI;
 use crate::config::{Config, Mode};
 use crate::error::{Result, RiscletError};
 use crate::memory::{CpuState, MemoryLayout, MemoryManager, Segment};
-use crate::riscv::{Field, Op, fields_to_string};
+use crate::riscv::{Field, Op, fields_to_string, format_instruction_address};
 use crate::trace::{
     Effects, FrameChange, MemoryValue, MemoryWrite, RegisterValue,
     RegisterWrite,
@@ -587,11 +587,52 @@ impl Default for MachineBuilder {
 
 pub struct Instruction {
     pub address: u32,
+    pub encoding: u32,
     pub op: Op,
     pub length: u32,
     pub pseudo_index: usize,
     pub verbose_fields: Vec<Field>,
     pub pseudo_fields: Vec<Field>,
+}
+
+impl Instruction {
+    // Encodings retain their original instruction width, independent of value display.
+    pub fn encoding_prefix(&self, config: &Config) -> String {
+        let address = format_instruction_address(config, self.address);
+        if !config.show_encoding {
+            return address;
+        }
+        let encoding = if self.length == 2 {
+            format!("{:04x}", self.encoding as u16)
+        } else {
+            format!("{:08x}", self.encoding)
+        };
+        format!("{address}{encoding:>8} ")
+    }
+
+    // Text listings share their prefix while the debugger keeps its compact layout.
+    pub fn listing(
+        &self,
+        config: &Config,
+        gp: u32,
+        symbols: &HashMap<u32, String>,
+        verbose: bool,
+    ) -> String {
+        let mut text_config = config.clone();
+        text_config.show_addresses = false;
+        let fields =
+            if verbose { &self.verbose_fields } else { &self.pseudo_fields };
+        let text = fields_to_string(
+            &text_config,
+            fields,
+            self.address,
+            gp,
+            self.length == 2,
+            None,
+            symbols,
+        );
+        format!("{}{text}", self.encoding_prefix(config))
+    }
 }
 
 pub fn add_local_labels(m: &mut Machine, instructions: &[Instruction]) {
@@ -643,20 +684,8 @@ fn disassembly_for_instruction(
     address_symbols: &HashMap<u32, String>,
     verbose: bool,
 ) -> String {
-    let fields = if verbose {
-        &instruction.verbose_fields
-    } else {
-        &instructions[addresses[&instruction.address]].pseudo_fields
-    };
-    fields_to_string(
-        config,
-        fields,
-        instruction.address,
-        global_pointer,
-        instruction.length == 2,
-        None,
-        address_symbols,
-    )
+    let instruction = &instructions[addresses[&instruction.address]];
+    instruction.listing(config, global_pointer, address_symbols, verbose)
 }
 
 fn flush_pending_pseudo_effects(
@@ -688,6 +717,15 @@ fn flush_pending_pseudo_effects(
         &disassembly,
         config.hex_mode,
     );
+    // A merged pseudo-operation still exposes every executed machine instruction.
+    if config.show_encoding {
+        for effects in &pending_pseudo_effects[1..] {
+            println!(
+                "{}",
+                effects.instruction.encoding_prefix(config).trim_end()
+            );
+        }
+    }
     pending_pseudo_effects.clear();
 }
 

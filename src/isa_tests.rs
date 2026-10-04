@@ -25,6 +25,7 @@ mod riscv_isa_tests {
                     address: pc,
                     op,
                     length,
+                    encoding: raw_instruction as u32,
                     pseudo_index: 0,
                     verbose_fields: Vec::new(),
                     pseudo_fields: Vec::new(),

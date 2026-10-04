@@ -9,6 +9,7 @@ mod pseudo_instruction_tests {
             address,
             op,
             length: 4,
+            encoding: 0,
             pseudo_index: 0,
             verbose_fields: Vec::new(),
             pseudo_fields: Vec::new(),
