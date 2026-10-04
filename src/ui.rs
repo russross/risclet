@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Write};
 use std::io::{self, Write as IoWrite};
 use std::mem::take;
+use std::ops::Range;
 use std::rc::Rc;
 
 use crossterm::{
@@ -24,7 +25,146 @@ macro_rules! serr {
     };
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MemoryPane {
+    Stack,
+    Data,
+    Text,
+}
+
+#[derive(Clone, Copy)]
+struct MemoryVisibility {
+    stack: bool,
+    data: bool,
+    text: bool,
+}
+
+type Screen = Vec<Vec<(char, Colors)>>;
+
+// Heights count content only; each split consumes one additional separator.
+// Text yields first, then recent memory activity chooses between Stack and Data.
+fn memory_layout(
+    width: u16,
+    height: u16,
+    visible: MemoryVisibility,
+    recent_stack: bool,
+) -> Vec<(MemoryPane, u16)> {
+    if width < 80 || height < 3 {
+        return Vec::new();
+    }
+    let mut panes = Vec::new();
+    for (kind, enabled) in [
+        (MemoryPane::Stack, visible.stack),
+        (MemoryPane::Data, visible.data),
+        (MemoryPane::Text, visible.text),
+    ] {
+        if enabled {
+            panes.push(kind);
+        }
+    }
+
+    if panes.len() == 3 && height < 24 {
+        panes.pop();
+    }
+    if panes.len() == 2 && height < 17 {
+        let keep = if panes.contains(&MemoryPane::Text) || recent_stack {
+            0
+        } else {
+            1
+        };
+        panes = vec![panes[keep]];
+    }
+
+    // At 24 rows Text borrows its seventh row from the next height increment.
+    // Above that, surplus grows Data twice as fast as either neighbor.
+    match panes.as_slice() {
+        [stack, data, text] => {
+            let surplus = height.saturating_sub(25);
+            let stack_extra = (surplus + 2) / 4;
+            let text_extra = surplus / 4;
+            vec![
+                (*stack, 7 + stack_extra),
+                (*data, 7 + surplus - stack_extra - text_extra),
+                (*text, if height == 24 { 6 } else { 7 + text_extra }),
+            ]
+        }
+        [first, second] => {
+            let surplus = height - 17;
+            let first_extra = if *first == MemoryPane::Data {
+                surplus - surplus / 3
+            } else if *second == MemoryPane::Data {
+                surplus / 3
+            } else {
+                surplus / 2
+            };
+            vec![
+                (*first, 7 + first_extra),
+                (*second, 7 + surplus - first_extra),
+            ]
+        }
+        [only] => vec![(*only, height - 2)],
+        _ => Vec::new(),
+    }
+}
+
+// Colors belong to address regions, independent of the visible window.
+// Inverting only the selected bytes preserves boundaries within a row.
+fn memory_color(
+    regions: &[(u32, Colors)],
+    address: u32,
+    highlight: Range<i64>,
+) -> Colors {
+    let index = regions.partition_point(|&(start, _)| start <= address);
+    let color = regions[index.saturating_sub(1)].1;
+    if highlight.contains(&i64::from(address)) {
+        Colors { foreground: color.background, background: color.foreground }
+    } else {
+        color
+    }
+}
+
+fn function_colors(
+    symbols: &HashMap<u32, String>,
+    instructions: &[Rc<Instruction>],
+    palette: &[Colors],
+    normal: Colors,
+) -> Vec<(u32, Colors)> {
+    let mut regions = vec![(0, normal)];
+    for instruction in instructions {
+        if symbols
+            .get(&instruction.address)
+            .is_some_and(|label| label.parse::<usize>().is_err())
+        {
+            let color = palette[(regions.len() - 1) % palette.len()];
+            regions.push((instruction.address, color));
+        }
+    }
+    regions
+}
+
+// Assign colors from the oldest frame so calls do not recolor their callers.
+// Reverse the descending stack boundaries for address-based color lookup.
+fn stack_regions(
+    frames: &[u32],
+    sp: u32,
+    palette: &[Colors],
+    inactive: Colors,
+) -> Vec<(u32, Colors)> {
+    let mut regions: Vec<_> = frames
+        .iter()
+        .enumerate()
+        .map(|(i, &address)| (address, palette[i % palette.len()]))
+        .collect();
+    if !frames.contains(&sp) {
+        regions.push((sp, palette[frames.len() % palette.len()]));
+    }
+    regions.push((0, inactive));
+    regions.reverse();
+    regions
+}
+
 pub struct Tui {
+    terminal: Option<Terminal>,
     machine: Machine,
     instructions: Vec<Rc<Instruction>>,
     addresses: HashMap<u32, usize>,
@@ -38,6 +178,7 @@ pub struct Tui {
     current_pc_color: Colors,
     cursor_color: Colors,
     data_colors: Vec<(u32, Colors)>,
+    text_colors: Vec<(u32, Colors)>,
     pastels: Vec<Colors>,
 
     config: Config,
@@ -45,6 +186,7 @@ pub struct Tui {
     show_output: bool,
     show_stack: bool,
     show_data: bool,
+    show_text: bool,
     show_help: bool,
 }
 
@@ -63,6 +205,33 @@ impl Tui {
                 .to_string());
         }
 
+        let mut tui = Self::for_screen(
+            machine,
+            instructions,
+            addresses,
+            pseudo_addresses,
+            sequence,
+            config,
+        );
+        serr!(crossterm::terminal::enable_raw_mode())?;
+        tui.terminal = Some(Terminal);
+        serr!(queue!(
+            io::stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::cursor::Hide
+        ))?;
+        Ok(tui)
+    }
+
+    // Terminal ownership is separate from the state needed to render a screen.
+    fn for_screen(
+        machine: Machine,
+        instructions: Vec<Rc<Instruction>>,
+        addresses: HashMap<u32, usize>,
+        pseudo_addresses: HashMap<usize, usize>,
+        sequence: Vec<Effects>,
+        config: &Config,
+    ) -> Self {
         // colors:
         let black = Color::AnsiValue(16);
         let white = Color::AnsiValue(231);
@@ -106,20 +275,22 @@ impl Tui {
             data_colors.push((0, normal_color));
         }
 
-        // setup over terminal
-        serr!(crossterm::terminal::enable_raw_mode())?;
-        serr!(queue!(
-            io::stdout(),
-            crossterm::terminal::EnterAlternateScreen,
-            crossterm::cursor::Hide
-        ))?;
+        // Named instruction labels delimit functions, as they do for Home/End.
+        // Numeric branch labels do not introduce new color regions.
+        let text_colors = function_colors(
+            &machine.address_symbols,
+            &instructions,
+            &pastels,
+            normal_color,
+        );
 
         // Start cursor at entry point, not first line of text segment
         let entry_point = machine.entry_point();
         let initial_cursor_index =
             addresses.get(&entry_point).copied().unwrap_or(0);
 
-        Ok(Tui {
+        Tui {
+            terminal: None,
             machine,
             instructions,
             addresses,
@@ -133,6 +304,7 @@ impl Tui {
             current_pc_color,
             cursor_color,
             data_colors,
+            text_colors,
             pastels,
 
             config: config.clone(),
@@ -140,8 +312,9 @@ impl Tui {
             show_output: true,
             show_stack: true,
             show_data: true,
+            show_text: true,
             show_help: false,
-        })
+        }
     }
 
     pub fn main_loop(&mut self) -> Result<(), String> {
@@ -382,6 +555,10 @@ impl Tui {
                 self.show_data = !self.show_data;
             }
 
+            KeyCode::Char('t') => {
+                self.show_text = !self.show_text;
+            }
+
             KeyCode::Char('v') => {
                 self.config.verbose_instructions =
                     !self.config.verbose_instructions;
@@ -412,6 +589,26 @@ impl Tui {
             return Ok(0);
         }
 
+        let (out, source_height) = self.render_screen(size_x, size_y);
+        let mut stdout = io::stdout();
+        for (y, row) in out.iter().enumerate() {
+            serr!(queue!(stdout, MoveTo(0, y as u16)))?;
+            let mut buff = String::new();
+            for (x, &(ch, color)) in row.iter().enumerate() {
+                buff.push(ch);
+                if x + 1 == row.len() || row[x + 1].1 != color {
+                    serr!(queue!(stdout, SetColors(color), Print(&buff)))?;
+                    buff.clear();
+                }
+            }
+        }
+        serr!(stdout.flush())?;
+        Ok(source_height)
+    }
+
+    // Screen construction has no terminal I/O, so resize behavior and colors
+    // can be checked using the same cells that are sent to the terminal.
+    fn render_screen(&mut self, size_x: u16, size_y: u16) -> (Screen, u16) {
         // build the screen layout
         let mut out = Vec::new();
         for _ in 0..size_y {
@@ -421,35 +618,37 @@ impl Tui {
         let mut source =
             Pane::new(out, self.normal_color, 0, 0, size_x, size_y, true);
 
-        // an 80-column terminal gets source and memory views, narrower does not
-        let (stack, data, out) = if size_x >= 80
-            && (self.show_stack
-                || self.show_data && self.machine.data_start() > 0)
-        {
-            let mut mem = source.split_right(39, false, &mut corners);
-            if mem.height >= 22
-                && self.show_stack
-                && self.show_data
-                && self.machine.data_start() > 0
-            {
-                let mut data =
-                    mem.split_bottom(mem.height * 2 / 3, false, &mut corners);
-                let out = take(&mut data.out);
-                (Some(mem), Some(data), out)
-            } else if self.show_stack
-                && (self.machine.most_recent_memory()
-                    >= self.machine.stack_start()
-                    || !self.show_data)
-            {
-                let out = take(&mut mem.out);
-                (Some(mem), None, out)
-            } else {
-                let out = take(&mut mem.out);
-                (None, Some(mem), out)
+        // Calculate content heights before splitting the shared screen buffer.
+        // Visibility preferences survive panes being hidden by a small terminal.
+        let memory_layout = memory_layout(
+            size_x,
+            size_y,
+            MemoryVisibility {
+                stack: self.show_stack,
+                data: self.show_data && self.machine.data_start() > 0,
+                text: self.show_text,
+            },
+            self.machine.most_recent_memory() >= self.machine.stack_start(),
+        );
+        let mut memory_panes = Vec::new();
+        if !memory_layout.is_empty() {
+            let mut remaining = source.split_right(39, false, &mut corners);
+            for (index, &(kind, height)) in memory_layout.iter().enumerate() {
+                if index + 1 < memory_layout.len() {
+                    let bottom_height = remaining.height - height - 1;
+                    let bottom = remaining.split_bottom(
+                        bottom_height,
+                        false,
+                        &mut corners,
+                    );
+                    memory_panes.push((kind, remaining));
+                    remaining = bottom;
+                } else {
+                    source.out = take(&mut remaining.out);
+                }
             }
-        } else {
-            (None, None, take(&mut source.out))
-        };
+            memory_panes.push((memory_layout.last().unwrap().0, remaining));
+        }
 
         let output_lines =
             if self.show_output && !self.machine.stdout().is_empty() {
@@ -465,7 +664,6 @@ impl Tui {
             };
 
         // a 24-line terminal gets source, registers, and output, shorter does not
-        source.out = out;
         let (registers, output, mut out) = if source.height >= 22
             && self.show_registers
             && self.show_output
@@ -536,15 +734,10 @@ impl Tui {
             self.render_registers(&mut registers);
             out = take(&mut registers.out);
         }
-        if let Some(mut stack) = stack {
-            stack.out = out;
-            self.render_memory(&mut stack, true);
-            out = take(&mut stack.out);
-        }
-        if let Some(mut data) = data {
-            data.out = out;
-            self.render_memory(&mut data, false);
-            out = take(&mut data.out);
+        for (kind, mut pane) in memory_panes {
+            pane.out = out;
+            self.render_memory(&mut pane, kind);
+            out = take(&mut pane.out);
         }
         if let Some(mut output) = output {
             output.out = out;
@@ -579,21 +772,7 @@ impl Tui {
             out = take(&mut help.out);
         }
 
-        let mut stdout = io::stdout();
-        for (y, row) in out.iter().enumerate() {
-            serr!(queue!(stdout, MoveTo(0, y as u16)))?;
-            let mut buff = String::new();
-            for (x, &(ch, color)) in row.iter().enumerate() {
-                buff.push(ch);
-                if x + 1 == row.len() || row[x + 1].1 != color {
-                    serr!(queue!(stdout, SetColors(color), Print(&buff)))?;
-                    buff.clear();
-                }
-            }
-        }
-        serr!(stdout.flush())?;
-
-        Ok(source.height)
+        (out, source.height)
     }
 
     fn render_source(&self, pane: &mut Pane) -> String {
@@ -754,75 +933,59 @@ impl Tui {
         }
     }
 
-    fn render_memory(&mut self, pane: &mut Pane, is_stack: bool) {
-        let mut stack_colors = Vec::new();
-        let (
-            colors,
-            start,
-            mem_start,
-            mem_end,
-            most_recent_start,
-            most_recent_end,
-        ) = if is_stack {
-            pane.label("Stack");
-
-            // make a color list for stack frame boundaries
-            // start at high-numbered addresses so colors are consistent
-            // as the number of frames changes
-            let sp = self.machine.get(SP) as u32;
-            let mut found_sp = false;
-            let mut i = 0;
-            for &frame in self.machine.stack_frames() {
-                if frame == sp {
-                    found_sp = true;
-                }
-                stack_colors
-                    .push((frame, self.pastels[i % self.pastels.len()]));
-                i += 1;
+    fn render_memory(&mut self, pane: &mut Pane, segment: MemoryPane) {
+        let stack_colors;
+        let (colors, bounds, focus) = match segment {
+            MemoryPane::Stack => {
+                pane.label("Stack");
+                let sp = self.machine.get(SP) as u32;
+                stack_colors = stack_regions(
+                    self.machine.stack_frames(),
+                    sp,
+                    &self.pastels,
+                    self.inactive_stack_color,
+                );
+                (
+                    &stack_colors,
+                    self.machine.stack_start()..self.machine.stack_end(),
+                    self.machine.most_recent_stack(),
+                )
             }
-            if !found_sp {
-                stack_colors.push((sp, self.pastels[i % self.pastels.len()]));
+            MemoryPane::Data => {
+                pane.label("Data");
+                (
+                    &self.data_colors,
+                    self.machine.data_start()..self.machine.data_end(),
+                    self.machine.most_recent_data(),
+                )
             }
-            stack_colors.push((0, self.inactive_stack_color));
-            stack_colors = stack_colors.iter().rev().copied().collect();
+            MemoryPane::Text => {
+                pane.label("Text");
 
-            let (mr_start, mr_size) = self.machine.most_recent_stack();
-            let (start, _end) = calc_range(
-                ((self.machine.stack_end() - self.machine.stack_start()) / 8)
-                    as usize,
-                ((mr_start - self.machine.stack_start()) / 8) as usize,
-                pane.height,
-            );
-            (
-                &stack_colors,
-                start,
-                self.machine.stack_start() as i64,
-                self.machine.stack_end() as i64,
-                mr_start as i64,
-                mr_start as i64 + mr_size as i64,
-            )
-        } else {
-            pane.label("Data");
-
-            let (mr_start, mr_size) = self.machine.most_recent_data();
-            let (start, _end) = calc_range(
-                ((self.machine.data_end() - self.machine.data_start()) / 8)
-                    as usize,
-                ((mr_start - self.machine.data_start()) / 8) as usize,
-                pane.height,
-            );
-            (
-                &self.data_colors,
-                start,
-                self.machine.data_start() as i64,
-                self.machine.data_end() as i64,
-                mr_start as i64,
-                mr_start as i64 + mr_size as i64,
-            )
+                // Follow execution, not the independently movable source cursor.
+                // Instruction length remains exact even in pseudoinstruction mode.
+                let instruction =
+                    &self.sequence[self.sequence_index].instruction;
+                (
+                    &self.text_colors,
+                    self.machine.text_start()..self.machine.text_end(),
+                    (instruction.address, instruction.length as usize),
+                )
+            }
         };
 
+        // All memory panes use eight-byte rows, including a partial final row.
+        // Signed viewport positions leave blank space around short segments.
+        let (start, _) = calc_range(
+            (bounds.end - bounds.start).div_ceil(8) as usize,
+            (focus.0.saturating_sub(bounds.start) / 8) as usize,
+            pane.height,
+        );
+        let mem_start = i64::from(bounds.start);
+        let mem_end = i64::from(bounds.end);
+        let highlight = i64::from(focus.0)..i64::from(focus.0) + focus.1 as i64;
+
         // render each memory line
-        let mut current_region = 0;
         for i in 0..pane.height as i64 {
             let addr = mem_start + (start + i) * 8;
 
@@ -837,23 +1000,8 @@ impl Tui {
                 // make sure the address for this line is printed
                 addr_to_print = Some(addr);
 
-                // did we just hit a region label/stack frame boundary?
-                while current_region + 1 < colors.len()
-                    && colors[current_region + 1].0 as i64 <= j
-                {
-                    current_region += 1;
-                }
-
-                // get the color for this byte
-                let mut next_color = colors[current_region].1;
-
-                // does this need special highlighting as the most recent access?
-                if most_recent_start <= j && j < most_recent_end {
-                    // invert the color parts
-                    let fg = next_color.foreground.unwrap();
-                    let bg = next_color.background.unwrap();
-                    next_color = Colors::new(bg, fg);
-                }
+                let next_color =
+                    memory_color(colors, j as u32, highlight.clone());
 
                 if let Ok(byte) = self.machine.load_u8(j as u32) {
                     bytes[(j - addr) as usize] = (Some(byte as u8), next_color);
@@ -943,12 +1091,15 @@ impl Tui {
         writeln!(pane, "   backspace/delete : rewind to instruction under cursor       ").unwrap();
         writeln!(pane, "                                                               ").unwrap();
         writeln!(pane, " To toggle what is displayed:                                  ").unwrap();
-        writeln!(pane, "   (r)egister pane, (o)utput pane, (s)tack pane, (d)ata pane   ").unwrap();
+        writeln!(pane, "   (r)egisters, (o)utput, (s)tack, (d)ata, (t)ext              ").unwrap();
         writeln!(pane, "   (v)erbose mode, show (a)ddresses, use he(x)adecimal         ").unwrap();
     }
 }
 
-impl Drop for Tui {
+// Only an interactive debugger owns terminal mode and restores it on exit.
+struct Terminal;
+
+impl Drop for Terminal {
     fn drop(&mut self) {
         if let Err(e) = (|| {
             crossterm::terminal::disable_raw_mode()?;
@@ -973,12 +1124,12 @@ struct Pane {
     cursor_y: u16,
     flow_down: bool,
     color: Colors,
-    out: Vec<Vec<(char, Colors)>>,
+    out: Screen,
 }
 
 impl Pane {
     fn new(
-        out: Vec<Vec<(char, Colors)>>,
+        out: Screen,
         color: Colors,
         origin_x: u16,
         origin_y: u16,
@@ -1116,7 +1267,7 @@ impl Pane {
             msg,
             self.left + 1,
             self.top - 1,
-            self.width as usize - 4,
+            self.width.saturating_sub(4) as usize,
         );
     }
 
@@ -1127,6 +1278,9 @@ impl Pane {
         y: u16,
         max_width: usize,
     ) {
+        if max_width < 2 {
+            return;
+        }
         let mut msg: Vec<_> = msg.chars().collect();
         msg.truncate(max_width - 2);
         msg.insert(0, ' ');
@@ -1232,3 +1386,7 @@ fn find_function_bounds(
     }
     (start_pc, end_pc)
 }
+
+#[cfg(test)]
+#[path = "ui_tests.rs"]
+mod tests;

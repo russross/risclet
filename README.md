@@ -29,12 +29,17 @@ Use `risclet debug` to launch the interactive debugger, which does the following
     *   Any program output/input (stdout and stdin only)
     *   The stack
     *   The data segment
+    *   The text segment
 *   The TUI also:
     *   Shows the net effect the next instruction to run will have
     *   For taken branches, draws a line to the branch target
-    *   Highlights each stack frame
-    *   Highlights the most recent memory access
-    *   Highlights each labeled data segment chunk
+    *   Uses subtle colors to give structure to memory displays:
+        *   Each frame in the stack segment
+        *   Each labeled chunk in the data segment
+        *   Each function in the text segment
+    *   Uses highlights to identify current/recent access:
+        *   Most recent memory access in stack or data segment
+        *   Bytes of the current instruction in the text segment
 
 The controls are minimal and can be displayed by hitting `?`:
 

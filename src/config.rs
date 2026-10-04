@@ -663,7 +663,7 @@ fn print_simulator_help(config: &Config) -> String {
     if config.mode == Mode::Debug {
         help.push_str("\nInteractive Controls (in debugger):\n");
         help.push_str("  Press '?' in the debugger for keyboard shortcuts\n");
-        help.push_str("  Key toggles: x (hex), v (verbose), a (addresses), r/o/s/d (panels)\n");
+        help.push_str("  Key toggles: x (hex), v (verbose), a (addresses), r/o/s/d/t (panels)\n");
     }
 
     help.push_str("\nExamples:\n");
