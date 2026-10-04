@@ -7,7 +7,7 @@ use crate::dump;
 /// Operating mode for risclet
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    /// Default mode: auto-assemble *.s files or load a.out, then debug
+    /// Default mode: auto-assemble *.s files or load a.out, then run
     Default,
     /// Explicit assemble mode
     Assemble,
@@ -120,7 +120,7 @@ impl Config {
 /// Parse command-line arguments - unified entry point
 pub fn parse_cli_args(args: &[String]) -> Result<Config, String> {
     if args.is_empty() {
-        // No arguments: auto-detect *.s files or a.out, debug mode (default)
+        // No arguments: auto-detect *.s files or a.out, run mode (default)
         return parse_default_mode(&[]);
     }
 
@@ -390,11 +390,9 @@ fn parse_simulator_mode(args: &[String], mode: Mode) -> Result<Config, String> {
     Ok(config)
 }
 
-/// Parse default mode: auto-detect *.s files or a.out, default to debug mode
+/// Parse default mode: auto-detect *.s files or a.out, then run
 fn parse_default_mode(args: &[String]) -> Result<Config, String> {
-    // Default mode is now Debug mode with file auto-detection
-    // Just delegate to parse_simulator_mode with Mode::Debug
-    parse_simulator_mode(args, Mode::Debug)
+    parse_simulator_mode(args, Mode::Run)
 }
 
 /// Find assembly files in current directory, or check for a.out
@@ -423,7 +421,7 @@ fn find_assembly_files() -> Result<Vec<String>, String> {
 
     // No .s files found, check for a.out
     if fs::metadata("a.out").is_ok() {
-        // Return empty vec to signal we should just debug a.out
+        // Return empty vec to signal we should load a.out
         return Ok(Vec::new());
     }
 
@@ -433,16 +431,16 @@ fn find_assembly_files() -> Result<Vec<String>, String> {
 
 /// Print main help message
 fn print_main_help() -> String {
-    let defaults = Config::simulator_default(Mode::Debug);
+    let defaults = Config::simulator_default(Mode::Run);
 
     format!(
         "Usage: risclet [subcommand] [files...] [options]
 
 Default behavior (no subcommand):
-  - With no arguments: auto-detects *.s files in current directory or a.out, then debugs
-  - With .s files: assembles them in-memory and debugs
-  - With executable: debugs the executable
-  Default subcommand is 'debug'
+  - With no arguments: auto-detects *.s files in current directory or a.out, then runs
+  - With .s files: assembles them in-memory and runs
+  - With executable: runs the executable
+  Default subcommand is 'run'
 
 Subcommands:
   assemble      Assemble RISC-V source files to executable on disk
@@ -476,10 +474,10 @@ Assembler Options:
   --relax-compressed / --no-relax-compressed    RV32C compression
 
 Examples:
-  risclet                          # Auto-detect *.s or a.out, debug (default)
-  risclet prog.s                   # Assemble and debug prog.s
-  risclet prog.s lib.s             # Assemble both files and debug
-  risclet a.out                    # Debug a.out
+  risclet                          # Auto-detect *.s or a.out, run (default)
+  risclet prog.s                   # Assemble and run prog.s
+  risclet prog.s lib.s             # Assemble both files and run
+  risclet a.out                    # Run a.out
   risclet run prog.s               # Assemble and run prog.s (exit after completion)
   risclet trace a.out --check-abi  # Trace a.out with ABI checking
   risclet disassemble prog.s       # Assemble and disassemble

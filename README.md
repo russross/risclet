@@ -5,7 +5,11 @@ This is a lightweight RISC-V disassembler, simulator, and linter for students
 learning assembly language. By design it has few controls and limited
 functionality, with simplicity and approachability as overriding goals.
 
-In its default mode, risclet does the following:
+By default, risclet assembles `*.s` files in the current directory in memory,
+or loads `a.out` if no assembly files are present, then runs the program and
+exits. File arguments select specific assembly files or an executable.
+
+Use `risclet debug` to launch the interactive debugger, which does the following:
 
 *   Loads `a.out` and disassembles it as an rv32imac binary
 *   Simulates the complete execution of the program
