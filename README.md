@@ -57,6 +57,17 @@ Features
 *   Portable with only a single crate dependency (crossterm for the TUI)
 
 
+Editor syntax highlighting
+--------------------------
+
+Syntax definitions follow the language implemented by the assembler:
+
+*   [CodeMirror 6](codemirror/README.md)
+*   [Vim](vim/README.md)
+*   [VS Code](vscode/README.md)
+*   [Micro](micro/README.md)
+
+
 Contributors
 ------------
 

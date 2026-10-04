@@ -1,0 +1,37 @@
+{
+  "name": "risclet",
+  "displayName": "Risclet Assembly",
+  "description": "Syntax highlighting for the assembly dialect implemented by risclet.",
+  "version": "0.1.0",
+  "publisher": "russross",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "vscode": "^1.70.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "risclet",
+        "aliases": [
+          "Risclet",
+          "risclet"
+        ],
+        "extensions": [
+          ".s",
+          ".asm"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "risclet",
+        "scopeName": "source.risclet",
+        "path": "./syntaxes/risclet.tmLanguage.json"
+      }
+    ]
+  }
+}

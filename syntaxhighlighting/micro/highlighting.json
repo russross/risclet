@@ -1,0 +1,187 @@
+[
+  {
+    "line": "add a0,a1,a2",
+    "checks": [
+      [
+        4,
+        "Register"
+      ],
+      [
+        7,
+        "Register"
+      ],
+      [
+        10,
+        "Register"
+      ]
+    ]
+  },
+  {
+    "line": "add x0,x31,fp",
+    "checks": [
+      [
+        4,
+        "Register"
+      ],
+      [
+        7,
+        "Register"
+      ],
+      [
+        11,
+        "Register"
+      ]
+    ]
+  },
+  {
+    "line": "la a0, add.extra",
+    "checks": [
+      [
+        7,
+        "Symbol"
+      ],
+      [
+        11,
+        "Symbol"
+      ]
+    ]
+  },
+  {
+    "line": "la a0, nameλ2",
+    "checks": [
+      [
+        7,
+        "Symbol"
+      ],
+      [
+        11,
+        "Symbol"
+      ]
+    ]
+  },
+  {
+    "line": ".byte '#', '\"', '\\t' # comment",
+    "checks": [
+      [
+        6,
+        "Character"
+      ],
+      [
+        11,
+        "Character"
+      ],
+      [
+        16,
+        "Character"
+      ],
+      [
+        21,
+        "Comment"
+      ]
+    ]
+  },
+  {
+    "line": ".string \"unterminated\\",
+    "checks": [
+      [
+        9,
+        "String"
+      ]
+    ]
+  },
+  {
+    "line": "c.add a0,a1",
+    "checks": [
+      [
+        0,
+        "Instruction"
+      ],
+      [
+        6,
+        "Register"
+      ],
+      [
+        9,
+        "Register"
+      ]
+    ]
+  },
+  {
+    "line": "add.extra a0",
+    "checks": [
+      [
+        0,
+        "StatementError"
+      ],
+      [
+        4,
+        "StatementError"
+      ]
+    ]
+  },
+  {
+    "line": ".4byte ., 077, 0xffffffff",
+    "checks": [
+      [
+        0,
+        "Directive"
+      ],
+      [
+        7,
+        "Address"
+      ],
+      [
+        10,
+        "Number"
+      ],
+      [
+        15,
+        "Number"
+      ]
+    ]
+  },
+  {
+    "line": "nop",
+    "checks": [
+      [
+        0,
+        "Instruction"
+      ]
+    ]
+  },
+  {
+    "line": "'a': nop",
+    "checks": [
+      [
+        0,
+        "Label"
+      ],
+      [
+        5,
+        "Instruction"
+      ]
+    ]
+  },
+  {
+    "line": "j 0xff f",
+    "checks": [
+      [
+        2,
+        "Reference"
+      ],
+      [
+        7,
+        "Reference"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, 0xff",
+    "checks": [
+      [
+        7,
+        "Number"
+      ]
+    ]
+  }
+]
