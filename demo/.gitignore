@@ -1,0 +1,5 @@
+!*.md
+/build/
+/dist/
+/ui/node_modules/
+/ui/build/

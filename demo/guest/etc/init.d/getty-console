@@ -1,0 +1,3 @@
+#!/bin/sh
+# Firmware and early Linux use UART; the login shell uses the VirtIO console.
+exec /sbin/getty -n -l /etc/init.d/autologin -L 115200 hvc0 xterm-256color

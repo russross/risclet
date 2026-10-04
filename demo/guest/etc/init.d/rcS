@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+# The base disk is read-only; all guest changes outside the share are temporary.
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+if ! mountpoint -q /dev; then
+    mount -t devtmpfs devtmpfs /dev
+fi
+mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /run
+mount -t tmpfs -o mode=1777 tmpfs /tmp
+
+for directory in var home; do
+    upper="/run/overlay/$directory/upper"
+    work="/run/overlay/$directory/work"
+    mkdir -p "$upper" "$work"
+    mount -t overlay overlay -o "lowerdir=/$directory,upperdir=$upper,workdir=$work" "/$directory"
+done
+
+# Host file operations stay visible to the guest through the uncached 9p mount.
+hostname risclet
+ip link set lo up
+mount -t 9p -o trans=virtio,version=9p2000.L,cache=none,access=1000,uname=student risclet /home/student
+acpid

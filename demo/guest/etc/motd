@@ -1,0 +1,7 @@
+
+To try your code:
+
+    risclet run         Run the program
+    risclet debug       Open the debugger
+    make                Run the example's tests
+

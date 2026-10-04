@@ -3,6 +3,7 @@ risclet
 
 This is a lightweight RISC-V assembler, disassembler, simulator, debugger, and linter for students learning assembly language. By design it has few controls and limited functionality, with simplicity and approachability as overriding goals. It is designed to be the only tool a student needs to install in a course covering assembly language basics.
 
+Try it out: [live demo](https://russross.github.io/risclet/)
 
 Running risclet
 ---------------

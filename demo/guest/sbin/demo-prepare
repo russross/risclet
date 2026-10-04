@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+# QEMU provisions Alpine with networking and exports numeric file ownership.
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /mnt/source /mnt/output
+mount -t 9p -o trans=virtio,version=9p2000.L source /mnt/source
+mount -t 9p -o trans=virtio,version=9p2000.L output /mnt/output
+trap 'echo "guest preparation failed" > /mnt/output/failed; poweroff -f' EXIT
+ip link set eth0 up
+udhcpc -q -n -i eth0
+apk add --no-cache make tzdata
+
+# The runtime binary is downloaded from the selected published Risclet release.
+addgroup -g 1000 student
+adduser -D -u 1000 -G student -h /home/student student
+passwd -d student
+passwd -l root
+mkdir -p /dev/pts /run /proc /sys /tmp /mnt /usr/local/bin
+chmod 1777 /tmp
+cp /mnt/source/build/risclet /usr/local/bin/risclet
+chmod 755 /usr/local/bin/risclet
+/usr/local/bin/risclet --version
+ln -sf /usr/share/zoneinfo/America/Denver /etc/localtime
+printf 'America/Denver\n' > /etc/timezone
+printf '/dev/vda / erofs ro,noatime 0 0\n' > /etc/fstab
+
+# Pseudo-filesystems and setup tools do not enter the read-only deployed image.
+rm -rf /var/cache/apk/*
+rm -f /sbin/demo-prepare
+tar -C / -cf /mnt/output/rootfs.tar \
+    --exclude='./dev/*' --exclude='./proc/*' --exclude='./sys/*' \
+    --exclude='./tmp/*' --exclude='./run/*' --exclude='./mnt/*' \
+    ./bin ./dev ./etc ./home ./lib ./mnt ./proc ./root ./run ./sbin ./sys ./tmp ./usr ./var
+tar -tf /mnt/output/rootfs.tar | grep -q '^./usr/local/bin/risclet$'
+touch /mnt/output/complete
+trap - EXIT
+sync
+poweroff -f

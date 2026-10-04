@@ -1,0 +1,25 @@
+[
+  {
+    "id": "sort",
+    "title": "Insertion sort",
+    "editable": "sort.s",
+    "files": ["Makefile", "start.s", "sort.s", "print.s"]
+  },
+  {
+    "id": "reduction",
+    "title": "Binary reduction steps",
+    "editable": "reduction_steps.s",
+    "documentation": "doc/doc.md",
+    "files": [
+      ".gitignore",
+      "Makefile",
+      "doc/doc.md",
+      "inputs/test.input",
+      "inputs/test.transcript",
+      "lib/stepper",
+      "print.s",
+      "reduction_steps.s",
+      "start.s"
+    ]
+  }
+]

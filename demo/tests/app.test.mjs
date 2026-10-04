@@ -1,0 +1,159 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import test from "node:test";
+import { runChromePage } from "../ui/tests/chrome.mjs";
+
+// Instrument only the test response; production builds expose no test controls.
+const capture = `<script>
+window.testOutput = '';
+window.testErrors = [];
+window.testEvents = [];
+window.addEventListener('error', event => window.testErrors.push(event.message));
+window.addEventListener('unhandledrejection', event => window.testErrors.push(String(event.reason)));
+const instantiate = Riscbox.instantiate.bind(Riscbox);
+Riscbox.instantiate = async (bytes, options) => {
+    const runtime = await instantiate(bytes, { ...options,
+        consoleWrite: text => { window.testOutput += text; options.consoleWrite?.(text); },
+        onVmReset: cause => { window.testEvents.push(cause); options.onVmReset?.(cause); },
+        onError: error => { window.testErrors.push(String(error)); options.onError?.(error); },
+    });
+    window.testRuntime = runtime;
+    return runtime;
+};
+</script>`;
+
+test("deployed demo boots, synchronizes, switches, reboots, and recovers", { timeout: 240_000 }, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "risclet-app-"));
+    const requests = [];
+    const versions = await readFile(new URL("../build/versions", import.meta.url), "utf8");
+    const version = versions.match(/^risclet=(.+)$/m)[1];
+    try {
+        await runChromePage(`<!doctype html><iframe src="/risclet/index.html" style="width:1250px;height:850px"></iframe><script type="module">
+const frame = document.querySelector('iframe');
+const sleep = () => new Promise(resolve => setTimeout(resolve, 50));
+const check = (condition, message) => { if (!condition) throw new Error(message); };
+let app, doc, runtime;
+async function until(condition, message) {
+    const deadline = performance.now() + 45000;
+    while (!await condition()) {
+        if (performance.now() > deadline) throw new Error(message + ': ' + doc?.getElementById('status')?.textContent + '\\n' + app?.testOutput.slice(-2500));
+        await sleep();
+    }
+}
+function button(id) { return doc.getElementById(id); }
+function click(id) { check(!button(id).disabled, id + ' is disabled'); button(id).click(); }
+function fileText(path) { return new TextDecoder().decode(runtime.filesystem('default').readFile(path)); }
+async function edit(text) {
+    const content = doc.querySelector('.cm-content');
+    content.focus();
+    doc.execCommand('selectAll');
+    doc.execCommand('insertText', false, text);
+    await sleep();
+}
+let serial = 0;
+async function command(shell, expected) {
+    const marker = 'RESULT_' + ++serial;
+    app.testOutput = '';
+    const bytes = new app.TextEncoder().encode(shell + '; printf "\\\\n' + marker + '\\\\n"\\r');
+    check(runtime.consoleInput(bytes) === bytes.length, 'console input accepted');
+    await until(() => app.testOutput.replace(/\\r/g, '').includes('\\n' + marker + '\\n'), shell);
+    check(app.testOutput.includes(expected), 'missing ' + expected + ': ' + app.testOutput);
+}
+async function prompt() { await until(() => app.testOutput.includes('risclet:~$'), 'student login'); }
+async function select(title) {
+    const item = [...doc.querySelectorAll('.example-button')].find(button => button.textContent === title);
+    item.click();
+    await until(() => item.isConnected === false && [...doc.querySelectorAll('.example-button')].some(button => button.textContent === title && button.disabled), 'select ' + title);
+    await until(() => !button('vm-boot-button').disabled, 'selection controls');
+}
+try {
+    await until(() => frame.contentDocument?.getElementById('status'), 'page load');
+    app = frame.contentWindow; doc = frame.contentDocument;
+    await until(() => frame.contentWindow.testRuntime?.started, 'initial boot');
+    app = frame.contentWindow; doc = frame.contentDocument; runtime = app.testRuntime;
+    await prompt();
+    await command('id; risclet --version; make', ${JSON.stringify(version)});
+    check(app.testOutput.includes('uid=1000(student)'), 'guest user');
+    const original = fileText('sort.s');
+    const fs = runtime.filesystem('default');
+
+    // Explicit sync and terminal interaction flush buffered edits before guest use.
+    await edit(original.trimEnd() + '\\n# editor change');
+    check(!button('sync-button').disabled, 'buffer becomes dirty');
+    check(!fileText('sort.s').includes('# editor change'), 'edit stays buffered');
+    click('sync-button');
+    await until(() => fileText('sort.s').includes('# editor change'), 'explicit sync');
+    await edit(original.trimEnd() + '\\n# interaction change');
+    click('vm-tab-button');
+    await until(() => fileText('sort.s').includes('# interaction change'), 'VM tab synchronization');
+    doc.querySelector('#vm-terminal textarea').focus();
+    await command("printf '\\n# guest change\\n' >> sort.s; printf 'guest file' > extra; ln extra alias; ln -s extra symbolic", 'RESULT_');
+    await until(() => doc.querySelector('.cm-content').textContent.includes('# guest change'), 'guest write reaches editor');
+    check(doc.activeElement.closest('#vm-terminal') !== null, 'guest refresh preserves terminal focus');
+
+    // A guest reboot reports completion independently of request acceptance.
+    const width = button('vm-boot-button').getBoundingClientRect().width;
+    app.testOutput = '';
+    click('vm-boot-button');
+    await until(() => app.testEvents.includes('guest-reboot'), 'soft reboot callback');
+    await prompt();
+    check(fileText('extra') === 'guest file', 'soft reboot retains workspace');
+    check(button('vm-boot-button').getBoundingClientRect().width === width, 'reboot label width');
+
+    // Stop request delivery to model an unresponsive guest, then use the same button.
+    const requestReboot = runtime.requestReboot.bind(runtime);
+    runtime.requestReboot = async () => {};
+    click('vm-boot-button');
+    await until(() => button('vm-boot-button').textContent === 'Reset VM', 'recovery label');
+    check(button('vm-boot-button').getBoundingClientRect().width === width, 'reset label width');
+    await edit(original.trimEnd() + '\\n# pending recovery edit');
+    const beforeRecovery = fileText('sort.s');
+    app.testOutput = '';
+    click('vm-boot-button');
+    await until(() => button('vm-boot-button').textContent === 'Reboot VM' && !button('vm-boot-button').disabled, 'forced recovery');
+    await prompt();
+    check(doc.querySelector('.cm-content').textContent.includes('# pending recovery edit'), 'recovery retains buffered text');
+    check(fileText('sort.s') === beforeRecovery, 'recovery does not flush buffered edits');
+    check(!button('sync-button').disabled, 'buffer stays dirty after recovery');
+    check(fileText('extra') === 'guest file', 'recovery retains workspace');
+    runtime.requestReboot = requestReboot;
+
+    // Switches cold-reset disks while saving complete namespaces in memory.
+    const disk = runtime.block(0);
+    await runtime.halt();
+    const sector = disk.capacitySectors - 1n;
+    const originalSector = (await disk.read(sector, 512)).slice();
+    disk.write(sector, new app.Uint8Array(512).fill(0x5a));
+    await select('Binary reduction steps');
+    check(!runtime.started, 'instructions defer boot');
+    check(!fs.listFiles().includes('extra'), 'outgoing files absent from new example');
+    check((await disk.read(sector, 512)).every((byte, index) => byte === originalSector[index]), 'switch discards disk overlay');
+    click('vm-tab-button');
+    app.testOutput = '';
+    await prompt();
+    await command('make', 'reduction_steps');
+    await select('Insertion sort');
+    check(fileText('sort.s').includes('# pending recovery edit'), 'switch flushes and restores edits');
+    check(fileText('extra') === 'guest file' && fs.stat('extra').inode === fs.stat('alias').inode, 'switch restores guest files and hard links');
+    check(fs.readlink('symbolic') === 'extra', 'switch restores symlinks');
+
+    // Restoring bundled originals is separate from VM recovery.
+    click('vm-reset-button');
+    await until(() => fileText('sort.s') === original && !button('vm-boot-button').disabled, 'reset example');
+    check(!fs.listFiles().includes('extra'), 'reset example removes additions');
+    check(app.testErrors.length === 0, app.testErrors.join('\\n'));
+    await fetch('/result?status=pass');
+} catch (error) { await fetch('/result?status=' + encodeURIComponent((error.stack ?? String(error)) + '\\n' + app?.testErrors?.join('\\n'))); }
+</script>`, directory, {
+            root: resolve(import.meta.dirname, "../dist"), basePath: "/risclet", timeoutMs: 220_000,
+            chromeArgs: ["--remote-debugging-port=0", "--window-size=1400,1000"],
+            onRequest: url => requests.push(url.pathname),
+            transform: (path, bytes) => path.endsWith("index.html")
+                ? Buffer.from(bytes.toString().replace(/(<script src="riscbox\/riscbox.js"><\/script>)/, `$1${capture}`)) : bytes,
+        });
+        assert.equal(requests.filter(path => /\/examples-[a-f0-9]+\.json\.gz$/.test(path)).length, 1);
+        assert.equal(requests.filter(path => path.includes("/examples/")).length, 0);
+    } finally { await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
