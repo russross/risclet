@@ -218,10 +218,9 @@ async function recoverVm(): Promise<void> {
 }
 
 async function initialize(): Promise<void> {
-    let resized = false;
-    const split = Split(["#file-tree-pane", "#editor-pane", "#info-pane"], {
-        sizes: [10, 45, 45], gutterSize: 8, cursor: "grabbing",
-        onDrag: () => { resized = true; vm.fit(); },
+    Split(["#file-tree-pane", "#editor-pane", "#info-pane"], {
+        sizes: [10, 45, 45], minSize: 0, gutterSize: 8, cursor: "grabbing",
+        onDrag: () => vm.fit(),
     });
     editor = new EditorSession(requiredElement("editor-pane"), {
         canEdit: () => true, onChange: updateControls, onSynced: () => {}, onError: reportUiError,
@@ -236,27 +235,6 @@ async function initialize(): Promise<void> {
         onStateChange: updateControls,
     });
 
-    // Measure the visible grid once, including pane padding and Split's gutter.
-    const terminalTab = requiredElement("vm-tab-content");
-    terminalTab.classList.add("active");
-    requiredElement("instructions-tab-content").classList.remove("active");
-    await vm.terminal.ready;
-    await document.fonts.ready;
-    vm.fit();
-    const surface = requiredElement("vm-terminal").querySelector<HTMLElement>(".terminal-surface");
-    if (surface === null) throw new Error("Missing terminal surface");
-    const cellWidth = parseFloat(getComputedStyle(surface).getPropertyValue("--term-cell-width"));
-    const paneWidth = requiredElement("info-pane").getBoundingClientRect().width;
-    const overhead = paneWidth - surface.clientWidth;
-
-    // Split subtracts half a gutter from the final pane's percentage width.
-    const mainWidth = requiredElement("main-content").clientWidth;
-    const gridWidth = Math.ceil(80 * cellWidth) + 1;
-    const percentage = Math.min(70, Math.max(45, 100 * (gridWidth + overhead + 4) / mainWidth));
-    if (!resized) split.setSizes([10, 90 - percentage, percentage]);
-    vm.fit();
-    terminalTab.classList.remove("active");
-    requiredElement("instructions-tab-content").classList.add("active");
     requiredButton("vm-boot-button").addEventListener("click", () => {
         if (vm.state === "stopping") { void recoverVm().catch(reportUiError); return; }
         void editor.flush("interaction").then(async () => {

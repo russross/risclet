@@ -23,12 +23,12 @@ try {
     await cp(release, "dist/riscbox", { recursive: true });
 
     // The release's splitter owns disk chunk naming and its manifest format.
-    const split = execFileSync(join(release, "splitimg.py"), ["build/rootfs.erofs", "dist"], { encoding: "utf8" });
+    const split = execFileSync(join(release, "splitimg.py"), ["build/rootfs.ext4", "dist"], { encoding: "utf8" });
     const drive = split.trim().split(" ")[0];
     await writeFile("dist/riscbox.cfg", JSON.stringify({
         version: 1, machine: "riscv64", memory_size: 256,
         bios: `riscbox/${bios}`, kernel: `riscbox/${kernel}`,
-        cmdline: "root=/dev/vda ro rootfstype=erofs console=hvc0 quiet loglevel=0",
+        cmdline: "root=/dev/vda rw rootfstype=ext4 console=hvc0 quiet loglevel=0",
         console: "virtio", uart_output: true,
         drive0: { file: `${drive}/blk.txt` },
         fs0: { server: "default", tag: "risclet" },

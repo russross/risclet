@@ -1,21 +1,19 @@
 #!/bin/sh
 set -eu
 
-# Boot payloads come exclusively from the extracted release, including QEMU setup.
-if [ "$#" -ne 2 ]; then
-    echo "usage: $0 RELEASE_DIRECTORY RISCLET_BINARY" >&2
+# Image construction needs only the verified minirootfs and published binary.
+if [ "$#" -ne 1 ]; then
+    echo "usage: $0 RISCLET_BINARY" >&2
     exit 2
 fi
-release=$(realpath "$1")
-cp "$2" build/risclet
-for command in curl sha256sum fakeroot cpio gzip tar timeout qemu-system-riscv64 mkfs.erofs; do
+binary=$(realpath "$1")
+PATH="$PATH:/usr/sbin:/sbin"
+export PATH
+for command in curl sha256sum fakeroot tar truncate mkfs.ext4; do
     command -v "$command" >/dev/null 2>&1 || { echo "missing command: $command" >&2; exit 1; }
 done
-kernel=$(find "$release" -maxdepth 1 -name 'linux-*.gz')
-firmware=$(find "$release" -maxdepth 1 -name 'fw_dynamic.bin-*.gz')
-test -f "$kernel" && test -f "$firmware" || { echo "release boot payloads are missing" >&2; exit 1; }
 
-# The pinned minirootfs is verified before its files enter the setup initramfs.
+# The pinned archive is verified before extraction into the filesystem tree.
 version=3.24.2
 archive="$(pwd)/build/downloads/alpine-minirootfs-$version-riscv64.tar.gz"
 mkdir -p build/downloads
@@ -29,43 +27,29 @@ printf '%s  %s\n' 57132e6e4f3a4ba9ffdf24e485513ce507e45471e7fd565aeed91c055cd63f
     exit 1
 }
 stage=$(mktemp -d "$(pwd)/build/rootfs.XXXXXX")
-output=$(mktemp -d "$(pwd)/build/output.XXXXXX")
-trap 'rm -rf "$stage" "$output" build/rootfs.erofs.part' EXIT HUP INT TERM
+trap 'rm -rf "$stage" build/rootfs.ext4.part' EXIT HUP INT TERM
 
-# Fakeroot preserves the minirootfs's numeric ownership in cpio without host privileges.
-gzip -dc "$kernel" > build/linux
-gzip -dc "$firmware" > build/fw_dynamic.bin
+# One fakeroot session retains numeric ownership through ext4 population.
 fakeroot sh -eu -c '
     tar -xpf "$1" -C "$2"
     cp -R "$3/." "$2/"
     cd "$2"
-    find . -print0 | cpio --null --quiet -o -H newc | gzip -1 > "$4"
-' sh "$archive" "$stage" "$(pwd)/guest" "$(pwd)/build/setup-initramfs.gz"
+    mkdir -p dev/pts run proc sys tmp mnt usr/local/bin home/risclet
+    chmod 1777 tmp
+    cp "$4" usr/local/bin/risclet
+    chmod 755 usr/local/bin/risclet
+    chown -R 0:0 .
 
-# QEMU supplies apk networking; ISA fallback accepts older QEMU device trees.
-if ! timeout 300 qemu-system-riscv64 \
-    -machine virt -m 512M -smp 1 -nographic -no-reboot \
-    -bios build/fw_dynamic.bin -kernel build/linux -initrd build/setup-initramfs.gz \
-    -append 'console=ttyS0,115200 rdinit=/sbin/demo-prepare riscv_isa_fallback panic=-1' \
-    -netdev user,id=net -device virtio-net-device,netdev=net \
-    -fsdev "local,id=source,path=$(pwd),security_model=none,readonly=on" \
-    -device virtio-9p-device,fsdev=source,mount_tag=source \
-    -fsdev "local,id=syntax,path=$(pwd)/../syntaxhighlighting,security_model=none,readonly=on" \
-    -device virtio-9p-device,fsdev=syntax,mount_tag=syntax \
-    -fsdev "local,id=output,path=$output,security_model=none" \
-    -device virtio-9p-device,fsdev=output,mount_tag=output \
-    > build/image-setup.log 2>&1; then
-    echo 'QEMU image preparation failed; see build/image-setup.log' >&2
-    tail -20 build/image-setup.log >&2
-    exit 1
-fi
-if [ ! -f "$output/complete" ] || [ -f "$output/failed" ]; then
-    echo 'Guest image preparation failed; see build/image-setup.log' >&2
-    tail -20 build/image-setup.log >&2
-    exit 1
-fi
+    # The login account owns the workspace; root remains locked in minirootfs.
+    printf "risclet:x:1000:1000:Risclet:/home/risclet:/bin/sh\n" >> etc/passwd
+    printf "risclet:x:1000:\n" >> etc/group
+    printf "risclet:::0:::::\n" >> etc/shadow
+    chown 1000:1000 home/risclet
+    printf "/dev/vda / ext4 rw,noatime 0 0\n" > etc/fstab
 
-# Guest tar headers retain root ownership, the demo UID, symlinks, and setuid doas.
-mkfs.erofs --tar=f build/rootfs.erofs.part "$output/rootfs.tar"
-mv build/rootfs.erofs.part build/rootfs.erofs
-echo 'Prepared Alpine EROFS image with the published Risclet binary.'
+    # Populate a fixed-size writable disk without mounting or booting it.
+    truncate -s 16M "$5"
+    mkfs.ext4 -q -F -m 0 -d . "$5"
+' sh "$archive" "$stage" "$(pwd)/guest" "$binary" "$(pwd)/build/rootfs.ext4.part"
+mv build/rootfs.ext4.part build/rootfs.ext4
+echo 'Prepared 16 MiB Alpine ext4 image with the published Risclet binary.'

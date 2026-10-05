@@ -4,8 +4,8 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { runChromePage } from "../ui/tests/chrome.mjs";
 
-// Fresh pages exercise the initial split at its default, expanded, and capped widths.
-test("initial terminal sizing accounts for geometry and preserves later resizing", { timeout: 120_000 }, async () => {
+// Fresh pages retain the same pane proportions across viewport widths.
+test("initial layout retains fixed pane proportions across viewport widths", { timeout: 120_000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), "risclet-layout-"));
     try {
         await runChromePage(`<!doctype html><script type="module">
@@ -27,16 +27,13 @@ try {
         doc.getElementById('instructions-tab-content').classList.remove('active');
         doc.getElementById('vm-tab-content').classList.add('active');
         await pause();
-        const surface = doc.querySelector('.terminal-surface');
-        const cell = parseFloat(frame.contentWindow.getComputedStyle(surface).getPropertyValue('--term-cell-width'));
-        const percentage = 100 * (pane.getBoundingClientRect().width + 4) / width;
-        const columns = Math.floor(surface.clientWidth / cell);
-        check(percentage >= 44.99 && percentage <= 70.01, 'split bounds at ' + width + ': ' + percentage);
-        if (width === 2100) check(Math.abs(percentage - 45) < 0.01, 'wide page retains 45 percent');
-        if (width === 1250) check(columns >= 80, 'expanded terminal has 80 columns: ' + columns);
-        if (width === 900) check(Math.abs(percentage - 70) < 0.01, 'narrow page caps at 70 percent');
+        const mainWidth = doc.getElementById('main-content').clientWidth;
+        for (const [id, expected, gutter] of [['file-tree-pane', 10, 4], ['editor-pane', 45, 8], ['info-pane', 45, 4]]) {
+            const percentage = 100 * (doc.getElementById(id).getBoundingClientRect().width + gutter) / mainWidth;
+            check(Math.abs(percentage - expected) < 0.1, id + ' proportion at ' + width + ': ' + percentage);
+        }
 
-        // A later page resize keeps the chosen percentage instead of restoring 80 columns.
+        // A later page resize preserves the assigned pane proportions.
         const assignedWidth = pane.style.width;
         frame.style.width = '800px';
         await pause();

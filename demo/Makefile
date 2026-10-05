@@ -5,7 +5,6 @@ RISCBOX_ARCHIVE := build/downloads/riscbox-$(RISCBOX_VERSION).tar.gz
 RISCLET_BINARY := build/downloads/risclet-$(RISCLET_VERSION)
 UI_SOURCES := $(shell find ui -type f ! -path 'ui/node_modules/*' ! -path 'ui/build/*')
 GUEST_SOURCES := $(shell find guest -type f)
-SYNTAX_SOURCES := $(shell find ../syntaxhighlighting/vim ../syntaxhighlighting/micro -type f)
 EXAMPLE_SOURCES := $(shell find examples -type f)
 WEB_SOURCES := $(shell find web -type f)
 
@@ -41,11 +40,11 @@ build/ui/.built: $(UI_SOURCES) ui/node_modules/.installed build/riscbox.stamp
 	cd ui && npm run check && npm run build
 	touch $@
 
-build/rootfs.erofs: $(GUEST_SOURCES) $(SYNTAX_SOURCES) build-image.sh $(RISCLET_BINARY) build/riscbox.stamp build/versions Makefile
-	./build-image.sh build/riscbox '$(RISCLET_BINARY)'
+build/rootfs.ext4: $(GUEST_SOURCES) build-image.sh $(RISCLET_BINARY) build/versions Makefile
+	./build-image.sh '$(RISCLET_BINARY)'
 
 # The site stamp is written only after all runtime, disk, and example assets exist.
-dist/.built: assemble.mjs bundle.mjs $(WEB_SOURCES) $(EXAMPLE_SOURCES) build/ui/.built build/rootfs.erofs build/versions
+dist/.built: assemble.mjs bundle.mjs $(WEB_SOURCES) $(EXAMPLE_SOURCES) build/ui/.built build/rootfs.ext4 build/versions
 	node assemble.mjs
 	touch $@
 

@@ -1,8 +1,7 @@
+├────────── risclet works best if the terminal is at least this wide ──────────┤
 
 To try your code:
 
     risclet run         Run the program
-    risclet debug       Open the debugger
-
-Edit files using vi, vim, or micro (a beginner friendly editor)
+    risclet debug       Run in the debugger
 

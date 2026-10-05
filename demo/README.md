@@ -17,8 +17,8 @@ Incremental builds reuse unchanged downloads and outputs.
 Build inputs
 ------------
 
-The build requires GNU Make, Node.js 22 with npm, uv, curl, tar, gzip, cpio,
-fakeroot, QEMU's `qemu-system-riscv64`, and `mkfs.erofs` with tar input support.
+The build requires GNU Make, Node.js 22 with npm, uv, curl, tar, gzip,
+fakeroot, and e2fsprogs (`mkfs.ext4`).
 Tests use Google Chrome with a temporary profile and close it afterward. They
 run headed when `DISPLAY` is set and headless otherwise.
 
@@ -44,16 +44,14 @@ release is copied unchanged to `dist/riscbox/`, including its documentation,
 types, network modules, firmware, kernel, runtime, and disk splitter. No local
 riscbox checkout or separately installed riscbox modules are required.
 
-The image build uses the release's firmware and kernel to boot a verified Alpine
-minirootfs in QEMU. `guest/sbin/demo-prepare` installs Vim, Micro, and the selected
-published Risclet binary, then exports an EROFS image. The release's executable
-`splitimg.py` produces content-named HTTP disk chunks. The guest uses a read-only
-root disk, temporary writable overlays, and an uncached 9p mount at
-`/home/risclet` so editor writes are immediately visible to guest processes.
-
-Micro uses `/etc/micro`, with bundled syntax definitions in the base image and
-a writable overlay owned by the demo user. Settings and history stay outside
-the 9p workspace and reset on reboot; the overlay stores changes under `/run`.
+The image build extracts a verified Alpine minirootfs, adds the selected published
+Risclet binary and guest configuration, and populates a 16 MiB ext4 drive with
+`mkfs.ext4 -d` under fakeroot. Image construction does not boot a VM or install
+additional Alpine packages. The release's executable `splitimg.py` produces
+content-named HTTP disk chunks. The guest mounts its ext4 root read-write and
+uses an uncached 9p mount at `/home/risclet` so editor writes are immediately
+visible to guest processes. Guest filesystem changes survive orderly reboots;
+cold resets discard the runtime's disk changes.
 
 The browser uses `Riscbox.instantiate`, `loadResolvedConfig`, `prepareResolved`,
 `filesystem`, and `block`. Lifecycle completion comes from runtime callbacks;

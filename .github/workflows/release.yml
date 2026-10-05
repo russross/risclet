@@ -341,7 +341,7 @@ jobs:
       - name: Install image build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc fakeroot cpio erofs-utils
+          sudo apt-get install -y fakeroot e2fsprogs
           command -v google-chrome
 
       - name: Build published release demo
