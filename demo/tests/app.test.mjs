@@ -30,7 +30,7 @@ test("deployed demo boots, synchronizes, switches, reboots, and recovers", { tim
     const versions = await readFile(new URL("../build/versions", import.meta.url), "utf8");
     const version = versions.match(/^risclet=(.+)$/m)[1];
     try {
-        await runChromePage(`<!doctype html><iframe src="/risclet/index.html" style="width:1250px;height:850px"></iframe><script type="module">
+        await runChromePage(`<!doctype html><meta charset="utf-8"><iframe src="/risclet/index.html" style="width:1250px;height:850px"></iframe><script type="module">
 const frame = document.querySelector('iframe');
 const sleep = () => new Promise(resolve => setTimeout(resolve, 50));
 const check = (condition, message) => { if (!condition) throw new Error(message); };
@@ -61,7 +61,7 @@ async function command(shell, expected) {
     await until(() => app.testOutput.replace(/\\r/g, '').includes('\\n' + marker + '\\n'), shell);
     check(app.testOutput.includes(expected), 'missing ' + expected + ': ' + app.testOutput);
 }
-async function prompt() { await until(() => app.testOutput.includes('risclet:~$'), 'student login'); }
+async function prompt() { await until(() => app.testOutput.includes('risclet:~$'), 'risclet login'); }
 async function select(title) {
     const item = [...doc.querySelectorAll('.example-button')].find(button => button.textContent === title);
     item.click();
@@ -69,22 +69,48 @@ async function select(title) {
     await until(() => !button('vm-boot-button').disabled, 'selection controls');
 }
 try {
-    await until(() => frame.contentDocument?.getElementById('status'), 'page load');
+    await until(() => frame.contentDocument?.getElementById('vm-boot-button'), 'page load');
     app = frame.contentWindow; doc = frame.contentDocument;
     await until(() => frame.contentWindow.testRuntime?.started, 'initial boot');
     app = frame.contentWindow; doc = frame.contentDocument; runtime = app.testRuntime;
     await prompt();
-    await command('id; risclet --version; make', ${JSON.stringify(version)});
-    check(app.testOutput.includes('uid=1000(student)'), 'guest user');
+    await command('id; risclet --version; command -v vim micro; test ! -x /usr/bin/make', ${JSON.stringify(version)});
+    check(app.testOutput.includes('uid=1000(risclet)'), 'guest user');
+    check(!button('sync-button') && !button('vm-reset-button') && !button('status'), 'removed menu controls');
+    await command('stty size', '80');
+    await command('echo "$MICRO_CONFIG_HOME"; test -f /etc/micro/syntax/risclet.yaml', '/etc/micro');
+
+    // Micro exits through its command prompt and saves history outside the share.
+    app.testOutput = '';
+    runtime.consoleInput(new app.TextEncoder().encode(${JSON.stringify("micro sort.s; printf '\\nMICRO_EXITED\\n'\r")}));
+    await until(() => doc.querySelector('#vm-terminal .term-grid')?.textContent.includes('ft:risclet'), 'Micro startup');
+    app.testOutput = '';
+    runtime.consoleInput(new app.TextEncoder().encode(${JSON.stringify("\x05show filetype\r")}));
+    await until(() => [...doc.querySelectorAll('#vm-terminal .term-row')].at(-1)?.textContent.trim() === 'risclet', 'Micro syntax detection');
+    runtime.consoleInput(new app.TextEncoder().encode(${JSON.stringify("\x05quit\r")}));
+    await until(() => app.testOutput.replace(/\\r/g, '').includes('\\nMICRO_EXITED\\n')
+        || doc.querySelector('#vm-terminal .term-grid')?.textContent.includes('Save changes'), 'Micro quit');
+    if (doc.querySelector('#vm-terminal .term-grid')?.textContent.includes('Save changes')) {
+        runtime.consoleInput(new app.TextEncoder().encode('n'));
+    }
+    await until(() => app.testOutput.replace(/\\r/g, '').includes('\\nMICRO_EXITED\\n'), 'Micro exit');
+    check(!app.testOutput.includes('Error saving') && !app.testOutput.includes('permission denied'), 'Micro saves without errors');
+    await command(${JSON.stringify("test -s /etc/micro/buffers/history && test -f /etc/micro/syntax/risclet.yaml && printf '\\nMICRO_HISTORY_OK\\n'")}, ${JSON.stringify("MICRO_HISTORY_OK\r\n")});
+    check(!runtime.filesystem('default').listFiles().some(path => path.startsWith('.config/micro/')), 'Micro config stays outside 9p');
+
+    await command(${JSON.stringify("vim -n -i NONE sort.s -c 'call writefile([&filetype, &syntax], \"/tmp/vim-type\")' -c q; cat /tmp/vim-type")}, ${JSON.stringify("risclet\r\nrisclet\r\n")});
+    await command(${JSON.stringify("vim -n -i NONE /tmp/new.s -c 'call writefile([&filetype, &syntax], \"/tmp/vim-type\")' -c q; cat /tmp/vim-type")}, ${JSON.stringify("risclet\r\nrisclet\r\n")});
+    await command('stty cols 79 rows 23; . /etc/profile.d/risclet.sh; stty cols 80 rows 33', 'warning: terminal is only 79×23, risclet works best with 80×24 or larger');
+    await command('stty cols 80 rows 24; . /etc/profile.d/risclet.sh', 'RESULT_');
+    check(!app.testOutput.includes('warning: terminal'), '80 by 24 needs no warning');
     const original = fileText('sort.s');
     const fs = runtime.filesystem('default');
 
-    // Explicit sync and terminal interaction flush buffered edits before guest use.
+    // Blur and terminal interaction flush buffered edits before guest use.
     await edit(original.trimEnd() + '\\n# editor change');
-    check(!button('sync-button').disabled, 'buffer becomes dirty');
     check(!fileText('sort.s').includes('# editor change'), 'edit stays buffered');
-    click('sync-button');
-    await until(() => fileText('sort.s').includes('# editor change'), 'explicit sync');
+    doc.querySelector('#vm-terminal textarea').focus();
+    await until(() => fileText('sort.s').includes('# editor change'), 'blur synchronization');
     await edit(original.trimEnd() + '\\n# interaction change');
     click('vm-tab-button');
     await until(() => fileText('sort.s').includes('# interaction change'), 'VM tab synchronization');
@@ -99,6 +125,7 @@ try {
     click('vm-boot-button');
     await until(() => app.testEvents.includes('guest-reboot'), 'soft reboot callback');
     await prompt();
+    await command(${JSON.stringify("test ! -e /etc/micro/buffers/history && test -f /etc/micro/syntax/risclet.yaml && test -w /etc/micro && printf '\\nMICRO_RESET_OK\\n'")}, ${JSON.stringify("MICRO_RESET_OK\r\n")});
     check(fileText('extra') === 'guest file', 'soft reboot retains workspace');
     check(button('vm-boot-button').getBoundingClientRect().width === width, 'reboot label width');
 
@@ -116,7 +143,6 @@ try {
     await prompt();
     check(doc.querySelector('.cm-content').textContent.includes('# pending recovery edit'), 'recovery retains buffered text');
     check(fileText('sort.s') === beforeRecovery, 'recovery does not flush buffered edits');
-    check(!button('sync-button').disabled, 'buffer stays dirty after recovery');
     check(fileText('extra') === 'guest file', 'recovery retains workspace');
     runtime.requestReboot = requestReboot;
 
@@ -127,22 +153,19 @@ try {
     const originalSector = (await disk.read(sector, 512)).slice();
     disk.write(sector, new app.Uint8Array(512).fill(0x5a));
     await select('Binary reduction steps');
+    check(button('instructions-tab-button').textContent === 'README' && fs.listFiles().includes('README.md'), 'README instructions');
     check(!runtime.started, 'instructions defer boot');
     check(!fs.listFiles().includes('extra'), 'outgoing files absent from new example');
     check((await disk.read(sector, 512)).every((byte, index) => byte === originalSector[index]), 'switch discards disk overlay');
     click('vm-tab-button');
     app.testOutput = '';
     await prompt();
-    await command('make', 'reduction_steps');
+    await command('risclet build reduction_steps.s start.s print.s', 'RESULT_');
     await select('Insertion sort');
     check(fileText('sort.s').includes('# pending recovery edit'), 'switch flushes and restores edits');
     check(fileText('extra') === 'guest file' && fs.stat('extra').inode === fs.stat('alias').inode, 'switch restores guest files and hard links');
     check(fs.readlink('symbolic') === 'extra', 'switch restores symlinks');
 
-    // Restoring bundled originals is separate from VM recovery.
-    click('vm-reset-button');
-    await until(() => fileText('sort.s') === original && !button('vm-boot-button').disabled, 'reset example');
-    check(!fs.listFiles().includes('extra'), 'reset example removes additions');
     check(app.testErrors.length === 0, app.testErrors.join('\\n'));
     await fetch('/result?status=pass');
 } catch (error) { await fetch('/result?status=' + encodeURIComponent((error.stack ?? String(error)) + '\\n' + app?.testErrors?.join('\\n'))); }

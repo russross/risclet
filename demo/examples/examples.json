@@ -9,11 +9,11 @@
     "id": "reduction",
     "title": "Binary reduction steps",
     "editable": "reduction_steps.s",
-    "documentation": "doc/doc.md",
+    "documentation": "README.md",
     "files": [
       ".gitignore",
       "Makefile",
-      "doc/doc.md",
+      "README.md",
       "inputs/test.input",
       "inputs/test.transcript",
       "lib/stepper",

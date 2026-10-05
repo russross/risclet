@@ -17,6 +17,7 @@
     box-shadow: none;
     box-sizing: border-box;
     container-type: size;
+    scrollbar-gutter: stable;
 }
 
 .terminal-surface.wterm.has-scrollback {

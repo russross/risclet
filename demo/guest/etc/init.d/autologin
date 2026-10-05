@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /bin/login -f student
+exec /bin/login -f risclet

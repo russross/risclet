@@ -52,18 +52,16 @@ function requiredButton(id: string): HTMLButtonElement {
 }
 function reportUiError(error: unknown): void {
     console.error(error);
-    requiredElement("status").textContent = error instanceof Error ? error.message : String(error);
+    window.alert(error instanceof Error ? error.message : String(error));
 }
 
 // Controls reflect shared state without participating in VM lifecycle.
 function updateControls(): void {
-    requiredButton("sync-button").disabled = switching || recovering || !editor.dirty;
     if (vm === undefined) return;
     const boot = requiredButton("vm-boot-button");
     boot.disabled = switching || recovering || vm.target === undefined || vm.state === "loading";
     boot.textContent = vm.state === "stopping" ? "Reset VM" : vm.state === "running" ? "Reboot VM"
         : vm.state === "loading" ? "Preparing VM…" : "Boot VM";
-    requiredButton("vm-reset-button").disabled = switching || recovering || vm.target === undefined || vm.state === "loading";
 }
 function renderFileTree(): void {
     const paths = currentExample === null ? [] : vm.filesystem.listFiles();
@@ -150,15 +148,13 @@ function renderMenu(): void {
 }
 
 // Example switches retain their namespaces while cold-resetting the shared VM.
-function switchExample(example: ExampleState, reset = false): Promise<void> {
+function switchExample(example: ExampleState): Promise<void> {
     if (recovering) return Promise.resolve();
     const generation = ++viewGeneration;
     for (const button of document.querySelectorAll<HTMLButtonElement>(".example-button")) button.disabled = false;
-    const stopped = reset ? vm.forceHalt() : Promise.resolve();
     const selection = switchQueue.then(async () => {
         if (generation !== viewGeneration) return;
-        await stopped;
-        if (!reset) await editor.flush("transition");
+        await editor.flush("transition");
         if (generation !== viewGeneration) return;
         switching = true;
         updateControls();
@@ -167,8 +163,7 @@ function switchExample(example: ExampleState, reset = false): Promise<void> {
         let selected = false;
         try {
             const isCurrent = (): boolean => generation === viewGeneration;
-            const changed = reset ? await vm.reset(isCurrent)
-                : await vm.setTarget(example, switchTransition, isCurrent);
+            const changed = await vm.setTarget(example, switchTransition, isCurrent);
             if (changed) {
                 await showExample(example, generation);
                 selected = true;
@@ -195,7 +190,6 @@ async function showExample(example: ExampleState, generation: number): Promise<v
     const preferred = paths.includes(example.description.editable) ? example.description.editable : paths[0];
     if (preferred !== undefined) openFile(preferred);
     if (generation !== viewGeneration) return;
-    requiredElement("status").textContent = `${vm.state === "running" ? "Running" : "Ready"} · ${example.description.title}`;
     selectTab(example.description.documentation !== undefined ? "instructions" : "vm");
     const url = new URL(window.location.href);
     url.searchParams.set("example", example.description.id);
@@ -224,8 +218,10 @@ async function recoverVm(): Promise<void> {
 }
 
 async function initialize(): Promise<void> {
-    Split(["#file-tree-pane", "#editor-pane", "#info-pane"], {
-        sizes: [10, 45, 45], gutterSize: 8, cursor: "grabbing", onDrag: () => vm.fit(),
+    let resized = false;
+    const split = Split(["#file-tree-pane", "#editor-pane", "#info-pane"], {
+        sizes: [10, 45, 45], gutterSize: 8, cursor: "grabbing",
+        onDrag: () => { resized = true; vm.fit(); },
     });
     editor = new EditorSession(requiredElement("editor-pane"), {
         canEdit: () => true, onChange: updateControls, onSynced: () => {}, onError: reportUiError,
@@ -237,16 +233,30 @@ async function initialize(): Promise<void> {
         beforeReplace: () => { if (!recovering) { editor.clear(); currentExample = null; } },
         afterSnapshot: async () => {}, onFilesystemChange: handleFilesystemChange,
         onError: reportUiError,
-        onStateChange: state => {
-            updateControls();
-            const title = vm.target?.description.title ?? "VM";
-            requiredElement("status").textContent = state === "stopping"
-                ? "Reboot requested · Reset VM can force recovery" : `${state[0].toUpperCase()}${state.slice(1)} · ${title}`;
-        },
+        onStateChange: updateControls,
     });
-    requiredButton("vm-reset-button").addEventListener("click", () => {
-        if (vm.target !== undefined) void switchExample(vm.target, true).catch(reportUiError);
-    });
+
+    // Measure the visible grid once, including pane padding and Split's gutter.
+    const terminalTab = requiredElement("vm-tab-content");
+    terminalTab.classList.add("active");
+    requiredElement("instructions-tab-content").classList.remove("active");
+    await vm.terminal.ready;
+    await document.fonts.ready;
+    vm.fit();
+    const surface = requiredElement("vm-terminal").querySelector<HTMLElement>(".terminal-surface");
+    if (surface === null) throw new Error("Missing terminal surface");
+    const cellWidth = parseFloat(getComputedStyle(surface).getPropertyValue("--term-cell-width"));
+    const paneWidth = requiredElement("info-pane").getBoundingClientRect().width;
+    const overhead = paneWidth - surface.clientWidth;
+
+    // Split subtracts half a gutter from the final pane's percentage width.
+    const mainWidth = requiredElement("main-content").clientWidth;
+    const gridWidth = Math.ceil(80 * cellWidth) + 1;
+    const percentage = Math.min(70, Math.max(45, 100 * (gridWidth + overhead + 4) / mainWidth));
+    if (!resized) split.setSizes([10, 90 - percentage, percentage]);
+    vm.fit();
+    terminalTab.classList.remove("active");
+    requiredElement("instructions-tab-content").classList.add("active");
     requiredButton("vm-boot-button").addEventListener("click", () => {
         if (vm.state === "stopping") { void recoverVm().catch(reportUiError); return; }
         void editor.flush("interaction").then(async () => {
@@ -258,7 +268,6 @@ async function initialize(): Promise<void> {
     requiredButton("vm-boot-button").addEventListener("pointerdown", event => {
         if (vm.state === "stopping") event.preventDefault();
     });
-    requiredButton("sync-button").addEventListener("click", () => { void editor.flush().catch(reportUiError); });
     requiredButton("instructions-tab-button").addEventListener("click", () => selectTab("instructions"));
     requiredButton("vm-tab-button").addEventListener("click", () => selectTab("vm"));
     await vm.prepareImage(image);

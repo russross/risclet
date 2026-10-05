@@ -19,8 +19,15 @@ for directory in var home; do
     mount -t overlay overlay -o "lowerdir=/$directory,upperdir=$upper,workdir=$work" "/$directory"
 done
 
+# Micro writes settings and history beside its bundled syntax definitions.
+upper=/run/overlay/micro/upper
+work=/run/overlay/micro/work
+mkdir -p "$upper" "$work"
+chown 1000:1000 "$upper"
+mount -t overlay overlay -o "lowerdir=/etc/micro,upperdir=$upper,workdir=$work" /etc/micro
+
 # Host file operations stay visible to the guest through the uncached 9p mount.
 hostname risclet
 ip link set lo up
-mount -t 9p -o trans=virtio,version=9p2000.L,cache=none,access=1000,uname=student risclet /home/student
+mount -t 9p -o trans=virtio,version=9p2000.L,cache=none,access=1000,uname=risclet risclet /home/risclet
 acpid

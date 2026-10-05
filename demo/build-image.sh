@@ -50,6 +50,8 @@ if ! timeout 300 qemu-system-riscv64 \
     -netdev user,id=net -device virtio-net-device,netdev=net \
     -fsdev "local,id=source,path=$(pwd),security_model=none,readonly=on" \
     -device virtio-9p-device,fsdev=source,mount_tag=source \
+    -fsdev "local,id=syntax,path=$(pwd)/../syntaxhighlighting,security_model=none,readonly=on" \
+    -device virtio-9p-device,fsdev=syntax,mount_tag=syntax \
     -fsdev "local,id=output,path=$output,security_model=none" \
     -device virtio-9p-device,fsdev=output,mount_tag=output \
     > build/image-setup.log 2>&1; then

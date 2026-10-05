@@ -74,6 +74,8 @@ body {
 }
 
 .pane {
+    box-sizing: border-box;
+    min-width: 0;
     padding: 10px;
     border: 1px solid #eee;
     overflow: auto;
@@ -194,12 +196,6 @@ pre {
     padding: 10px;
     border-radius: 4px;
     border: 1px solid #ddd;
-}
-
-#status {
-    flex-shrink: 0;
-    margin-inline: 10px;
-    color: #555;
 }
 
 #editor-pane .cm-editor {

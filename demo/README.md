@@ -45,11 +45,15 @@ types, network modules, firmware, kernel, runtime, and disk splitter. No local
 riscbox checkout or separately installed riscbox modules are required.
 
 The image build uses the release's firmware and kernel to boot a verified Alpine
-minirootfs in QEMU. `guest/sbin/demo-prepare` installs Make and the selected
+minirootfs in QEMU. `guest/sbin/demo-prepare` installs Vim, Micro, and the selected
 published Risclet binary, then exports an EROFS image. The release's executable
 `splitimg.py` produces content-named HTTP disk chunks. The guest uses a read-only
 root disk, temporary writable overlays, and an uncached 9p mount at
-`/home/student` so editor writes are immediately visible to guest processes.
+`/home/risclet` so editor writes are immediately visible to guest processes.
+
+Micro uses `/etc/micro`, with bundled syntax definitions in the base image and
+a writable overlay owned by the demo user. Settings and history stay outside
+the 9p workspace and reset on reboot; the overlay stores changes under `/run`.
 
 The browser uses `Riscbox.instantiate`, `loadResolvedConfig`, `prepareResolved`,
 `filesystem`, and `block`. Lifecycle completion comes from runtime callbacks;
@@ -79,10 +83,10 @@ selecting the VM tab boots it. Examples without instructions boot immediately.
 
 Reboot VM requests an orderly guest reboot while preserving the workspace. The
 button reads Reset VM until the reboot callback arrives. Reset VM forces
-recovery, retaining workspace files and unflushed editor text. Reset example is
-a separate action that discards that example's changes and restores the bundled
-originals. Refreshing the page starts a new session; Sync writes editor text to
-the VM workspace and does not persist it across refreshes.
+recovery, retaining workspace files and unflushed editor text. Refreshing the
+page starts a new session. Editor text flushes to the VM
+workspace on blur, terminal interaction, example switches, and after 30 seconds
+of inactivity; it does not persist across refreshes.
 
 Release deployment
 ------------------
