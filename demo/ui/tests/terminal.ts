@@ -65,12 +65,15 @@ export async function run(): Promise<void> {
             for (let x = Math.ceil(rect.left * devicePixelRatio); x < rect.right * devicePixelRatio; x++) {
                 const offset = (y * captured.width + x) * 4;
                 const red = captured.data[offset];
-                check(!(red > 20 && red > captured.data[offset + 1] * 2 && red > captured.data[offset + 2] * 2), "old history bled into cleared screen");
+                check(!(red > 20 && red > captured.data[offset + 1] * 2 && red > captured.data[offset + 2] * 2),
+                    `old history bled into cleared screen: height=${height} pixel=${x},${y} rgb=${red},${captured.data[offset + 1]},${captured.data[offset + 2]} live=${live.getBoundingClientRect().top} scroll=${surface.scrollTop} clip=${host.querySelector<HTMLElement>(".term-grid")?.style.clipPath}`);
             }
         }
         surface.scrollTop = 0;
         await paint();
-        check(host.querySelector(".term-scrollback-row")?.textContent?.includes("old history") === true, "history became inaccessible");
+        const history = host.querySelector<HTMLElement>(".term-scrollback-row");
+        check(history?.textContent?.includes("old history") === true, "history became inaccessible");
+        check(history !== null && getComputedStyle(history).opacity === "1", "history remained transparent after scrolling");
         surface.scrollTop = surface.scrollHeight;
         await paint();
         check(Math.abs(live.getBoundingClientRect().top - top) <= 1 / devicePixelRatio, "returning from history displaced live screen");
