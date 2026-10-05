@@ -22,6 +22,7 @@ declare module "commonmark" {
     }
 
     class HtmlRenderer {
+        constructor(options?: { safe: boolean });
         render(node: ParsedNode): string;
     }
 }

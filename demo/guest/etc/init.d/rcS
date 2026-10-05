@@ -13,5 +13,5 @@ mount -t devpts devpts /dev/pts
 # Host file operations stay visible to the guest through the uncached 9p mount.
 hostname risclet
 ip link set lo up
-mount -t 9p -o trans=virtio,version=9p2000.L,cache=none,access=1000,uname=risclet risclet /home/risclet
+mount -t 9p -o trans=virtio,version=9p2000.L,cache=none,access=1000,uname=risclet shared /home/risclet
 acpid

@@ -2,30 +2,19 @@
 set -eu
 
 # Image construction needs only the verified minirootfs and published binary.
-if [ "$#" -ne 1 ]; then
-    echo "usage: $0 RISCLET_BINARY" >&2
+if [ "$#" -ne 2 ]; then
+    echo "usage: $0 RISCLET_BINARY MINIROOTFS" >&2
     exit 2
 fi
 binary=$(realpath "$1")
+archive=$(realpath "$2")
 PATH="$PATH:/usr/sbin:/sbin"
 export PATH
-for command in curl sha256sum fakeroot tar truncate mkfs.ext4; do
+for command in fakeroot tar truncate mkfs.ext4; do
     command -v "$command" >/dev/null 2>&1 || { echo "missing command: $command" >&2; exit 1; }
 done
 
-# The pinned archive is verified before extraction into the filesystem tree.
-version=3.24.2
-archive="$(pwd)/build/downloads/alpine-minirootfs-$version-riscv64.tar.gz"
-mkdir -p build/downloads
-if [ ! -f "$archive" ]; then
-    curl --fail --location --show-error --output "$archive.part" \
-        "https://dl-cdn.alpinelinux.org/alpine/v${version%.*}/releases/riscv64/$(basename "$archive")"
-    mv "$archive.part" "$archive"
-fi
-printf '%s  %s\n' 57132e6e4f3a4ba9ffdf24e485513ce507e45471e7fd565aeed91c055cd63f7b "$archive" | sha256sum --check --status || {
-    echo "minirootfs checksum failed: $archive" >&2
-    exit 1
-}
+# Downloads and verification are prerequisites; this step only constructs the image.
 stage=$(mktemp -d "$(pwd)/build/rootfs.XXXXXX")
 trap 'rm -rf "$stage" build/rootfs.ext4.part' EXIT HUP INT TERM
 

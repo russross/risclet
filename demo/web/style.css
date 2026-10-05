@@ -26,8 +26,7 @@ body {
     min-width: 0;
 }
 
-#menu-bar button,
-#menu-bar select {
+#menu-bar button {
     margin-right: 10px;
     padding: 8px 15px;
     border: 1px solid #a0a0a0;
@@ -35,11 +34,10 @@ body {
     background-color: #c0e0ff; /* Cheerful blue */
     color: #333;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 0.875em;
 }
 
-#menu-bar button:hover:not(:disabled),
-#menu-bar select:hover {
+#menu-bar button:hover:not(:disabled) {
     background-color: #90c0ff;
 }
 
@@ -49,19 +47,11 @@ body {
     cursor: not-allowed;
 }
 
-.menu-divider {
-    border-left: 1px solid #999;
-    height: 25px;
-    margin: 0 10px;
-}
 
 .menu-label {
     margin-right: 10px;
 }
 
-.actions-label {
-    margin-left: 40px;
-}
 
 #main-content {
     display: flex;
@@ -163,10 +153,6 @@ body {
     flex-shrink: 1;
 }
 
-#terminal {
-    flex-grow: 1; /* Allow terminal to grow and fill space */
-    overflow: hidden; /* Let the terminal handle scrolling */
-}
 
 #vm-tab-content {
     min-height: 0;
@@ -184,9 +170,6 @@ body {
     min-height: 0;
     flex-grow: 1;
     overflow: hidden;
-    box-sizing: border-box;
-    padding: 4px;
-    background: #000;
 }
 
 pre {

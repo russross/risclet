@@ -1,8 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import webpack from "webpack";
-import { terminalRules } from "../loaders/webpack.mjs";
+import { compileFixture } from "./browser.mjs";
 import { runChromePage } from "./chrome.mjs";
 
 // Chrome's screenshot API measures real physical pixels, including fractional scaling.
@@ -35,34 +34,27 @@ async function connectChrome(directory) {
     };
 }
 
-test("Wterm renders clear screens and connected borders at fractional scaling", async () => {
-    await mkdir(join(import.meta.dirname, "../build"), { recursive: true });
-    const directory = await mkdtemp(join(import.meta.dirname, "../build/test-terminal-"));
+for (const scale of [1, 1.203125, 2]) test(`xterm renders clear screens and connected borders at ${scale}x scaling`, async () => {
+    const directory = await compileFixture("./tests/terminal.ts", "terminalTests");
     let chrome;
     try {
-        const compiler = webpack({ mode: "development", context: join(import.meta.dirname, ".."),
-            entry: "./tests/terminal.ts", output: { path: directory, filename: "terminal.js", library: { name: "terminalTests", type: "window" } },
-            module: { rules: [...terminalRules(),
-                { test: /\.ts$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ },
-                { test: /\.css$/, use: ["style-loader", "css-loader"] }] },
-            resolve: { extensions: [".ts", ".js"] } });
-        await new Promise((resolve, reject) => compiler.run((error, stats) => {
-            compiler.close(() => {});
-            if (error) reject(error);
-            else if (stats.hasErrors()) reject(new Error(stats.toString({ all: false, errors: true })));
-            else resolve();
-        }));
-        const url = `/build/${directory.split("/").pop()}/terminal.js`;
+        const url = `/build/${directory.split("/").pop()}/fixture.js`;
         await runChromePage(`<!doctype html><meta charset="UTF-8"><body><script src="${url}"></script><script>
             window.terminalTests.run().then(() => fetch("/result?status=pass"),
                 error => fetch("/result?status=" + encodeURIComponent(error.stack)));
         </script>`, directory, {
             timeoutMs: 30_000,
-            chromeArgs: ["--remote-debugging-port=0", "--force-device-scale-factor=1.203125", "--window-size=1200,1000"],
+            chromeArgs: ["--remote-debugging-port=0", `--force-device-scale-factor=${scale}`, "--window-size=1200,1000"],
             async response(url) {
-                if (url.pathname === "/screenshot") {
+                if (url.pathname === "/screenshot" || url.pathname === "/wheel") {
                     try {
                         chrome ??= await connectChrome(directory);
+                        if (url.pathname === "/wheel") {
+                            await chrome.command("Input.dispatchMouseEvent", { type: "mouseWheel",
+                                x: Number(url.searchParams.get("x")), y: Number(url.searchParams.get("y")),
+                                deltaX: 0, deltaY: Number(url.searchParams.get("delta")) });
+                            return { status: 200, body: "ok" };
+                        }
                         const result = await chrome.command("Page.captureScreenshot", { format: "png" });
                         if (typeof result.data !== "string") throw new Error(`Screenshot result: ${JSON.stringify(result)}`);
                         return { status: 200, body: JSON.stringify(result.data) };

@@ -1,11 +1,13 @@
 import { EditorSession } from "../editor-session.ts";
 import { VmSession } from "../vm-session.ts";
+import { TerminalView } from "../terminal.ts";
 import { renderFileTree } from "../workspace-view.ts";
 import { language } from "@codemirror/language";
 import { riscletLanguage } from "../risclet.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+let editorCellWidth = 0;
 function check(condition, message) { if (!condition) throw new Error(message); }
 async function tick() { await new Promise(resolve => setTimeout(resolve, 0)); }
 async function wait(condition, message) {
@@ -45,11 +47,15 @@ async function editorTests() {
     fs.writeFile("a.s", "original\n");
     let prompts = 0;
     let discard = false;
-    const synced = [];
     const errors = [];
-    const session = new EditorSession(host, { canEdit: path => path !== "system.s", onChange: () => {},
-        onSynced: trigger => synced.push(trigger), onError: error => errors.push(error),
+    const session = new EditorSession(host, { onError: error => errors.push(error),
         confirmDiscard: () => { prompts++; return discard; } });
+    check(getComputedStyle(session.view.dom).fontSize === "20px", "editor ignores the user's startup font size");
+    check(getComputedStyle(session.view.scrollDOM).fontFamily.includes("Latin Modern Mono"), "editor and terminal use different fonts");
+    const font = getComputedStyle(session.view.scrollDOM);
+    const context = document.createElement("canvas").getContext("2d");
+    context.font = `${font.fontSize} ${font.fontFamily}`;
+    editorCellWidth = context.measureText("0123456789").width / 10;
     fs.subscribe(change => session.handleChange(change));
     session.open(fs, "a.s");
     check(session.view.state.facet(language) === riscletLanguage, "assembly files use the teaching dialect by default");
@@ -79,9 +85,6 @@ async function editorTests() {
     await session.flush();
     check(session.path === "renamed.s" && decoder.decode(fs.readFile("renamed.s")) === "renamed buffer\n", "dirty rename follows the new path");
 
-    fs.writeFile("system.s", "protected\n");
-    session.open(fs, "system.s");
-    check(session.readOnly, "application access policy controls editability");
     fs.writeFile("binary", Uint8Array.of(0));
     session.open(fs, "binary");
     check(session.readOnly, "binary files remain read-only");
@@ -89,12 +92,12 @@ async function editorTests() {
     edit("blurred");
     session.view.contentDOM.dispatchEvent(new FocusEvent("blur"));
     await wait(() => !session.dirty, "blur did not flush");
-    check(synced.includes("blur"), "blur notifies application persistence");
+    check(decoder.decode(fs.readFile("renamed.s")) === "blurred\n", "blur writes the buffered text");
 
     // Recovery can restore access before a blur's queued write gets its turn.
     edit("recovery buffer");
     session.setReadOnly(true);
-    const recoveryBlur = session.flush("blur");
+    const recoveryBlur = session.flush();
     session.setReadOnly(false);
     await recoveryBlur;
     check(session.dirty && decoder.decode(fs.readFile("renamed.s")) === "blurred\n",
@@ -102,9 +105,8 @@ async function editorTests() {
     await session.flush();
 
     const tree = document.createElement("div");
-    renderFileTree(tree, ["system/z.s", "student/a.s"], { selectedPath: "student/a.s",
-        priority: path => path.startsWith("student/") ? 0 : 1, onSelect: () => {} });
-    check(tree.querySelector("li.file").dataset.path === "student/a.s", "editable subtree priority propagates");
+    renderFileTree(tree, ["z.s", "nested/a.s"], { selectedPath: "nested/a.s", onSelect: () => {} });
+    check(tree.querySelector("li.file").dataset.path === "nested/a.s", "directories precede files");
     check(tree.querySelector("button") !== null, "file selection has native keyboard controls");
     session.destroy();
     host.remove();
@@ -116,22 +118,25 @@ async function vmTests() {
     host.style.cssText = "width:600px;height:200px";
     document.body.append(host);
     const machines = [];
-    const saves = [];
     const errors = [];
-    let rejectSave = false;
-    let releaseFlush;
-    let delayedFlush = false;
+    let failConfig = true;
+    let holdReset;
+    let releaseReset;
     const constructor = {
-        async loadResolvedConfig() { return { version: 1, machine: "riscv64", memory_size: 64, drive0: { file: "https://image.invalid/disk.json" } }; },
+        async loadResolvedConfig() {
+            if (failConfig) { failConfig = false; throw new Error("configuration unavailable"); }
+            return { version: 1, machine: "riscv64", memory_size: 64, drive0: { file: "https://image.invalid/disk.json" } };
+        },
         async instantiate(_, callbacks) {
-            const machine = { started: false, boots: 0, shutdowns: 0, halted: 0, destroyed: false, discards: 0, coldResets: 0, input: [], callbacks,
+            const machine = { started: false, boots: 0, halted: 0, destroyed: false, discards: 0, resizes: 0, input: [], callbacks,
                 async prepareResolved() {}, filesystem() { return this.fs; },
                 block() { return { discardChanges: () => { this.discards++; } }; },
-                async boot() { this.started = true; this.boots++; callbacks.onVmStarted(); },
+                async boot() { this.started = true; this.boots++; callbacks.consoleReset(); callbacks.onVmReset(); callbacks.onVmStarted(); },
                 async halt() { this.started = false; this.halted++; callbacks.onVmHalted("forced"); },
-                async requestShutdown() { this.shutdowns++; }, async requestReboot() {},
-                async coldReset() { this.coldResets++; }, async destroy() { this.destroyed = true; },
-                consoleResize() { check(this.started, "console resize requires a running VM"); },
+                async requestReboot() {},
+                async coldReset() { if (holdReset) await new Promise(resolve => { releaseReset = resolve; }); callbacks.consoleReset(); },
+                async destroy() { this.destroyed = true; },
+                consoleResize() { check(this.started, "console resize requires a running VM"); this.resizes++; },
                 consoleInput(bytes) { this.input.push(...bytes); return bytes.length; },
             };
             machine.fs = filesystem(() => machine.started);
@@ -139,83 +144,95 @@ async function vmTests() {
             return machine;
         },
     };
-    const image = { configUrl: "https://image.invalid/a.cfg", runtimeUrl: "https://image.invalid/riscbox.js",
-        wasmUrl: "data:application/wasm;base64,AA==", memoryMiB: 64, shareName: "default" };
-    const target = name => ({ image, loadFiles: async () => new Map([["file", encoder.encode(name)]]) });
-    const retained = { workspace: "snapshot", poweroff: "orderly", discardDiskChanges: false, boot: true };
-    const clean = { workspace: "files", poweroff: "force", discardDiskChanges: true, boot: true };
+    const terminal = new TerminalView(host);
+    const image = { configUrl: "https://image.invalid/a.cfg", wasmUrl: "data:application/wasm;base64,AA==",
+        memoryMiB: 64, shareName: "default" };
+    const target = name => ({ files: new Map([["file", encoder.encode(name)]]) });
     const first = target("first");
     const second = target("second");
-    const session = new VmSession(host, { loadRuntime: async () => constructor,
-        flushEditor: () => delayedFlush ? new Promise(resolve => { releaseFlush = resolve; }) : Promise.resolve(),
-        canInteract: () => true, beforeReplace: () => {}, onFilesystemChange: () => {}, onStateChange: () => {},
-        afterSnapshot: async (target, snapshot) => {
-            saves.push([target, decoder.decode(snapshot.entries.find(entry => entry.path === "file").bytes)]);
-            if (rejectSave) throw new Error("save failed");
-        }, onError: error => errors.push(error),
+    const session = new VmSession(constructor, image, terminal, {
+        onFilesystemChange: () => {}, onStateChange: () => {}, onError: error => errors.push(error),
     });
-    await session.setTarget(first, retained, () => true);
-    const machine = machines[0];
-    delayedFlush = true;
-    session.terminal.paste("obsolete");
-    await wait(() => releaseFlush !== undefined, "input did not wait for editor flush");
-    const switching = session.setTarget(second, retained, () => true);
-    await wait(() => machine.shutdowns === 1, "same-image switch did not request shutdown");
-    check(machine.boots === 1 && first.snapshot === undefined, "shutdown request alone cannot snapshot or boot");
-    machine.fs.writeFile("file", "shutdown tail");
-    machine.started = false;
-    machine.callbacks.onVmHalted("shutdown");
-    await switching;
+
+    // Failed preparation releases its handles and remains retryable through Boot VM.
+    await session.switchWorkspace(first, () => true).then(() => { throw new Error("configuration failure must reject"); }, () => {});
+    check(session.state === "failed" && machines[0].destroyed, "failed preparation did not release the machine");
+    await session.boot();
+    check(session.state === "running" && machines.length === 2, "boot did not retry preparation");
+    const machine = machines[1];
+    check(machine.resizes === 1, "host boot processed both reset and started callbacks");
+    const screen = host.querySelector(".xterm-screen");
+    const cellHeight = screen.getBoundingClientRect().height / terminal.rows;
+    check(Math.abs(screen.getBoundingClientRect().width / terminal.cols - editorCellWidth) < 1 / devicePixelRatio,
+        "terminal character width differs from the editor's startup font");
+    document.documentElement.style.fontSize = "24px";
+    terminal.fit();
+    check(Math.abs(screen.getBoundingClientRect().height / terminal.rows - cellHeight) < 1 / devicePixelRatio,
+        "resize resampled the root font size after startup");
+    machines[0].callbacks.onVmStarted();
+    machines[0].callbacks.consoleWrite("retired callback");
+    check(await terminal.readText() === "", "retired preparation forwarded old output");
+
+    // A delayed editor flush cannot inject input into a replacement workspace.
+    let releaseFlush;
+    const pendingInput = session.sendInput(encoder.encode("obsolete"), new Promise(resolve => { releaseFlush = resolve; }));
+    machine.fs.writeFile("file", "guest edits");
+    await session.switchWorkspace(second, () => true);
     releaseFlush();
-    delayedFlush = false;
-    await tick();
-    check(machine.input.length === 0, "retired editor flush cannot inject input into new workspace");
-    check(saves[0][1] === "shutdown tail" && machine.discards === 0, "final guest writes save before namespace replacement and disks retain state");
+    await pendingInput;
+    check(machine.input.length === 0, "retired editor flush injected input into a new workspace");
+    check(!machine.started && session.state === "ready", "switch booted a README-first example");
+    check(machine.discards === 2 && decoder.decode(first.snapshot.entries.find(entry => entry.path === "file").bytes) === "guest edits",
+        "switch did not snapshot guest edits or discard disk changes");
+    await session.switchWorkspace(first, () => true);
+    check(decoder.decode(session.filesystem.readFile("file")) === "guest edits", "switch did not restore the retained workspace");
+    await session.boot();
 
-    rejectSave = true;
-    const failed = session.setTarget(first, retained, () => true);
-    await wait(() => machine.shutdowns === 2, "second shutdown missing");
-    machine.started = false;
-    machine.callbacks.onVmHalted("shutdown");
-    await failed.then(() => { throw new Error("save failure must reject switch"); }, () => {});
-    check(session.target === second && decoder.decode(machine.fs.readFile("file")) === "second", "failed server save retains outgoing namespace");
-    rejectSave = false;
-    await session.setTarget(first, clean, () => true);
-    check(first.snapshot === undefined && machine.discards === 1 && machine.coldResets === 1,
-        "Reset discards snapshot and disk changes");
+    // A newer selection arriving during cold reset prevents stale namespace replacement.
+    let current = true;
+    holdReset = true;
+    const obsolete = session.switchWorkspace(second, () => current);
+    await wait(() => releaseReset !== undefined, "cold reset did not begin");
+    current = false;
+    releaseReset();
+    holdReset = false;
+    check(await obsolete === false, "superseded switch completed");
+    await session.switchWorkspace(first, () => true);
+    check(decoder.decode(session.filesystem.readFile("file")) === "guest edits", "superseded switch overwrote a snapshot");
+    await session.boot();
 
-    const other = { ...target("other"), image: { ...image, configUrl: "https://image.invalid/b.cfg" } };
-    await session.setTarget(other, retained, () => true);
-    check(machine.destroyed && machines.length === 2 && machine.shutdowns === 2,
-        "different-image switch forces halt and creates a complete new VM");
-    check(first.snapshot !== undefined && decoder.decode(session.filesystem.readFile("file")) === "other",
-        "snapshots outlive old VM handles");
-    machine.callbacks.onVmStarted();
-    check(session.runtime === machines[1], "retired runtime callbacks cannot replace new VM");
-    const current = machines[1];
-    const lazy = { ...clean, boot: false };
-    const cleanTarget = { ...target("clean"), image: other.image };
-    await session.setTarget(cleanTarget, lazy, () => true);
-    check(session.runtime === current && !current.started && current.boots === 1,
-        "same-image preparation reuses a halted VM without booting");
-    check(current.discards === 1 && current.coldResets === 1 && session.state === "ready",
-        "lazy preparation clears disk overlays and leaves the session bootable");
-    current.fs.writeFile("extra", "discard me");
-    cleanTarget.loadFiles = async () => new Map([["file", encoder.encode("current work")]]);
-    await session.reset();
-    check(current.started && current.boots === 2 && current.discards === 2 && !current.fs.files.has("extra"),
-        "reset boots with a clean disk and namespace");
-    check(decoder.decode(current.fs.readFile("file")) === "current work", "reset loads current host files");
+    // Reboot starts clearing at the runtime boundary, after visible shutdown output.
+    machine.callbacks.consoleWrite("old boot history\r\n");
+    await terminal.readText();
     await session.reboot();
-    check(session.state === "stopping", "reboot waits visibly for the runtime callback");
-    session.terminal.paste("blocked");
-    await tick();
-    check(current.input.length === 0, "reboot wait blocks terminal input");
-    current.callbacks.onVmReset();
-    check(session.state === "running", "restart notification releases the reboot wait");
+    check(session.state === "stopping", "reboot does not wait visibly for its callback");
+    check((await terminal.readText()).includes("old boot history"), "shutdown output disappeared before reboot began");
+    await session.sendInput(encoder.encode("blocked"), Promise.resolve());
+    check(machine.input.length === 0, "reboot wait accepted terminal input");
+    machine.callbacks.consoleWrite("queued shutdown tail".repeat(2000));
+    machine.callbacks.consoleReset();
+    machine.callbacks.onVmReset();
+    machine.callbacks.consoleWrite("new boot starts at row one");
+    check(await terminal.readText() === "new boot starts at row one", "reboot replayed old output or lost fresh boot output");
+    check(session.state === "running", "restart notification did not release the reboot wait");
+
+    // A guest-initiated reboot also refreshes geometry while the app is already running.
+    const resizes = machine.resizes;
+    machine.callbacks.consoleReset();
+    machine.callbacks.onVmReset();
+    check(machine.resizes === resizes + 1, "guest reboot did not reannounce terminal geometry");
+
+    machine.fs.writeFile("extra", "keep me");
+    machine.callbacks.consoleWrite("obsolete recovery tail".repeat(2000));
+    await session.recover();
+    machine.callbacks.consoleWrite("recovered boot");
+    check(await terminal.readText() === "recovered boot", "recovery replayed output from the previous boot");
+    check(decoder.decode(session.filesystem.readFile("extra")) === "keep me", "recovery lost guest files");
     await session.destroy();
+    machine.callbacks.onVmStarted();
+    terminal.destroy();
     host.remove();
-    check(errors.length === 1 && errors[0].message === "save failed", "unexpected VM error");
+    check(errors.length === 0, "unexpected asynchronous VM error");
 }
 
 export async function run() { await editorTests(); await vmTests(); }

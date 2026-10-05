@@ -4,25 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { runChromePage } from "../ui/tests/chrome.mjs";
-
-// Instrument only the test response; production builds expose no test controls.
-const capture = `<script>
-window.testOutput = '';
-window.testErrors = [];
-window.testEvents = [];
-window.addEventListener('error', event => window.testErrors.push(event.message));
-window.addEventListener('unhandledrejection', event => window.testErrors.push(String(event.reason)));
-const instantiate = Riscbox.instantiate.bind(Riscbox);
-Riscbox.instantiate = async (bytes, options) => {
-    const runtime = await instantiate(bytes, { ...options,
-        consoleWrite: text => { window.testOutput += text; options.consoleWrite?.(text); },
-        onVmReset: cause => { window.testEvents.push(cause); options.onVmReset?.(cause); },
-        onError: error => { window.testErrors.push(String(error)); options.onError?.(error); },
-    });
-    window.testRuntime = runtime;
-    return runtime;
-};
-</script>`;
+import { observeApp } from "./app-fixture.mjs";
 
 test("deployed demo boots, synchronizes, switches, reboots, and recovers", { timeout: 240_000 }, async () => {
     const directory = await mkdtemp(join(tmpdir(), "risclet-app-"));
@@ -53,7 +35,12 @@ async function edit(text) {
     await sleep();
 }
 let serial = 0;
+// Command entry follows the painted prompt, after asynchronous parser replies.
+async function paintedPrompt() {
+    await new Promise(resolve => app.requestAnimationFrame(() => app.requestAnimationFrame(resolve)));
+}
 async function command(shell, expected) {
+    await paintedPrompt();
     const marker = 'RESULT_' + ++serial;
     app.testOutput = '';
     const bytes = new app.TextEncoder().encode(shell + '; printf "\\\\n' + marker + '\\\\n"\\r');
@@ -61,7 +48,10 @@ async function command(shell, expected) {
     await until(() => app.testOutput.replace(/\\r/g, '').includes('\\n' + marker + '\\n'), shell);
     check(app.testOutput.includes(expected), 'missing ' + expected + ': ' + app.testOutput);
 }
-async function prompt() { await until(() => app.testOutput.includes('risclet:~$'), 'risclet login'); }
+async function prompt() {
+    await until(() => app.testOutput.includes('risclet:~$'), 'risclet login');
+    await paintedPrompt();
+}
 async function select(title) {
     const item = [...doc.querySelectorAll('.example-button')].find(button => button.textContent === title);
     item.click();
@@ -79,6 +69,7 @@ try {
     check(!button('sync-button') && !button('vm-reset-button') && !button('status'), 'removed menu controls');
     await command('test ! -x /usr/bin/vim && test ! -x /usr/bin/micro && test ! -d /usr/share/zoneinfo && echo MINIMAL_ROOT_OK', ${JSON.stringify("\r\nMINIMAL_ROOT_OK\r\n")});
     await command(${JSON.stringify("awk '$2 == \"/\" {print $3, $4}' /proc/mounts")}, 'ext4 rw');
+    await command(${JSON.stringify("awk '$2 == \"/home/risclet\" {print $1, $3}' /proc/mounts")}, ${JSON.stringify("\r\nshared 9p\r\n")});
     await command(${JSON.stringify("test -z \"$(grep -E ' (overlay|tmpfs) ' /proc/mounts)\" && echo NO_OVERLAYS")}, ${JSON.stringify("\r\nNO_OVERLAYS\r\n")});
     await command('echo writable > /tmp/root-write; sync; cat /tmp/root-write', ${JSON.stringify("\r\nwritable\r\n")});
     const original = fileText('sort.s');
@@ -136,6 +127,23 @@ try {
     check(!runtime.started, 'instructions defer boot');
     check(!fs.listFiles().includes('extra'), 'outgoing files absent from new example');
     check((await disk.read(sector, 512)).every((byte, index) => byte === originalSector[index]), 'switch discards disk overlay');
+
+    // Rapid choices retire intermediate work without losing the final workspace.
+    const choose = title => [...doc.querySelectorAll('.example-button')].find(button => button.textContent === title).click();
+    choose('Insertion sort'); choose('Binary reduction steps'); choose('Insertion sort'); choose('Binary reduction steps');
+    await until(() => !button('vm-boot-button').disabled && [...doc.querySelectorAll('.example-button')].some(button => button.textContent === 'Binary reduction steps' && button.disabled), 'rapid final selection');
+    check(fs.listFiles().includes('reduction_steps.s') && !fs.listFiles().includes('sort.s'), 'rapid switch selected the wrong namespace');
+
+    // Documentation errors stay inside their pane and do not block the editor or VM.
+    const readme = fileText('README.md');
+    fs.writeFile('README.md', new app.TextEncoder().encode('# Changed README\\n![missing](missing.png)'));
+    await until(() => doc.querySelector('#instructions-tab-content [role=status]'), 'README error pane');
+    check(!doc.querySelector('#instructions-tab-content h1') && !button('vm-boot-button').disabled, 'README error retained stale content or blocked controls');
+    fs.writeFile('README.md', new app.TextEncoder().encode('# Safe README\\n<img src="/missing" onerror="window.readmeExecuted=true">\\n\\n[unsafe](javascript:alert(1))'));
+    await until(() => doc.querySelector('#instructions-tab-content h1')?.textContent === 'Safe README', 'README recovery');
+    check(!app.readmeExecuted && !doc.querySelector('#instructions-tab-content img'), 'guest README executed host HTML');
+    check(!doc.querySelector('#instructions-tab-content a').hasAttribute('href'), 'README retained an unsafe link');
+    fs.writeFile('README.md', new app.TextEncoder().encode(readme));
     click('vm-tab-button');
     app.testOutput = '';
     await prompt();
@@ -146,14 +154,14 @@ try {
     check(fs.readlink('symbolic') === 'extra', 'switch restores symlinks');
 
     check(app.testErrors.length === 0, app.testErrors.join('\\n'));
+    check(app.testAlerts.length === 0, app.testAlerts.join('\\n'));
     await fetch('/result?status=pass');
 } catch (error) { await fetch('/result?status=' + encodeURIComponent((error.stack ?? String(error)) + '\\n' + app?.testErrors?.join('\\n'))); }
 </script>`, directory, {
             root: resolve(import.meta.dirname, "../dist"), basePath: "/risclet", timeoutMs: 220_000,
             chromeArgs: ["--remote-debugging-port=0", "--window-size=1400,1000"],
             onRequest: url => requests.push(url.pathname),
-            transform: (path, bytes) => path.endsWith("index.html")
-                ? Buffer.from(bytes.toString().replace(/(<script src="riscbox\/riscbox.js"><\/script>)/, `$1${capture}`)) : bytes,
+            transform: observeApp,
         });
         assert.equal(requests.filter(path => /\/examples-[a-f0-9]+\.json\.gz$/.test(path)).length, 1);
         assert.equal(requests.filter(path => path.includes("/examples/")).length, 0);

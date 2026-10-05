@@ -51,6 +51,19 @@ test("terminal input retains partial sends, copies paste bytes, and retires queu
         tick();
         assert.deepEqual(received, [...expected, 42]);
         assert.equal(callbacks.size, 0);
+
+        // Replies arrive before the next guest task, after already queued typing.
+        queue.enqueue(Uint8Array.of(50, 51));
+        queue.enqueue(Uint8Array.of(27, 91, 82), true);
+        assert.deepEqual(received.slice(-5), [50, 51, 27, 91, 82]);
+        assert.equal(callbacks.size, 0);
+        capacity = 2;
+        queue.enqueue(Uint8Array.of(27, 91, 49, 82), true);
+        assert.deepEqual(received.slice(-2), [27, 91]);
+        assert.equal(callbacks.size, 1);
+        tick();
+        assert.deepEqual(received.slice(-4), [27, 91, 49, 82]);
+        assert.equal(callbacks.size, 0);
     } finally {
         globalThis.window = previousWindow;
     }

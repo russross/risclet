@@ -31,7 +31,10 @@ export async function runChromePage(html, directory, options = {}) {
             const types = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".svg": "image/svg+xml" };
             response.setHeader("Content-Type", types[extname(path)] ?? "application/octet-stream");
             response.end(bytes);
-        } catch { response.writeHead(404).end(); }
+        } catch (error) {
+            if (error.code === "ENOENT") response.writeHead(404).end();
+            else { finish(error.stack ?? String(error)); response.writeHead(500).end(); }
+        }
     });
     await new Promise(resolveListen => server.listen(0, "127.0.0.1", resolveListen));
     const flags = process.env.DISPLAY ? [] : ["--headless=new"];
@@ -39,7 +42,10 @@ export async function runChromePage(html, directory, options = {}) {
         ...(options.chromeArgs ?? []),
         `--user-data-dir=${join(directory, "chrome")}`, `http://127.0.0.1:${server.address().port}/probe.html`],
         { stdio: ["ignore", "ignore", "pipe"] });
-    const closed = new Promise(resolveClose => chrome.once("close", resolveClose));
+    const closed = new Promise(resolveClose => chrome.once("close", (code, signal) => {
+        finish(`Chrome exited before reporting a result: code=${code}, signal=${signal}`);
+        resolveClose();
+    }));
     let errors = "";
     chrome.stderr.on("data", bytes => { errors += bytes.toString(); });
     chrome.on("error", error => finish(String(error)));
@@ -48,7 +54,8 @@ export async function runChromePage(html, directory, options = {}) {
     finally {
         clearTimeout(timeout);
         if (chrome.exitCode === null && chrome.signalCode === null) chrome.kill("SIGTERM");
-        await closed;
+        const forceClose = setTimeout(() => chrome.kill("SIGKILL"), 3000);
+        try { await closed; } finally { clearTimeout(forceClose); }
         server.closeAllConnections();
         await new Promise(resolveClose => server.close(resolveClose));
     }

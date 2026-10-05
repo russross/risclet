@@ -3,9 +3,17 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import ts from "../ui/node_modules/typescript/lib/typescript.js";
-import { bundleExamples } from "../bundle.mjs";
+const execute = promisify(execFile);
+async function bundleExamples(directory) {
+    const output = join(directory, ".bundle.json.gz");
+    await execute("python3", [fileURLToPath(new URL("../scripts/bundle.py", import.meta.url)), directory, output]);
+    return readFile(output);
+}
 
 const source = await readFile(new URL("../ui/examples.ts", import.meta.url), "utf8");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } });

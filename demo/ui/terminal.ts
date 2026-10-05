@@ -1,13 +1,18 @@
-import { WTerm } from "@wterm/dom";
-import { GhosttyCore } from "@wterm/ghostty";
-import type { TerminalThemeColors } from "@wterm/core";
-import "@wterm/dom/css";
+import { Terminal } from "@xterm/xterm";
+import type { ITheme } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { observeUserInput } from "./terminal-user-input";
+import { defaultFontSize, monospaceFontFamily } from "./typography";
+import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 
-const theme: TerminalThemeColors = {
-    background: 0x000000, foreground: 0xc0c0c0, cursor: 0xc0c0c0,
-    palette: [0x000000, 0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff, 0x00ffff, 0xffffff,
-        0x808080, 0xff8080, 0x80ff80, 0xffff80, 0x8080ff, 0xff80ff, 0x80ffff, 0xffffff],
+const theme: ITheme = {
+    background: "#000000", foreground: "#c0c0c0", cursor: "#c0c0c0", cursorAccent: "#000000",
+    black: "#000000", red: "#ff0000", green: "#00ff00", yellow: "#ffff00",
+    blue: "#0000ff", magenta: "#ff00ff", cyan: "#00ffff", white: "#ffffff",
+    brightBlack: "#808080", brightRed: "#ff8080", brightGreen: "#80ff80", brightYellow: "#ffff80",
+    brightBlue: "#8080ff", brightMagenta: "#ff80ff", brightCyan: "#80ffff", brightWhite: "#ffffff",
 };
 
 export interface TerminalCallbacks {
@@ -16,103 +21,137 @@ export interface TerminalCallbacks {
     onBinary?(bytes: Uint8Array): void;
     onResize?(cols: number, rows: number): void;
 }
-export interface TerminalOptions {
-    readonly readOnly?: boolean;
-    readonly theme?: TerminalThemeColors;
-    readonly label?: string;
-}
 
-// The widget owns DOM input and rendering; its core owns terminal state.
+// Each screen owns its parser queue, input subscriptions, and rendering resources.
 export class TerminalView {
     readonly ready: Promise<void>;
-    private widget: WTerm | undefined;
-    private core: GhosttyCore | undefined;
-    private initialized = false;
+    private widget: Terminal;
+    private fitAddon: FitAddon;
+    private readonly resizeObserver: ResizeObserver;
     private destroyed = false;
 
-    constructor(readonly element: HTMLElement, private readonly callbacks: TerminalCallbacks = {},
-        private readonly options: TerminalOptions = {}) {
+    constructor(readonly element: HTMLElement, private readonly callbacks: TerminalCallbacks = {}) {
         element.classList.add("terminal-vm");
-        if (options.theme !== undefined) element.style.backgroundColor = `#${options.theme.background.toString(16).padStart(6, "0")}`;
-        this.ready = this.initialize();
+        element.style.backgroundColor = "#000000";
+        this.fitAddon = new FitAddon();
+        this.widget = this.createScreen(80, 24);
+        this.resizeObserver = new ResizeObserver(() => this.fit());
+        this.resizeObserver.observe(element);
+        this.ready = document.fonts.load(`${defaultFontSize}px ${monospaceFontFamily}`).then(() => { this.fit(); });
     }
 
-    private async initialize(): Promise<void> {
-        const core = await GhosttyCore.load({ scrollbackLimit: 64 * 1024, imageStorageLimit: 0 });
-        if (this.destroyed) { core.dispose(); return; }
-        this.core = core;
+    private createScreen(cols: number, rows: number): Terminal {
+        const widget = new Terminal({ cols, rows, fontFamily: monospaceFontFamily,
+            fontSize: defaultFontSize, lineHeight: 1.2, theme, cursorBlink: true,
+            scrollback: 64 * 1024, smoothScrollDuration: 0, customGlyphs: true,
+            windowOptions: { getWinSizePixels: true, getCellSizePixels: true },
+        });
         const surface = document.createElement("div");
         surface.className = "terminal-surface";
-        this.element.appendChild(surface);
+        this.element.replaceChildren(surface);
+        widget.loadAddon(this.fitAddon);
+        widget.open(surface);
 
-        // Theme defaults reach both the parser and renderer before first output.
-        const widget = new WTerm(surface, { core, cursorBlink: !this.options.readOnly,
-            onData: text => { if (this.acceptsInput) this.callbacks.onData?.(text); },
-            onResponse: text => { if (this.acceptsInput) this.callbacks.onResponse?.(text); },
-            onBinary: bytes => { if (this.acceptsInput) this.callbacks.onBinary?.(bytes); },
-            onResize: this.callbacks.onResize,
+        // xterm's internal user-input signal distinguishes typing from parser replies.
+        let userInput = false;
+        const subscription = observeUserInput(widget, () => { userInput = true; });
+        widget.onData(text => {
+            const fromUser = userInput;
+            userInput = false;
+            if (this.destroyed || this.widget !== widget) return;
+            if (fromUser) this.callbacks.onData?.(text);
+            else this.callbacks.onResponse?.(text);
         });
-        this.widget = widget;
-        widget.setThemeColors(this.options.theme ?? theme);
-        try {
-            await widget.init();
-            this.initialized = true;
-            const input = surface.querySelector("textarea");
-            input?.setAttribute("aria-label", this.options.label ?? "Virtual machine console");
-            if (input !== null && !this.acceptsInput) { input.readOnly = true; widget.write("\x1b[?25l"); }
-        } catch (error: unknown) {
-            this.destroy();
-            throw error;
-        }
+        widget.onBinary(text => {
+            if (!this.destroyed && this.widget === widget) {
+                this.callbacks.onBinary?.(Uint8Array.from(text, character => character.charCodeAt(0)));
+            }
+        });
+        widget.onResize(({ cols, rows }) => this.callbacks.onResize?.(cols, rows));
+        widget.loadAddon({ activate: () => {}, dispose: () => subscription.dispose() });
+        surface.addEventListener("paste", event => {
+            if (event.clipboardData === null) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.paste(event.clipboardData.getData("text/plain"));
+        }, { capture: true });
+
+        // WebGL draws connected box glyphs directly at device-pixel cell boundaries.
+        const renderer = new WebglAddon();
+        renderer.onContextLoss(() => {
+            renderer.dispose();
+            console.warn("Terminal WebGL context lost; using the DOM renderer");
+        });
+        try { widget.loadAddon(renderer); }
+        catch (error: unknown) { console.warn("Terminal WebGL unavailable; using the DOM renderer", error); }
+        widget.textarea?.setAttribute("aria-label", "Virtual machine console");
+        return widget;
     }
 
-    get cols(): number { return this.widget?.cols ?? 80; }
-    get rows(): number { return this.widget?.rows ?? 24; }
-    get acceptsInput(): boolean { return !this.options.readOnly; }
-    fit(): void { this.widget?.fit(); }
-
-    // Startup output and focus requests wait for the asynchronously loaded core.
-    private apply(operation: (widget: WTerm) => void): void {
-        if (this.destroyed) return;
-        if (this.initialized && this.widget !== undefined) { operation(this.widget); return; }
-        void this.ready.then(() => {
-            if (!this.destroyed && this.widget !== undefined) operation(this.widget);
-        }).catch((error: unknown) => console.error("Terminal initialization failed", error));
+    get cols(): number { return this.widget.cols; }
+    get rows(): number { return this.widget.rows; }
+    fit(): void {
+        if (!this.destroyed && this.element.clientWidth > 0 && this.element.clientHeight > 0) this.fitAddon.fit();
     }
-
-    write(text: string | Uint8Array): void { this.apply(widget => widget.write(text)); }
+    write(text: string | Uint8Array): void { if (!this.destroyed) this.widget.write(text); }
     writeln(text: string): void { this.write(`${text}\r\n`); }
-    focus(): void { this.apply(widget => widget.focus()); }
-    async readText(): Promise<string> { await this.ready; return this.widget?.readText() ?? ""; }
-    getSelection(): string { return this.widget?.getSelectionText() ?? ""; }
-    hasSelection(): boolean { return this.getSelection() !== ""; }
-    clearSelection(): void { this.widget?.clearSelection(); }
-    paste(text: string): void {
-        if (!this.acceptsInput || this.destroyed) return;
-        this.apply(widget => {
-            widget.clearSelection();
-            widget.element.scrollTop = widget.element.scrollHeight;
-            const input = this.core?.bracketedPaste() === true
-                ? `\x1b[200~${text.replace(/\x1b/g, "")}\x1b[201~` : text;
-            this.callbacks.onData?.(input);
-        });
-    }
-    selectWord(row: number, col: number): boolean { return this.widget?.selectWord({ row, col }) ?? false; }
-    async selectAll(): Promise<boolean> { await this.ready; return this.widget?.selectAll() ?? false; }
+    focus(): void { if (!this.destroyed) this.widget.focus(); }
 
-    // A machine reset removes history, selection, and guest terminal modes.
+    // The write callback is a parser barrier, so callers see all earlier output.
+    async readText(): Promise<string> {
+        await this.ready;
+        if (this.destroyed) return "";
+        const widget = this.widget;
+        await new Promise<void>(resolve => widget.write("", resolve));
+        if (this.destroyed) return "";
+        if (widget !== this.widget) return this.readText();
+        const buffer = widget.buffer.active;
+        const lines: string[] = [];
+        for (let row = 0; row < buffer.length; row++) lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
+        return lines.join("\n").trimEnd();
+    }
+    getSelection(): string { return this.destroyed ? "" : this.widget.getSelection(); }
+    hasSelection(): boolean { return !this.destroyed && this.widget.hasSelection(); }
+    clearSelection(): void { if (!this.destroyed) this.widget.clearSelection(); }
+    paste(text: string): void {
+        if (this.destroyed) return;
+        this.widget.clearSelection();
+        this.widget.scrollToBottom();
+        this.widget.paste(this.widget.modes.bracketedPasteMode ? text.replace(/\x1b/g, "") : text);
+    }
+    async selectAll(): Promise<boolean> {
+        await this.readText();
+        if (this.destroyed) return false;
+        this.widget.selectAll();
+        return this.widget.hasSelection();
+    }
+
+    // Release the old GPU context after xterm removes its rendering listeners.
+    private disposeScreen(): void {
+        const canvas = this.element.querySelector("canvas");
+        const context = canvas?.getContext("webgl2");
+        this.widget.dispose();
+        context?.getExtension("WEBGL_lose_context")?.loseContext();
+    }
+
+    // Replacing the parser drops queued old output before the first reboot paint.
     clear(): void {
-        this.apply(widget => {
-            widget.clearSelection();
-            widget.write(`\x1bc\x1b[3J\x1b[2J\x1b[H\x1b[?25${this.acceptsInput ? "h" : "l"}`);
-            widget.element.scrollTop = widget.element.scrollHeight;
-        });
+        if (this.destroyed) return;
+        const cols = this.cols;
+        const rows = this.rows;
+        const focused = this.element.contains(document.activeElement);
+        this.disposeScreen();
+        this.fitAddon = new FitAddon();
+        this.widget = this.createScreen(cols, rows);
+        this.fit();
+        if (focused) this.widget.focus();
     }
 
     destroy(): void {
+        if (this.destroyed) return;
         this.destroyed = true;
-        this.widget?.destroy();
-        this.widget?.element.remove();
-        this.core?.dispose();
+        this.resizeObserver.disconnect();
+        this.disposeScreen();
+        this.element.replaceChildren();
     }
 }

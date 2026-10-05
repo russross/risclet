@@ -7,7 +7,7 @@ test("shared editor and VM sessions preserve changes and retire obsolete work", 
     const directory = await compileFixture("./tests/session.mjs", "sessionTests");
     try {
         const url = `/build/${directory.split("/").pop()}/fixture.js`;
-        await runChromePage(`<!doctype html><meta charset="UTF-8"><body><script src="${url}"></script><script>
+        await runChromePage(`<!doctype html><html style="font-size:20px"><meta charset="UTF-8"><body><script src="${url}"></script><script>
             sessionTests.run().then(() => fetch("/result?status=pass"),
                 error => fetch("/result?status=" + encodeURIComponent(error.stack)));
         </script>`, directory);

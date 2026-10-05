@@ -6,10 +6,14 @@ export class TerminalInputQueue {
 
     constructor(private readonly send: (bytes: Uint8Array) => number) {}
 
-    enqueue(bytes: Uint8Array): void {
+    enqueue(bytes: Uint8Array, immediate = false): void {
         if (bytes.length === 0) return;
         this.chunks.push(bytes.slice());
-        this.schedule();
+        if (immediate) {
+            if (this.timer !== undefined) window.clearTimeout(this.timer);
+            this.timer = undefined;
+            this.drain();
+        } else this.schedule();
     }
 
     clear(): void {
@@ -24,19 +28,26 @@ export class TerminalInputQueue {
         if (this.timer !== undefined || this.chunks.length === 0) return;
         this.timer = window.setTimeout(() => {
             this.timer = undefined;
+            this.drain();
+        }, 10);
+    }
+
+    // Protocol replies get an immediate FIFO attempt while retaining earlier input order.
+    private drain(): void {
+        let budget = 1024;
+        while (this.chunks.length > 0 && budget > 0) {
             const chunk = this.chunks[0];
-            const bytes = chunk.subarray(this.offset, this.offset + 1024);
+            const bytes = chunk.subarray(this.offset, this.offset + budget);
             const accepted = this.send(bytes);
             if (!Number.isInteger(accepted) || accepted < 0 || accepted > bytes.length) {
                 this.clear();
                 throw new Error(`Invalid VM input acceptance count: ${accepted}`);
             }
             this.offset += accepted;
-            if (this.offset === chunk.length) {
-                this.chunks.shift();
-                this.offset = 0;
-            }
-            this.schedule();
-        }, 10);
+            budget -= accepted;
+            if (this.offset === chunk.length) { this.chunks.shift(); this.offset = 0; }
+            if (accepted < bytes.length) break;
+        }
+        this.schedule();
     }
 }

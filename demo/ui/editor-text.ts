@@ -17,7 +17,7 @@ export function softTab(view: EditorView): boolean {
         const line = view.state.doc.lineAt(range.from);
         const column = range.from - line.from;
         const spaces = tabSize - (column % tabSize);
-        const insert = " ".repeat(spaces === 0 ? tabSize : spaces);
+        const insert = " ".repeat(spaces);
         return {
             changes: { from: range.from, to: range.to, insert },
             range: EditorSelection.cursor(range.from + insert.length),

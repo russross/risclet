@@ -1,34 +1,25 @@
 import Split from "split.js";
 import { EditorSession } from "./editor-session";
-import { renderInstructions } from "./instructions";
+import { InstructionsPane } from "./instructions";
 import { renderFileTree as renderWorkspaceTree } from "./workspace-view";
-import { changeAffectsPath } from "./workspace";
 import { VmSession } from "./vm-session";
-import type { VmImage, VmTarget, VmTransition } from "./vm-session";
+import type { VmImage, VmWorkspace } from "./vm-session";
+import { TerminalView } from "./terminal";
 import type { Riscbox } from "@riscbox/runtime";
 import type { P9Change } from "@riscbox/storage";
 import { loadExamples } from "./examples";
 import type { ExampleDescription } from "./examples";
 
-interface ExampleState extends VmTarget { readonly description: ExampleDescription; }
+interface ExampleState extends VmWorkspace { readonly description: ExampleDescription; }
 declare global { interface Window { Riscbox: typeof Riscbox; } }
 
-const switchTransition: VmTransition = {
-    workspace: "snapshot", poweroff: "force", discardDiskChanges: true, boot: false,
-};
-const image: VmImage = {
-    configUrl: new URL("riscbox.cfg", window.location.href).href,
-    runtimeUrl: new URL("riscbox/riscbox.js", window.location.href).href,
-    wasmUrl: new URL("riscbox/riscbox.wasm", window.location.href).href,
-    memoryMiB: 256, shareName: "default",
-};
 let examples: ExampleState[] = [];
 let currentExample: ExampleState | null = null;
 let editor: EditorSession;
-let vm: VmSession<ExampleState>;
+let vm: VmSession;
+let terminal: TerminalView;
+let instructions: InstructionsPane;
 let viewGeneration = 0;
-let instructionsGeneration = 0;
-let instructionPaths = new Set<string>();
 let switchQueue = Promise.resolve();
 let switching = false;
 let recovering = false;
@@ -67,12 +58,12 @@ function renderFileTree(): void {
     const paths = currentExample === null ? [] : vm.filesystem.listFiles();
     if (editor.path !== null && !paths.includes(editor.path) && !editor.dirty) editor.clear();
     renderWorkspaceTree(requiredElement("file-tree-pane"), paths, {
-        selectedPath: editor.path, priority: () => 0,
+        selectedPath: editor.path,
         onSelect: path => {
             if (switching || recovering) return;
             const view = viewGeneration;
             const selection = ++fileSelectionGeneration;
-            void editor.flush("selection").then(() => {
+            void editor.flush().then(() => {
                 if (view === viewGeneration && selection === fileSelectionGeneration && !switching && !recovering) openFile(path);
             }).catch(reportUiError);
         },
@@ -94,39 +85,28 @@ function selectTab(name: "instructions" | "vm"): void {
         content.classList.toggle("active", content.id === `${selected}-tab-content`);
     }
     if (selected === "vm") {
-        vm.fit();
-        if (!switching && !recovering) void editor.flush("interaction").then(() => vm.bootIfInactive()).catch(reportUiError);
+        terminal.fit();
+        if (!switching && !recovering) void activateVm().catch(reportUiError);
     }
 }
-async function updateInstructions(): Promise<void> {
-    const view = viewGeneration;
-    const request = ++instructionsGeneration;
-    const example = currentExample;
-    const documentPath = example?.description.documentation;
-    const dependencies = new Set(documentPath === undefined ? [] : [documentPath]);
-    let rendered: string;
-    try { rendered = documentPath === undefined ? "" : await renderInstructions(vm.filesystem, dependencies, documentPath); }
-    catch (error: unknown) {
-        if (view !== viewGeneration || request !== instructionsGeneration) return;
-        instructionPaths = dependencies;
-        throw error;
-    }
-    if (view !== viewGeneration || request !== instructionsGeneration || example !== currentExample) return;
-    instructionPaths = dependencies;
-    const button = requiredButton("instructions-tab-button");
-    const content = requiredElement("instructions-tab-content");
-    button.hidden = rendered === "";
-    content.innerHTML = rendered;
-    if (rendered === "" && content.classList.contains("active")) selectTab("vm");
+async function activateVm(): Promise<void> {
+    const generation = viewGeneration;
+    await editor.flush();
+    if (generation !== viewGeneration || switching || recovering) return;
+    if (vm.state === "ready" || vm.state === "halted" || vm.state === "failed") {
+        await vm.boot();
+        if (generation !== viewGeneration) return;
+        const target = examples.find(example => example === vm.target);
+        if (target !== undefined && currentExample !== target) showExample(target);
+    } else if (vm.state === "running") terminal.focus();
 }
 function handleFilesystemChange(change: P9Change): void {
     if (switching || recovering || currentExample === null) return;
     try {
         editor.handleChange(change);
         if (change.kind !== "write") renderFileTree();
-        if ([...instructionPaths].some(path => changeAffectsPath(change, path))) {
-            void updateInstructions().catch(reportUiError);
-        }
+        instructions.handleChange(vm.filesystem, change);
+        if (!instructions.visible && requiredElement("instructions-tab-content").classList.contains("active")) selectTab("vm");
     } catch (error: unknown) { reportUiError(error); }
 }
 
@@ -154,7 +134,7 @@ function switchExample(example: ExampleState): Promise<void> {
     for (const button of document.querySelectorAll<HTMLButtonElement>(".example-button")) button.disabled = false;
     const selection = switchQueue.then(async () => {
         if (generation !== viewGeneration) return;
-        await editor.flush("transition");
+        await editor.flush();
         if (generation !== viewGeneration) return;
         switching = true;
         updateControls();
@@ -163,9 +143,9 @@ function switchExample(example: ExampleState): Promise<void> {
         let selected = false;
         try {
             const isCurrent = (): boolean => generation === viewGeneration;
-            const changed = await vm.setTarget(example, switchTransition, isCurrent);
+            const changed = await vm.switchWorkspace(example, isCurrent);
             if (changed) {
-                await showExample(example, generation);
+                showExample(example);
                 selected = true;
             }
         } finally {
@@ -173,23 +153,21 @@ function switchExample(example: ExampleState): Promise<void> {
             if (!selected) editor.setReadOnly(wasReadOnly);
             updateControls();
         }
-        if (selected && requiredElement("vm-tab-content").classList.contains("active")) vm.bootIfInactive();
+        if (selected && requiredElement("vm-tab-content").classList.contains("active")) await activateVm();
     });
-    switchQueue = selection.then(() => undefined, reportUiError);
+    switchQueue = selection.catch(() => undefined);
     return selection;
 }
 
-async function showExample(example: ExampleState, generation: number): Promise<void> {
+function showExample(example: ExampleState): void {
     currentExample = example;
     renderMenu();
     editor.clear();
     renderFileTree();
-    await updateInstructions();
-    if (generation !== viewGeneration) return;
+    instructions.update(vm.filesystem, example.description.documentation);
     const paths = vm.filesystem.listFiles();
     const preferred = paths.includes(example.description.editable) ? example.description.editable : paths[0];
     if (preferred !== undefined) openFile(preferred);
-    if (generation !== viewGeneration) return;
     selectTab(example.description.documentation !== undefined ? "instructions" : "vm");
     const url = new URL(window.location.href);
     url.searchParams.set("example", example.description.id);
@@ -206,8 +184,7 @@ async function recoverVm(): Promise<void> {
     renderMenu();
     updateControls();
     try {
-        await vm.forceHalt();
-        await vm.setTarget(target, { ...switchTransition, boot: true }, () => true);
+        await vm.recover();
     } finally {
         recovering = false;
         editor.setReadOnly(readOnly);
@@ -220,24 +197,30 @@ async function recoverVm(): Promise<void> {
 async function initialize(): Promise<void> {
     Split(["#file-tree-pane", "#editor-pane", "#info-pane"], {
         sizes: [10, 45, 45], minSize: 0, gutterSize: 8, cursor: "grabbing",
-        onDrag: () => vm.fit(),
     });
     editor = new EditorSession(requiredElement("editor-pane"), {
-        canEdit: () => true, onChange: updateControls, onSynced: () => {}, onError: reportUiError,
+        onError: reportUiError,
         confirmDiscard: () => window.confirm("The filesystem changed this file while you have unflushed edits. Discard your edits and use the filesystem version? Keeping your edits will replace the filesystem version on the next flush."),
     });
-    vm = new VmSession(requiredElement("vm-terminal"), {
-        loadRuntime: async () => window.Riscbox,
-        flushEditor: () => editor.flush("interaction"), canInteract: () => !switching && !recovering,
-        beforeReplace: () => { if (!recovering) { editor.clear(); currentExample = null; } },
-        afterSnapshot: async () => {}, onFilesystemChange: handleFilesystemChange,
+    const sendInput = (bytes: Uint8Array): void => {
+        if (!switching && !recovering && vm.state === "running") void vm.sendInput(bytes, editor.flush()).catch(reportUiError);
+    };
+    terminal = new TerminalView(requiredElement("vm-terminal"), {
+        onData: text => sendInput(new TextEncoder().encode(text)), onBinary: sendInput,
+        onResponse: text => vm.sendResponse(new TextEncoder().encode(text)),
+        onResize: (columns, rows) => vm?.resize(columns, rows),
+    });
+    instructions = new InstructionsPane(requiredElement("instructions-tab-content"), requiredButton("instructions-tab-button"));
+    const image: VmImage = { configUrl: assetUrl("config"), wasmUrl: assetUrl("wasm"), memoryMiB: 256, shareName: "default" };
+    vm = new VmSession(window.Riscbox, image, terminal, {
+        onFilesystemChange: handleFilesystemChange,
         onError: reportUiError,
         onStateChange: updateControls,
     });
 
     requiredButton("vm-boot-button").addEventListener("click", () => {
         if (vm.state === "stopping") { void recoverVm().catch(reportUiError); return; }
-        void editor.flush("interaction").then(async () => {
+        void editor.flush().then(async () => {
             const running = vm.state === "running";
             selectTab("vm");
             if (running) await vm.reboot();
@@ -248,16 +231,14 @@ async function initialize(): Promise<void> {
     });
     requiredButton("instructions-tab-button").addEventListener("click", () => selectTab("instructions"));
     requiredButton("vm-tab-button").addEventListener("click", () => selectTab("vm"));
-    await vm.prepareImage(image);
     examples = (await loadExamples(assetUrl("examples"))).map(description => ({
-        description, image, loadFiles: async () => description.files,
+        description, files: description.files,
     }));
     renderMenu();
-    if (examples.length === 0) throw new Error("No examples are configured");
     const requested = new URL(window.location.href).searchParams.get("example");
     await switchExample(examples.find(example => example.description.id === requested) ?? examples[0]);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    void initialize().catch(error => { console.error("Could not start the Risclet demo", error); reportUiError(error); });
+    void initialize().catch(reportUiError);
 });

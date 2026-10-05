@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import webpack from "webpack";
-import { terminalRules } from "../loaders/webpack.mjs";
 
 // Fixtures exercise the bundled source in a real DOM; host type checks run separately.
 export async function compileFixture(entry, library) {
@@ -9,7 +8,7 @@ export async function compileFixture(entry, library) {
     const directory = await mkdtemp(join(import.meta.dirname, "../build/test-fixture-"));
     const compiler = webpack({ mode: "development", context: join(import.meta.dirname, ".."),
         entry, output: { path: directory, filename: "fixture.js", library: { name: library, type: "window" } },
-        module: { rules: [...terminalRules(),
+        module: { rules: [
             { test: /\.ts$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ },
             { test: /\.css$/, use: ["style-loader", "css-loader"] }] },
         resolve: { extensions: [".ts", ".js"] } });

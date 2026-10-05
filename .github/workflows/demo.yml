@@ -1,0 +1,98 @@
+name: Demo Test, Build, and Deploy
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      risclet_version:
+        description: Published version selected by the release workflow
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Both entry points share a deployment queue. Freshness is checked again before publication.
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and Build Demo
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: demo/ui/package-lock.json
+      - name: Install build and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot e2fsprogs jq
+          command -v google-chrome
+          command -v python3
+      - name: Select published Risclet version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.risclet_version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then
+            version=${RELEASE_VERSION#v}
+          else
+            gh api --paginate --slurp repos/russross/risclet/releases \
+              | python3 .github/scripts/demo_version.py > demo-version.txt
+            version=$(cat demo-version.txt)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Test and build published release demo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RISCLET_VERSION: ${{ steps.version.outputs.version }}
+        run: make -C demo test RISCLET_VERSION="$RISCLET_VERSION"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: demo/dist
+
+  deploy:
+    name: Deploy Demo
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment freshness
+        id: freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILT_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_VERSION: ${{ inputs.risclet_version }}
+        run: |
+          gh api --paginate --slurp repos/russross/risclet/releases \
+            | python3 .github/scripts/demo_version.py > latest-version.txt
+          latest=$(cat latest-version.txt)
+          current=true
+          if [ "$BUILT_VERSION" != "$latest" ]; then current=false; fi
+          if [ -z "$RELEASE_VERSION" ]; then
+            main_sha=$(gh api repos/russross/risclet/commits/main --jq .sha)
+            if [ "$GITHUB_SHA" != "$main_sha" ]; then current=false; fi
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ "$current" = false ]; then echo "Skipping superseded demo build"; fi
+      - uses: actions/configure-pages@v5
+        if: steps.freshness.outputs.current == 'true'
+      - uses: actions/deploy-pages@v4
+        if: steps.freshness.outputs.current == 'true'
+        id: deployment

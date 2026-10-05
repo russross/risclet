@@ -9,14 +9,13 @@ import ts from "typescript";
 import { snapshotRegression } from "./workspace.mjs";
 
 const adapter = process.env.RISCBOX_CLIENT_RUNTIME
-    ? resolve(process.env.RISCBOX_CLIENT_RUNTIME) : fileURLToPath(new URL("../../build/js/riscbox.js", import.meta.url));
+    ? resolve(process.env.RISCBOX_CLIENT_RUNTIME) : fileURLToPath(new URL("../../build/riscbox/riscbox.js", import.meta.url));
 const wasm = process.env.RISCBOX_CLIENT_WASM
-    ? resolve(process.env.RISCBOX_CLIENT_WASM) : fileURLToPath(new URL("../../target/wasm32-unknown-unknown/release/riscbox_wasm.wasm", import.meta.url));
+    ? resolve(process.env.RISCBOX_CLIENT_WASM) : fileURLToPath(new URL("../../build/riscbox/riscbox.wasm", import.meta.url));
 
 // A supplied current build checks metadata and links without a guest image.
-test("shared snapshots preserve complete real WASM namespaces", {
-    skip: !existsSync(adapter) || !existsSync(wasm) ? "Set RISCBOX_CLIENT_RUNTIME and RISCBOX_CLIENT_WASM to a matching build" : false,
-}, async () => {
+test("shared snapshots preserve complete real WASM namespaces", async () => {
+    assert.ok(existsSync(adapter) && existsSync(wasm), "Run make -C demo before testing the matching published runtime");
     const { Riscbox } = createRequire(import.meta.url)(adapter);
     const source = ts.transpileModule(await readFile(new URL("../workspace.ts", import.meta.url), "utf8"),
         { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;

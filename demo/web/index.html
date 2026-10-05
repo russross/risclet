@@ -5,9 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Risclet examples</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <script src="riscbox/riscbox.js"></script>
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="{{style}}">
+    <script src="{{runtime}}"></script>
+    <script src="{{app}}" defer></script>
     <meta name="risclet-examples" content="{{examples}}">
+    <meta name="risclet-config" content="{{config}}">
+    <meta name="risclet-wasm" content="{{wasm}}">
 </head>
 <body>
     <div id="menu-bar">
@@ -30,6 +33,5 @@
             </div>
         </div>
     </div>
-    <link rel="stylesheet" href="style.css">
 </body>
 </html>

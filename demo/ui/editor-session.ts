@@ -5,19 +5,16 @@ import { basicSetup } from "codemirror";
 import type { Filesystem, P9Change } from "@riscbox/storage";
 import { editorTextFromFile, languageFor, softTab } from "./editor-text";
 import { changeAffectsPath } from "./workspace";
+import { defaultFontSize, monospaceFontFamily } from "./typography";
 
-export type SyncTrigger = "blur" | "timer" | "explicit" | "selection" | "interaction" | "transition";
 export const EDITOR_ORIGIN = 1n;
 export type EditorFilesystem = Pick<Filesystem, "readFile" | "writeFile" | "listFiles">;
 export interface EditorSessionOptions {
-    canEdit(path: string): boolean;
-    onChange(): void;
-    onSynced(trigger: SyncTrigger): void;
     onError(error: unknown): void;
     confirmDiscard(path: string): boolean;
 }
 
-// The editor owns buffered revisions; server persistence owns a separate revision.
+// Buffered revisions are acknowledged only after a successful filesystem write.
 export class EditorSession {
     readonly view: EditorView;
     private readonly language = new Compartment();
@@ -34,13 +31,16 @@ export class EditorSession {
     constructor(host: HTMLElement, private readonly options: EditorSessionOptions) {
         this.view = new EditorView({ parent: host, state: EditorState.create({ extensions: [
             basicSetup, keymap.of([{ key: "Tab", run: softTab }, ...defaultKeymap]),
+            EditorView.theme({
+                "&": { fontSize: `${defaultFontSize}px` },
+                ".cm-scroller": { fontFamily: monospaceFontFamily },
+            }),
             this.language.of([]), this.access.of([EditorView.editable.of(false), EditorState.readOnly.of(true)]),
-            EditorView.domEventHandlers({ blur: () => { void this.flush("blur").catch(options.onError); } }),
+            EditorView.domEventHandlers({ blur: () => { void this.flush().catch(options.onError); } }),
             EditorView.updateListener.of(update => {
                 if (!update.docChanged || this.programmatic || update.state.readOnly) return;
                 this.revision += 1;
                 this.schedule();
-                options.onChange();
             }),
         ] }) });
     }
@@ -64,8 +64,7 @@ export class EditorSession {
         this.selectedPath = path;
         this.conflictPath = null;
         this.replace(binary ? "This file appears to be a binary file and cannot be displayed in the editor."
-            : editorTextFromFile(bytes), !binary && this.options.canEdit(path), path);
-        this.options.onChange();
+            : editorTextFromFile(bytes), !binary, path);
         if (focus) this.view.focus();
     }
 
@@ -76,7 +75,6 @@ export class EditorSession {
         this.selectedPath = null;
         this.filesystem = undefined;
         this.replace("", false, "");
-        this.options.onChange();
     }
 
     private replace(text: string, canEdit: boolean, filename: string): void {
@@ -101,11 +99,11 @@ export class EditorSession {
         if (!this.dirty) return;
         this.timer = window.setTimeout(() => {
             this.timer = undefined;
-            void this.flush("timer").catch(this.options.onError);
+            void this.flush().catch(this.options.onError);
         }, 30_000);
     }
 
-    flush(trigger: SyncTrigger = "explicit"): Promise<void> {
+    flush(): Promise<void> {
         this.cancelTimer();
         // A blur during recovery cannot become writable later in the queue.
         const canWrite = !this.readOnly;
@@ -121,10 +119,8 @@ export class EditorSession {
                     this.acknowledged = Math.max(this.acknowledged, revision);
                     this.conflictPath = null;
                     this.schedule();
-                    this.options.onChange();
                 }
             }
-            this.options.onSynced(trigger);
         });
         this.writes = operation.catch(() => undefined);
         return operation;
@@ -138,7 +134,6 @@ export class EditorSession {
             && (this.selectedPath === change.oldPath || this.selectedPath.startsWith(`${change.oldPath}/`));
         if (rename && change.oldPath !== undefined) {
             this.selectedPath = change.path + this.selectedPath.slice(change.oldPath.length);
-            this.options.onChange();
         }
         if ((change.source === "host" && change.origin === EDITOR_ORIGIN)
             || !changeAffectsPath(change, this.selectedPath)) return;

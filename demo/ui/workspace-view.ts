@@ -5,15 +5,13 @@ interface TreeNode {
     readonly path: string;
     readonly children: Map<string, TreeNode>;
     isFile: boolean;
-    priority: number;
 }
 export interface FileTreeOptions {
     readonly selectedPath: string | null;
     onSelect(path: string): void;
-    priority(path: string): number;
 }
 
-// Priority propagates to directories so application file groups stay together.
+// Directories precede files at each level, with names sorted within each group.
 export function renderFileTree(host: HTMLElement, paths: readonly string[], options: FileTreeOptions): void {
     const root = new Map<string, TreeNode>();
     for (const path of paths) {
@@ -24,17 +22,16 @@ export function renderFileTree(host: HTMLElement, paths: readonly string[], opti
             let node = children.get(name);
             if (node === undefined) {
                 node = { name, path: parts.slice(0, index + 1).join("/"), isFile: index === parts.length - 1,
-                    children: new Map(), priority: options.priority(path) };
+                    children: new Map() };
                 children.set(name, node);
             }
-            node.priority = Math.min(node.priority, options.priority(path));
             children = node.children;
         }
     }
     const render = (nodes: ReadonlyMap<string, TreeNode>, depth: number): HTMLUListElement => {
         const list = document.createElement("ul");
-        const sorted = [...nodes.values()].sort((left, right) => left.priority - right.priority
-            || Number(left.isFile) - Number(right.isFile) || left.name.localeCompare(right.name));
+        const sorted = [...nodes.values()].sort((left, right) =>
+            Number(left.isFile) - Number(right.isFile) || left.name.localeCompare(right.name));
         for (const node of sorted) {
             const item = document.createElement("li");
             item.classList.add(node.isFile ? "file" : "folder");
