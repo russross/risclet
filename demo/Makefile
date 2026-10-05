@@ -75,9 +75,9 @@ build/rootfs.ext4: build/guest-inputs build-image.sh $(RISCLET_BINARY) $(ALPINE_
 	./build-image.sh '$(RISCLET_BINARY)' '$(ALPINE_ARCHIVE)'
 
 # Disk splitting is independent of UI, styles, and example source changes.
-build/disk-name dist/.disk-built &: build/rootfs.ext4 build/riscbox.stamp
+build/disk-name dist/.disk-built &: build/rootfs.ext4 build/riscbox.stamp Makefile
 	mkdir -p dist
-	python3 build/riscbox/splitimg.py build/rootfs.ext4 dist > build/disk-name.part
+	python3 build/riscbox/splitimg.py build/rootfs.ext4 dist 256 > build/disk-name.part
 	awk '{print $$1}' build/disk-name.part > build/disk-name
 	rm build/disk-name.part
 	touch dist/.disk-built

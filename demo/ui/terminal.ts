@@ -42,7 +42,7 @@ export class TerminalView {
 
     private createScreen(cols: number, rows: number): Terminal {
         const widget = new Terminal({ cols, rows, fontFamily: monospaceFontFamily,
-            fontSize: defaultFontSize, lineHeight: 1.2, theme, cursorBlink: true,
+            fontSize: defaultFontSize, lineHeight: 1, theme, cursorBlink: true,
             scrollback: 64 * 1024, smoothScrollDuration: 0, customGlyphs: true,
             windowOptions: { getWinSizePixels: true, getCellSizePixels: true },
         });

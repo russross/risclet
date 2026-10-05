@@ -59,7 +59,7 @@ Image construction extracts the verified Alpine minirootfs, adds the selected
 published Risclet binary and guest configuration, and populates a 16 MiB ext4
 image with `mkfs.ext4 -d` under fakeroot. It does not boot a VM or install additional
 Alpine packages. The dependency-free upstream `splitimg.py` runs through `python3`
-and produces content-named HTTP disk chunks. Splitting is a separate Make target
+and produces content-named 256 KiB HTTP disk chunks. Splitting is a separate Make target
 and does not run again when only the UI or examples change.
 
 The guest mounts its ext4 root read-write and mounts uncached 9p named `shared`
