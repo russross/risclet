@@ -85,10 +85,10 @@ Editor syntax highlighting
 
 Syntax definitions follow the language implemented by the assembler:
 
-*   [CodeMirror 6](syntaxhighlighting/codemirror/README.md)
-*   [Vim](syntaxhighlighting/vim/README.md)
-*   [VS Code](syntaxhighlighting/vscode/README.md)
-*   [Micro](syntaxhighlighting/micro/README.md)
+*   [CodeMirror 6](syntaxhighlighting/codemirror/)
+*   [Vim](syntaxhighlighting/vim/)
+*   [VS Code](syntaxhighlighting/vscode/)
+*   [Micro](syntaxhighlighting/micro/)
 
 
 Contributors
