@@ -20,9 +20,8 @@ async function until(condition, message) {
     while (!condition()) { if (performance.now() > deadline) throw new Error(message); await pause(); }
 }
 try {
-    await until(() => frame.contentDocument?.querySelector('#instructions-tab-content h1') && !frame.contentDocument.getElementById('vm-boot-button').disabled, 'initial workspace');
-    frame.contentDocument.getElementById('vm-tab-button').click();
-    await until(() => frame.contentWindow.testAlerts?.length, 'startup error was not reported');
+    // Initial preparation fails before the workspace widgets can be populated.
+    await until(() => frame.contentWindow.testAlerts?.length && !frame.contentDocument.getElementById('vm-boot-button').disabled, 'startup error was not reported or retry stayed disabled');
     const app = frame.contentWindow;
     const doc = frame.contentDocument;
     const boot = doc.getElementById('vm-boot-button');
@@ -30,6 +29,7 @@ try {
     check(!boot.disabled && boot.textContent === 'Boot VM', 'failed preparation has no retry control');
     boot.click();
     await until(() => app.testRuntime?.started && doc.querySelector('.file-tree li.file'), 'retry did not boot and populate widgets');
+    check(doc.querySelector('#instructions-tab-content h1'), 'retry did not restore instructions');
     check(doc.querySelector('.cm-content').textContent.includes('sort'), 'retry did not restore the selected editor file');
     check(app.testRuntime.filesystem('default').listFiles().includes('insertion_sort.s'), 'retry lost workspace files');
     check(app.testAlerts.length === 1 && app.testErrors.length === 0, 'retry reported additional errors');
