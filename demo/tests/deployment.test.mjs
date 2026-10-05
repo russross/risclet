@@ -4,26 +4,35 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const script = fileURLToPath(new URL('../../.github/scripts/demo_version.py', import.meta.url));
-function select(pages) {
-    return spawnSync('python3', [script], {input:JSON.stringify(pages), encoding:'utf8'});
+function select(metadata, version = '0.4.12') {
+    return spawnSync('python3', [script, version], {input:JSON.stringify(metadata), encoding:'utf8'});
 }
 const release = (version, extra = {}) => ({
-    tag_name:'v' + version, draft:false,
+    tag_name:'v' + version, draft:false, published_at:'2026-10-05T00:00:00Z',
     assets:[{name:'risclet-riscv64gc-unknown-linux-musl'}], ...extra,
 });
 
-// Publish order, pagination, drafts, and prereleases cannot silently select older binaries.
-test('manual deployment selects the highest usable published semantic version', () => {
-    const result = select([[release('0.4.9'), release('0.4.12'), release('0.5.0-rc.2')],
-        [release('0.5.0-rc.10'), release('0.5.0', {draft:true}), release('1.0.0', {assets:[]}), release('0.4.10')]]);
+// The requested Cargo version determines the binary even when other releases exist.
+test('deployment accepts exactly the requested published version', () => {
+    const result = select(release('0.4.12'));
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout.trim(), '0.5.0-rc.10');
-    assert.equal(select([[release('0.5.0-rc.10'), release('0.5.0'), release('0.4.99')]]).stdout.trim(), '0.5.0');
+    assert.equal(result.stdout.trim(), '0.4.12');
+    for (const version of ['0.5.0-rc.10', '0.5.0+build.1']) {
+        assert.equal(select(release(version), version).stdout.trim(), version);
+    }
 });
 
-test('manual deployment fails clearly when no published binary can be selected', () => {
-    const result = select([[release('0.5.0', {draft:true}), release('not-a-version')]]);
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /no published Risclet release/);
-    assert.doesNotMatch(result.stderr, /Traceback/);
+test('deployment rejects another version, unpublished releases, and missing binaries', () => {
+    for (const [metadata, message] of [
+        [release('0.4.13'), /does not match Cargo version/],
+        [release('0.4.12', {draft:true}), /is not published/],
+        [release('0.4.12', {published_at:null}), /is not published/],
+        [release('0.4.12', {assets:[]}), /no RISC-V Linux binary/],
+        [null, /expected release metadata/],
+    ]) {
+        const result = select(metadata);
+        assert.equal(result.status, 1);
+        assert.match(result.stderr, message);
+        assert.doesNotMatch(result.stderr, /Traceback/);
+    }
 });

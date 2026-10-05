@@ -89,9 +89,13 @@ class SemanticVersion:
         own_identifier: PreReleaseIdentifier,
         other_identifier: PreReleaseIdentifier,
     ) -> int:
-        if isinstance(own_identifier, int) and isinstance(other_identifier, str):
-            return -1
-        if isinstance(own_identifier, str) and isinstance(other_identifier, int):
+        if isinstance(own_identifier, int):
+            if isinstance(other_identifier, str):
+                return -1
+            return (own_identifier > other_identifier) - (
+                own_identifier < other_identifier
+            )
+        if isinstance(other_identifier, int):
             return 1
         return (own_identifier > other_identifier) - (
             own_identifier < other_identifier

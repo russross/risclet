@@ -1,13 +1,10 @@
-name: Demo Test, Build, and Deploy
+name: Demo
 
 on:
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      risclet_version:
-        description: Published version selected by the release workflow
-        required: true
-        type: string
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
 
 permissions:
   contents: read
@@ -20,12 +17,16 @@ concurrency:
 jobs:
   build:
     name: Test and Build Demo
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -37,19 +38,16 @@ jobs:
           sudo apt-get install -y fakeroot e2fsprogs jq
           command -v google-chrome
           command -v python3
-      - name: Select published Risclet version
+      - name: Require published release for the Cargo version
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.risclet_version }}
         run: |
-          if [ -n "$RELEASE_VERSION" ]; then
-            version=${RELEASE_VERSION#v}
-          else
-            gh api --paginate --slurp repos/russross/risclet/releases \
-              | python3 .github/scripts/demo_version.py > demo-version.txt
-            version=$(cat demo-version.txt)
-          fi
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          git ls-remote --exit-code --tags origin "refs/tags/v$version"
+          gh api "repos/${{ github.repository }}/releases/tags/v$version" \
+            | python3 .github/scripts/demo_version.py "$version" > demo-version.txt
+          version=$(cat demo-version.txt)
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Test and build published release demo
         env:
@@ -73,20 +71,21 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Check deployment freshness
         id: freshness
         env:
           GH_TOKEN: ${{ github.token }}
           BUILT_VERSION: ${{ needs.build.outputs.version }}
-          RELEASE_VERSION: ${{ inputs.risclet_version }}
         run: |
-          gh api --paginate --slurp repos/russross/risclet/releases \
-            | python3 .github/scripts/demo_version.py > latest-version.txt
-          latest=$(cat latest-version.txt)
+          gh api "repos/${{ github.repository }}/contents/Cargo.toml?ref=main" \
+            --jq .content | base64 --decode > main-Cargo.toml
+          latest=$(python3 -c 'import tomllib; print(tomllib.load(open("main-Cargo.toml", "rb"))["package"]["version"])')
           current=true
           if [ "$BUILT_VERSION" != "$latest" ]; then current=false; fi
-          if [ -z "$RELEASE_VERSION" ]; then
-            main_sha=$(gh api repos/russross/risclet/commits/main --jq .sha)
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            main_sha=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
             if [ "$GITHUB_SHA" != "$main_sha" ]; then current=false; fi
           fi
           echo "current=$current" >> "$GITHUB_OUTPUT"

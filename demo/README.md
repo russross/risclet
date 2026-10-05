@@ -122,21 +122,25 @@ size warnings remain enabled.
 Deployment
 ----------
 
-New package versions retain the existing binary build/tag/release pipeline. After
-publication, the release workflow calls `.github/workflows/demo.yml` with that
-exact version. The demo workflow runs the full test/build cycle before uploading
-and deploying its Pages artifact. A failed test leaves the published binary
-release intact and does not publish a partial site.
+Release runs Rust tests, Clippy, and all binary builds before creating the version
+tag. Until tagging succeeds, a corrected commit can retry the same Cargo version.
+After tagging, retry publication using the original run; source changes require
+a new version. The binaries and their checksums are uploaded before publication.
 
-For checkins between versions, use GitHub **Actions → Demo Test, Build, and Deploy
-→ Run workflow**, selecting **main**. This builds the checked-in demo against the
-highest published Risclet semantic version with a RISC-V Linux binary, including
-published prereleases when they have higher precedence. It neither builds nor
-publishes a new Risclet release and does not require Cargo's checked-in version
-to match the selected published binary.
+After Release succeeds, Demo checks out the release run's commit and reads its
+Cargo version. It requires that exact tag and a published release containing the
+RISC-V Linux binary, then runs the full demo test/build cycle before deploying
+its Pages artifact. A failed demo test leaves Release successful and the binary
+release intact, without publishing a partial site.
+
+For checkins between versions, use GitHub **Actions → Demo → Run workflow**,
+selecting **main**. This builds the checked-in demo using the tagged published
+release matching Cargo's checked-in version. Missing tags, drafts, and releases
+without the required binary fail the run. Demo does not build or publish a new
+Risclet release.
 
 Both entry points share a Pages concurrency group. Before deployment, the workflow
-checks that its binary version remains the highest published version. Manual
+checks that its binary version still matches Cargo's version on main. Manual
 builds also check that their commit remains the current main commit. Superseded
 builds skip publication, preventing an older queued run from replacing newer
 work. Failed runs can be retried from GitHub Actions.
