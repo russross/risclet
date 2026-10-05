@@ -35,8 +35,9 @@ _start:
                 li      a1, values_len
                 jal     print_array
                 la      a0, values
-                li      a1, values_len
-                jal     insertion_sort
+                li      a1, 0
+                li      a2, values_len
+                jal     quicksort
                 li      a0, 1
                 la      a1, after
                 li      a2, after_len
@@ -56,8 +57,9 @@ _start:
                 li      a1, ordered_len
                 jal     print_array
                 la      a0, ordered
-                li      a1, ordered_len
-                jal     insertion_sort
+                li      a1, 0
+                li      a2, ordered_len
+                jal     quicksort
                 li      a0, 1
                 la      a1, after
                 li      a2, after_len
@@ -77,8 +79,9 @@ _start:
                 li      a1, reversed_len
                 jal     print_array
                 la      a0, reversed
-                li      a1, reversed_len
-                jal     insertion_sort
+                li      a1, 0
+                li      a2, reversed_len
+                jal     quicksort
                 li      a0, 1
                 la      a1, after
                 li      a2, after_len
@@ -98,8 +101,9 @@ _start:
                 li      a1, equal_len
                 jal     print_array
                 la      a0, equal
-                li      a1, equal_len
-                jal     insertion_sort
+                li      a1, 0
+                li      a2, equal_len
+                jal     quicksort
                 li      a0, 1
                 la      a1, after
                 li      a2, after_len
@@ -119,8 +123,9 @@ _start:
                 li      a1, single_len
                 jal     print_array
                 la      a0, single
-                li      a1, single_len
-                jal     insertion_sort
+                li      a1, 0
+                li      a2, single_len
+                jal     quicksort
                 li      a0, 1
                 la      a1, after
                 li      a2, after_len
@@ -141,7 +146,8 @@ _start:
                 jal     print_array
                 la      a0, single
                 li      a1, 0
-                jal     insertion_sort
+                li      a2, 0
+                jal     quicksort
                 li      a0, 1
                 la      a1, after
                 li      a2, after_len

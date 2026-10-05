@@ -61,6 +61,8 @@ async function select(title) {
 try {
     await until(() => frame.contentDocument?.getElementById('vm-boot-button'), 'page load');
     app = frame.contentWindow; doc = frame.contentDocument;
+    await until(() => !frame.contentDocument.getElementById('vm-boot-button').disabled, 'initial workspace');
+    frame.contentDocument.getElementById('vm-tab-button').click();
     await until(() => frame.contentWindow.testRuntime?.started, 'initial boot');
     app = frame.contentWindow; doc = frame.contentDocument; runtime = app.testRuntime;
     await prompt();
@@ -72,19 +74,19 @@ try {
     await command(${JSON.stringify("awk '$2 == \"/home/risclet\" {print $1, $3}' /proc/mounts")}, ${JSON.stringify("\r\nshared 9p\r\n")});
     await command(${JSON.stringify("test -z \"$(grep -E ' (overlay|tmpfs) ' /proc/mounts)\" && echo NO_OVERLAYS")}, ${JSON.stringify("\r\nNO_OVERLAYS\r\n")});
     await command('echo writable > /tmp/root-write; sync; cat /tmp/root-write', ${JSON.stringify("\r\nwritable\r\n")});
-    const original = fileText('sort.s');
+    const original = fileText('insertion_sort.s');
     const fs = runtime.filesystem('default');
 
     // Blur and terminal interaction flush buffered edits before guest use.
     await edit(original.trimEnd() + '\\n# editor change');
-    check(!fileText('sort.s').includes('# editor change'), 'edit stays buffered');
+    check(!fileText('insertion_sort.s').includes('# editor change'), 'edit stays buffered');
     doc.querySelector('#vm-terminal textarea').focus();
-    await until(() => fileText('sort.s').includes('# editor change'), 'blur synchronization');
+    await until(() => fileText('insertion_sort.s').includes('# editor change'), 'blur synchronization');
     await edit(original.trimEnd() + '\\n# interaction change');
     click('vm-tab-button');
-    await until(() => fileText('sort.s').includes('# interaction change'), 'VM tab synchronization');
+    await until(() => fileText('insertion_sort.s').includes('# interaction change'), 'VM tab synchronization');
     doc.querySelector('#vm-terminal textarea').focus();
-    await command("printf '\\n# guest change\\n' >> sort.s; printf 'guest file' > extra; ln extra alias; ln -s extra symbolic", 'RESULT_');
+    await command("printf '\\n# guest change\\n' >> insertion_sort.s; printf 'guest file' > extra; ln extra alias; ln -s extra symbolic", 'RESULT_');
     await until(() => doc.querySelector('.cm-content').textContent.includes('# guest change'), 'guest write reaches editor');
     check(doc.activeElement.closest('#vm-terminal') !== null, 'guest refresh preserves terminal focus');
 
@@ -105,13 +107,13 @@ try {
     await until(() => button('vm-boot-button').textContent === 'Reset VM', 'recovery label');
     check(button('vm-boot-button').getBoundingClientRect().width === width, 'reset label width');
     await edit(original.trimEnd() + '\\n# pending recovery edit');
-    const beforeRecovery = fileText('sort.s');
+    const beforeRecovery = fileText('insertion_sort.s');
     app.testOutput = '';
     click('vm-boot-button');
     await until(() => button('vm-boot-button').textContent === 'Reboot VM' && !button('vm-boot-button').disabled, 'forced recovery');
     await prompt();
     check(doc.querySelector('.cm-content').textContent.includes('# pending recovery edit'), 'recovery retains buffered text');
-    check(fileText('sort.s') === beforeRecovery, 'recovery does not flush buffered edits');
+    check(fileText('insertion_sort.s') === beforeRecovery, 'recovery does not flush buffered edits');
     check(fileText('extra') === 'guest file', 'recovery retains workspace');
     runtime.requestReboot = requestReboot;
 
@@ -122,7 +124,7 @@ try {
     const sector = disk.capacitySectors - 1n;
     const originalSector = (await disk.read(sector, 512)).slice();
     disk.write(sector, new app.Uint8Array(512).fill(0x5a));
-    await select('Binary reduction steps');
+    await select('Binary search');
     check(button('instructions-tab-button').textContent === 'README' && fs.listFiles().includes('README.md'), 'README instructions');
     check(!runtime.started, 'instructions defer boot');
     check(!fs.listFiles().includes('extra'), 'outgoing files absent from new example');
@@ -130,9 +132,9 @@ try {
 
     // Rapid choices retire intermediate work without losing the final workspace.
     const choose = title => [...doc.querySelectorAll('.example-button')].find(button => button.textContent === title).click();
-    choose('Insertion sort'); choose('Binary reduction steps'); choose('Insertion sort'); choose('Binary reduction steps');
-    await until(() => !button('vm-boot-button').disabled && [...doc.querySelectorAll('.example-button')].some(button => button.textContent === 'Binary reduction steps' && button.disabled), 'rapid final selection');
-    check(fs.listFiles().includes('reduction_steps.s') && !fs.listFiles().includes('sort.s'), 'rapid switch selected the wrong namespace');
+    choose('Insertion sort'); choose('Binary search'); choose('Insertion sort'); choose('Binary search');
+    await until(() => !button('vm-boot-button').disabled && [...doc.querySelectorAll('.example-button')].some(button => button.textContent === 'Binary search' && button.disabled), 'rapid final selection');
+    check(fs.listFiles().includes('binary_search.s') && !fs.listFiles().includes('insertion_sort.s'), 'rapid switch selected the wrong namespace');
 
     // Documentation errors stay inside their pane and do not block the editor or VM.
     const readme = fileText('README.md');
@@ -147,9 +149,25 @@ try {
     click('vm-tab-button');
     app.testOutput = '';
     await prompt();
-    await command('risclet build reduction_steps.s start.s print.s', 'RESULT_');
+    await command('risclet --check-abi', 'target 23 -> index 9');
+    check(app.testOutput.includes('target 100 -> index -1'), 'absent search result');
+    await select('Quicksort');
+    click('vm-tab-button');
+    app.testOutput = '';
+    await prompt();
+    await command('risclet --check-abi', 'after:  [-6, -3, -1, 0, 1, 2, 4, 5, 7, 7, 8, 9]');
+    await select('Guess the digit');
+    click('vm-tab-button');
+    app.testOutput = '';
+    await prompt();
+    await command("printf '2\\n9\\nxx\\n6\\n' | risclet --check-abi", 'Correct!');
+    check(app.testOutput.includes('Too low.') && app.testOutput.includes('Too high.') && app.testOutput.includes('Enter exactly one digit.'), 'game responses');
     await select('Insertion sort');
-    check(fileText('sort.s').includes('# pending recovery edit'), 'switch flushes and restores edits');
+    check(fileText('insertion_sort.s').includes('# pending recovery edit'), 'switch flushes and restores edits');
+    click('vm-tab-button');
+    app.testOutput = '';
+    await prompt();
+    await command('risclet --check-abi', 'after:  [-6, -3, -1, 0, 1, 2, 4, 5, 7, 7, 8, 9]');
     check(fileText('extra') === 'guest file' && fs.stat('extra').inode === fs.stat('alias').inode, 'switch restores guest files and hard links');
     check(fs.readlink('symbolic') === 'extra', 'switch restores symlinks');
 

@@ -15,7 +15,7 @@ try {
     for (const width of [2100, 1250, 900]) {
         const frame = document.createElement('iframe');
         frame.style.cssText = 'width:' + width + 'px;height:850px';
-        frame.src = '/risclet/index.html?example=reduction';
+        frame.src = '/risclet/index.html?example=binary-search';
         document.body.append(frame);
         const deadline = performance.now() + 30000;
         while (!frame.contentDocument?.querySelector('#instructions-tab-content h1')) {

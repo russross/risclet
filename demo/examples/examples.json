@@ -2,24 +2,51 @@
   {
     "id": "sort",
     "title": "Insertion sort",
-    "editable": "sort.s",
-    "files": ["Makefile", "start.s", "sort.s", "print.s"]
-  },
-  {
-    "id": "reduction",
-    "title": "Binary reduction steps",
-    "editable": "reduction_steps.s",
+    "editable": "insertion_sort.s",
     "documentation": "README.md",
     "files": [
-      ".gitignore",
-      "Makefile",
       "README.md",
-      "inputs/test.input",
-      "inputs/test.transcript",
-      "lib/stepper",
-      "print.s",
-      "reduction_steps.s",
-      "start.s"
+      "start.s",
+      "insertion_sort.s",
+      "print.s"
+    ]
+  },
+  {
+    "id": "quicksort",
+    "title": "Quicksort",
+    "editable": "quicksort.s",
+    "documentation": "README.md",
+    "files": [
+      "README.md",
+      "start.s",
+      "quicksort.s",
+      "partition.s",
+      "print.s"
+    ]
+  },
+  {
+    "id": "binary-search",
+    "title": "Binary search",
+    "editable": "binary_search.s",
+    "documentation": "README.md",
+    "files": [
+      "README.md",
+      "start.s",
+      "binary_search.s",
+      "test_search.s",
+      "print.s"
+    ]
+  },
+  {
+    "id": "guess",
+    "title": "Guess the digit",
+    "editable": "play.s",
+    "documentation": "README.md",
+    "files": [
+      "README.md",
+      "start.s",
+      "play.s",
+      "read_guess.s"
     ]
   }
 ]
