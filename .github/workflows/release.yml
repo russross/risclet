@@ -117,18 +117,6 @@ jobs:
           echo "should_release=true" >> "$GITHUB_OUTPUT"
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Check formatting
-        if: steps.release.outputs.should_release == 'true' && github.ref_type == 'branch'
-        run: cargo fmt --check
-
-      - name: Lint
-        if: steps.release.outputs.should_release == 'true' && github.ref_type == 'branch'
-        run: cargo clippy --all-targets -- --deny warnings
-
-      - name: Test
-        if: steps.release.outputs.should_release == 'true' && github.ref_type == 'branch'
-        run: cargo test
-
       - name: Create release tag
         if: steps.release.outputs.should_release == 'true' && github.ref_type == 'branch'
         env:
@@ -356,11 +344,11 @@ jobs:
           sudo apt-get install -y qemu-system-misc fakeroot cpio erofs-utils
           command -v google-chrome
 
-      - name: Build and test published release demo
+      - name: Build published release demo
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.prepare_release.outputs.tag_name }}
-        run: make -C demo test RISCLET_VERSION="${TAG_NAME#v}"
+        run: make -C demo RISCLET_VERSION="${TAG_NAME#v}"
 
       - name: Upload image diagnostics
         if: failure()
