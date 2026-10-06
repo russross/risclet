@@ -9,6 +9,7 @@ import type { Riscbox } from "@riscbox/runtime";
 import type { P9Change } from "@riscbox/storage";
 import { loadExamples } from "./examples";
 import type { ExampleDescription } from "./examples";
+import { DiskPrefetch } from "./disk-prefetch";
 
 interface ExampleState extends VmWorkspace { readonly description: ExampleDescription; }
 declare global { interface Window { Riscbox: typeof Riscbox; } }
@@ -24,6 +25,7 @@ let switchQueue = Promise.resolve();
 let switching = false;
 let recovering = false;
 let fileSelectionGeneration = 0;
+const diskPrefetch = new DiskPrefetch();
 
 function assetUrl(name: string): string {
     const meta = document.querySelector<HTMLMetaElement>(`meta[name="risclet-${name}"]`);
@@ -90,6 +92,7 @@ function selectTab(name: "instructions" | "vm"): void {
     }
 }
 async function activateVm(): Promise<void> {
+    diskPrefetch.stop();
     const generation = viewGeneration;
     await editor.flush();
     if (generation !== viewGeneration || switching || recovering) return;
@@ -195,6 +198,8 @@ async function recoverVm(): Promise<void> {
 }
 
 async function initialize(): Promise<void> {
+    const pageLoaded = document.readyState === "complete" ? Promise.resolve()
+        : new Promise<void>(resolve => window.addEventListener("load", () => resolve(), { once: true }));
     Split(["#file-tree-pane", "#editor-pane", "#info-pane"], {
         sizes: [10, 45, 45], minSize: 0, gutterSize: 8, cursor: "grabbing",
     });
@@ -219,6 +224,7 @@ async function initialize(): Promise<void> {
     });
 
     requiredButton("vm-boot-button").addEventListener("click", () => {
+        diskPrefetch.stop();
         if (vm.state === "stopping") { void recoverVm().catch(reportUiError); return; }
         void editor.flush().then(async () => {
             const running = vm.state === "running";
@@ -237,6 +243,9 @@ async function initialize(): Promise<void> {
     renderMenu();
     const requested = new URL(window.location.href).searchParams.get("example");
     await switchExample(examples.find(example => example.description.id === requested) ?? examples[0]);
+    // Main assets, the prepared VM, and the populated editor take precedence over disk warmup.
+    await Promise.all([pageLoaded, document.fonts.ready]);
+    void diskPrefetch.start(image.configUrl);
 }
 
 document.addEventListener("DOMContentLoaded", () => {

@@ -102,6 +102,11 @@ example. Instructions open first; selecting the VM tab boots it. Examples withou
 instructions boot immediately. Superseded selections and delayed terminal input
 cannot replace or write into the selected workspace.
 
+After page assets and fonts finish loading and the initial workspace is ready,
+an independent best-effort prefetch reads the configuration and disk manifest
+and warms the browser cache with two concurrent block transfers. A boot request
+aborts active prefetches and abandons the remaining blocks for the session.
+
 Reboot VM requests an orderly guest reboot while preserving the workspace. The
 button reads Reset VM until the reboot callback arrives. Reset VM forces recovery,
 retaining workspace files and unflushed editor text. Refreshing starts a new
