@@ -1,9 +1,11 @@
 #[cfg(test)]
 use crate::config::{Config, Mode, Relax};
 use crate::elf_loader::{ElfInput, load_elf};
+use crate::error::RiscletError;
 use crate::execution::trace;
 use crate::riscv::Op;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -38,16 +40,26 @@ fn make_test_config(check_abi: bool) -> Config {
 }
 
 /// Assemble source code in-memory to ELF bytes
-fn assemble_source(source: &str) -> Result<Vec<u8>, String> {
+fn assemble_source(source: &str, compressed: bool) -> Result<Vec<u8>, String> {
     let mut config = make_test_config(false);
+    config.relax.compressed = compressed;
     let sources = vec![("test.s".to_string(), source.to_string())];
     crate::assembler::assemble(&mut config, sources).map_err(|e| e.to_string())
 }
 
 /// Run assembled code with ABI checking and capture result
 fn run_with_abi_check(source: &str) -> AbiTestResult {
+    run_with_abi_options(source, &[], false)
+}
+
+// Input and instruction compression exercise the same checker through real execution.
+fn run_with_abi_options(
+    source: &str,
+    input: &[u8],
+    compressed: bool,
+) -> AbiTestResult {
     // Assemble
-    let elf_bytes = match assemble_source(source) {
+    let elf_bytes = match assemble_source(source, compressed) {
         Ok(bytes) => bytes,
         Err(e) => {
             return AbiTestResult::RuntimeError(format!(
@@ -68,6 +80,7 @@ fn run_with_abi_check(source: &str) -> AbiTestResult {
             return AbiTestResult::RuntimeError(format!("Load error: {}", e));
         }
     };
+    m = m.with_stdin(input.to_vec());
 
     // Load all instructions
     let mut instructions = Vec::new();
@@ -133,23 +146,26 @@ fn run_with_abi_check(source: &str) -> AbiTestResult {
         }
     }
 
-    let instructions: Vec<std::rc::Rc<crate::execution::Instruction>> =
-        instructions.into_iter().map(std::rc::Rc::new).collect();
+    let instructions: Vec<Rc<crate::execution::Instruction>> =
+        instructions.into_iter().map(Rc::new).collect();
 
     // Run with ABI checking
     let effects = trace(&mut m, &instructions, &addresses, &config);
 
-    // Check for ABI violations in the effects
+    // A successful test must reach an ordinary exit rather than another execution error.
     for effect in effects {
         if let Some(err) = effect.other_message() {
-            // Only treat AbiViolation errors as ABI violations, not other errors
-            if matches!(err, crate::error::RiscletError::AbiViolation(_)) {
-                return AbiTestResult::Violation(err.to_string());
+            match err {
+                RiscletError::AbiViolation(_) => {
+                    return AbiTestResult::Violation(err.to_string());
+                }
+                RiscletError::Exit(_) => return AbiTestResult::Success,
+                _ => return AbiTestResult::RuntimeError(err.to_string()),
             }
         }
     }
 
-    AbiTestResult::Success
+    AbiTestResult::RuntimeError("Program did not exit".to_string())
 }
 
 /// Assert program triggers ABI violation containing pattern
@@ -1336,7 +1352,9 @@ _start:
     sb t0, 3(a0)
     li t0, 111
     sb t0, 4(a0)
-    li a1, 5
+    mv a1, a0
+    li a0, 1
+    li a2, 5
     li a7, 64
     ecall
     {}
@@ -1501,4 +1519,489 @@ _start:
 "#,
         "Cannot use uninitialized ra",
     );
+}
+
+// Small programs keep the instruction under test visible while exercising real calls.
+fn function_program(start: &str, body: &str, args: Option<u32>) -> String {
+    let metadata = args.map_or(String::new(), |count| {
+        format!(".global foo_args\n.equ foo_args, {count}\n")
+    });
+    format!(
+        ".global _start\n.text\n_start:\nla gp, __global_pointer$\n{start}\njal ra, foo\n{}\nfoo:\n{body}\nret\n{metadata}\n{}",
+        exit_code(0),
+        bss_space("buffer", 16),
+    )
+}
+
+#[test]
+fn test_save_only_move_and_restore() {
+    check_abi_success(&function_program(
+        "",
+        "mv t0, s0\nli s0, 42\nmv s0, t0",
+        Some(0),
+    ));
+}
+
+#[test]
+fn test_save_only_move_does_not_initialize_value() {
+    check_abi_violation(
+        &function_program("", "mv t0, s0\naddi t1, t0, 1", Some(0)),
+        "t0 can only be stored",
+    );
+}
+
+#[test]
+fn test_save_only_self_move_remains_save_only() {
+    check_abi_violation(
+        &function_program("", "mv s0, s0\naddi t0, s0, 1", Some(0)),
+        "s0 can only be stored",
+    );
+}
+
+#[test]
+fn test_save_only_word_reload_remains_save_only() {
+    check_abi_violation(
+        &function_program(
+            "",
+            "addi sp, sp, -16\nsw s0, 0(sp)\nlw t0, 0(sp)\naddi t1, t0, 1",
+            Some(0),
+        ),
+        "t0 can only be stored",
+    );
+}
+
+#[test]
+fn test_save_only_move_store_reload_restore() {
+    check_abi_success(&function_program(
+        "",
+        "addi sp, sp, -16\nmv t0, s0\nsw t0, 0(sp)\nli s0, 42\nlw s0, 0(sp)\naddi sp, sp, 16",
+        Some(0),
+    ));
+}
+
+#[test]
+fn test_save_only_cannot_be_store_address() {
+    for store in ["sw t0, 0(s0)", "sw s0, 0(s0)"] {
+        check_abi_violation(
+            &function_program(
+                "la s0, buffer",
+                &format!("li t0, 1\n{store}"),
+                Some(0),
+            ),
+            "s0 can only be stored",
+        );
+    }
+}
+
+#[test]
+fn test_save_only_cannot_be_partially_saved() {
+    for store in ["sb s0, 0(sp)", "sh s0, 0(sp)"] {
+        check_abi_violation(
+            &function_program(
+                "",
+                &format!("addi sp, sp, -16\n{store}"),
+                Some(0),
+            ),
+            "s0 can only be stored",
+        );
+    }
+}
+
+#[test]
+fn test_save_only_cannot_be_passed_as_argument() {
+    for metadata in ["", ".global inner_args\n.equ inner_args, 1"] {
+        check_abi_violation(
+            &function_program(
+                "",
+                &format!("mv a0, s0\njal ra, inner\ninner:\nret\n{metadata}"),
+                Some(0),
+            ),
+            "Function argument a0 is save-only",
+        );
+    }
+}
+
+#[test]
+fn test_return_result_valid_when_caller_a0_uninitialized() {
+    check_abi_success(&format!(
+        ".global _start\n.text\n_start:\njal foo\naddi t0, a0, 1\n{}\nfoo:\nli a0, 42\nret\n.global foo_args\n.equ foo_args, 0",
+        exit_code(0),
+    ));
+}
+
+#[test]
+fn test_uninitialized_result_does_not_inherit_caller_validity() {
+    check_abi_violation(
+        ".global _start\n.text\n_start:\nli a0, 42\njal foo\naddi t0, a0, 1\nfoo:\nret\n.global foo_args\n.equ foo_args, 0",
+        "Cannot use uninitialized a0",
+    );
+}
+
+#[test]
+fn test_save_only_result_remains_save_only() {
+    check_abi_violation(
+        ".global _start\n.text\n_start:\njal foo\naddi t0, a0, 1\nfoo:\nmv a0, s0\nret\n.global foo_args\n.equ foo_args, 0",
+        "a0 can only be stored",
+    );
+}
+
+#[test]
+fn test_saved_register_caller_availability_is_restored() {
+    check_abi_success(&format!(
+        ".global _start\n.text\n_start:\nli s0, 42\njal foo\naddi t0, s0, 1\n{}\nfoo:\nret",
+        exit_code(0),
+    ));
+    check_abi_violation(
+        ".global _start\n.text\n_start:\njal foo\naddi t0, s0, 1\nfoo:\nret",
+        "Cannot use uninitialized s0",
+    );
+}
+
+#[test]
+fn test_nested_call_preserves_outer_save_only_state() {
+    check_abi_violation(
+        &function_program(
+            "",
+            "addi sp, sp, -16\nsw ra, 0(sp)\njal inner\nlw ra, 0(sp)\naddi t0, s0, 1\ninner:\nret",
+            Some(0),
+        ),
+        "s0 can only be stored",
+    );
+}
+
+#[test]
+fn test_nested_call_preserves_outer_initialized_saved_register() {
+    check_abi_success(&function_program(
+        "",
+        "addi sp, sp, -16\nsw ra, 0(sp)\nsw s0, 4(sp)\nli s0, 42\njal inner\naddi t0, s0, 1\nlw s0, 4(sp)\nlw ra, 0(sp)\naddi sp, sp, 16\nret\ninner:\nret",
+        Some(0),
+    ));
+}
+
+#[test]
+fn test_caller_saved_registers_unavailable_after_return() {
+    for register in ["t0", "t6", "a1", "a7"] {
+        check_abi_violation(
+            &format!(
+                ".global _start\n.text\n_start:\nli {register}, 1\njal foo\naddi s0, {register}, 1\nfoo:\nli {register}, 2\nret",
+            ),
+            &format!("Cannot use uninitialized {register}"),
+        );
+    }
+}
+
+#[test]
+fn test_unknown_signature_does_not_revive_uninitialized_arguments() {
+    check_abi_violation(
+        &function_program("", "addi t0, a0, 1", None),
+        "Cannot use uninitialized a0",
+    );
+}
+
+#[test]
+fn test_eight_arguments_supported() {
+    check_abi_success(&function_program(
+        "li a0, 0\nli a1, 1\nli a2, 2\nli a3, 3\nli a4, 4\nli a5, 5\nli a6, 6\nli a7, 7",
+        "add t0, a0, a7",
+        Some(8),
+    ));
+}
+
+#[test]
+fn test_eighth_argument_must_be_initialized() {
+    check_abi_violation(
+        &function_program(
+            "li a0, 0\nli a1, 1\nli a2, 2\nli a3, 3\nli a4, 4\nli a5, 5\nli a6, 6",
+            "",
+            Some(8),
+        ),
+        "Function argument a7 is uninitialized",
+    );
+}
+
+#[test]
+fn test_invalid_argument_counts_are_diagnostics() {
+    for count in [9, u32::MAX] {
+        check_abi_violation(
+            &function_program("", "", Some(count)),
+            "Invalid argument count",
+        );
+    }
+}
+
+#[test]
+fn test_loading_zero_does_not_change_its_identity() {
+    check_abi_success(&function_program(
+        "mv s0, zero",
+        "addi sp, sp, -16\nli t0, 99\nsw t0, 0(sp)\nlw zero, 0(sp)\nmv s0, zero\naddi sp, sp, 16",
+        Some(0),
+    ));
+}
+
+#[test]
+fn test_loads_to_zero_still_validate_memory() {
+    check_abi_violation(
+        &function_program("", "addi sp, sp, -16\nlw zero, 0(sp)", Some(0)),
+        "uninitialized stack",
+    );
+}
+
+#[test]
+fn test_stack_access_below_sp_rejected_with_aliases() {
+    for access in [
+        "sw zero, -4(sp)",
+        "lw t0, -4(sp)",
+        "mv t0, sp\nsw zero, -4(t0)",
+        "mv t0, sp\nlw t1, -4(t0)",
+    ] {
+        check_abi_violation(
+            &function_program("", access, Some(0)),
+            "stack below sp",
+        );
+    }
+}
+
+#[test]
+fn test_uninitialized_stack_reads_rejected_for_each_width() {
+    for load in ["lb", "lbu", "lh", "lhu", "lw"] {
+        check_abi_violation(
+            &function_program(
+                "",
+                &format!("addi sp, sp, -16\n{load} t0, 0(sp)"),
+                Some(0),
+            ),
+            "uninitialized stack",
+        );
+    }
+}
+
+#[test]
+fn test_initialized_stack_reads_allowed_for_each_width() {
+    for (store, load) in
+        [("sb", "lb"), ("sb", "lbu"), ("sh", "lh"), ("sh", "lhu"), ("sw", "lw")]
+    {
+        check_abi_success(&function_program(
+            "",
+            &format!(
+                "addi sp, sp, -16\nli t0, 42\n{store} t0, 0(sp)\n{load} t1, 0(sp)\naddi sp, sp, 16"
+            ),
+            Some(0),
+        ));
+    }
+}
+
+#[test]
+fn test_partial_stack_initialization_does_not_validate_word() {
+    check_abi_violation(
+        &function_program(
+            "",
+            "addi sp, sp, -16\nsb zero, 0(sp)\nlw t0, 0(sp)",
+            Some(0),
+        ),
+        "uninitialized stack",
+    );
+}
+
+#[test]
+fn test_released_stack_access_rejected() {
+    check_abi_violation(
+        &function_program(
+            "",
+            "addi sp, sp, -16\nsw zero, 0(sp)\nmv t0, sp\naddi sp, sp, 16\nlw t1, 0(t0)",
+            Some(0),
+        ),
+        "stack below sp",
+    );
+}
+
+#[test]
+fn test_reallocated_stack_requires_new_store() {
+    check_abi_violation(
+        &function_program(
+            "",
+            "addi sp, sp, -16\nsw zero, 0(sp)\naddi sp, sp, 16\naddi sp, sp, -16\nlw t0, 0(sp)",
+            Some(0),
+        ),
+        "uninitialized stack",
+    );
+}
+
+#[test]
+fn test_partial_stack_release_retains_live_slots() {
+    check_abi_success(&function_program(
+        "",
+        "addi sp, sp, -32\nsw zero, 16(sp)\naddi sp, sp, 16\nlw t0, 0(sp)\naddi sp, sp, 16",
+        Some(0),
+    ));
+    check_abi_violation(
+        &function_program(
+            "",
+            "addi sp, sp, -32\nsw zero, 0(sp)\nsw zero, 16(sp)\naddi sp, sp, 16\naddi sp, sp, -16\nlw t0, 0(sp)",
+            Some(0),
+        ),
+        "uninitialized stack",
+    );
+}
+
+#[test]
+fn test_stack_slot_not_reused_across_calls() {
+    check_abi_violation(
+        &format!(
+            ".global _start\n.text\n_start:\njal writer\njal reader\n{}\nwriter:\naddi sp, sp, -16\nsw zero, 0(sp)\naddi sp, sp, 16\nret\nreader:\naddi sp, sp, -16\nlw t0, 0(sp)\nret",
+            exit_code(0)
+        ),
+        "uninitialized stack",
+    );
+}
+
+#[test]
+fn test_callee_can_read_initialized_caller_stack_arguments() {
+    check_abi_success(&function_program(
+        "addi sp, sp, -16\nsw zero, 0(sp)",
+        "lw t0, 0(sp)",
+        Some(0),
+    ));
+}
+
+#[test]
+fn test_load_sp_uses_old_frame_then_releases_it() {
+    let setup = "mv t0, sp\naddi sp, sp, -16\nsw t0, 0(sp)\nlw sp, 0(sp)";
+    check_abi_success(&function_program("", setup, Some(0)));
+    check_abi_violation(
+        &function_program(
+            "",
+            &format!("{setup}\naddi sp, sp, -16\nlw t1, 0(sp)"),
+            Some(0),
+        ),
+        "uninitialized stack",
+    );
+}
+
+#[test]
+fn test_fixed_register_modifications_rejected_immediately() {
+    for register in ["gp", "tp"] {
+        check_abi_violation(
+            &function_program(
+                "",
+                &format!("li {register}, 99\nli t0, 1"),
+                Some(0),
+            ),
+            &format!(
+                "{register} must be preserved across function call; cannot modify"
+            ),
+        );
+    }
+}
+
+#[test]
+fn test_fixed_register_startup_initialization_allowed() {
+    check_abi_success(&function_program("li tp, 0", "", Some(0)));
+}
+
+#[test]
+fn test_compressed_save_only_and_stack_paths() {
+    let source = function_program(
+        "",
+        "addi sp, sp, -16\nmv t0, s0\nsw t0, 0(sp)\nli s0, 1\nlw s0, 0(sp)\naddi sp, sp, 16",
+        Some(0),
+    );
+    assert!(matches!(
+        run_with_abi_options(&source, &[], true),
+        AbiTestResult::Success
+    ));
+    let source =
+        function_program("", "addi sp, sp, -16\nlw t0, 0(sp)", Some(0));
+    assert!(
+        matches!(run_with_abi_options(&source, &[], true), AbiTestResult::Violation(message) if message.contains("uninitialized stack"))
+    );
+}
+
+#[test]
+fn test_syscall_stack_write_requires_initialized_bytes() {
+    for setup in ["", "sb zero, 0(sp)"] {
+        check_abi_violation(
+            &function_program(
+                "",
+                &format!(
+                    "addi sp, sp, -16\n{setup}\nli a0, 1\nmv a1, sp\nli a2, 2\nli a7, 64\necall"
+                ),
+                Some(0),
+            ),
+            "uninitialized stack",
+        );
+    }
+}
+
+#[test]
+fn test_syscall_stack_buffer_below_sp_rejected() {
+    check_abi_violation(
+        &function_program(
+            "",
+            "li a0, 1\naddi a1, sp, -4\nli a2, 1\nli a7, 64\necall",
+            Some(0),
+        ),
+        "stack below sp",
+    );
+}
+
+#[test]
+fn test_syscall_input_initializes_only_received_bytes() {
+    let setup =
+        "addi sp, sp, -16\nli a0, 0\nmv a1, sp\nli a2, 4\nli a7, 63\necall";
+    let source = function_program(
+        "",
+        &format!("{setup}\nlbu t0, 0(sp)\naddi sp, sp, 16"),
+        Some(0),
+    );
+    assert!(matches!(
+        run_with_abi_options(&source, b"x", false),
+        AbiTestResult::Success
+    ));
+    let source =
+        function_program("", &format!("{setup}\nlbu t0, 1(sp)"), Some(0));
+    assert!(
+        matches!(run_with_abi_options(&source, b"x", false), AbiTestResult::Violation(message) if message.contains("uninitialized stack"))
+    );
+}
+
+#[test]
+fn test_syscall_input_below_sp_rejected() {
+    let source = function_program(
+        "",
+        "li a0, 0\naddi a1, sp, -4\nli a2, 1\nli a7, 63\necall",
+        Some(0),
+    );
+    assert!(
+        matches!(run_with_abi_options(&source, b"x", false), AbiTestResult::Violation(message) if message.contains("stack below sp"))
+    );
+}
+
+#[test]
+fn test_syscall_input_cannot_overwrite_saved_word() {
+    let source = function_program(
+        "",
+        "addi sp, sp, -16\nsw s0, 0(sp)\nli a0, 0\nmv a1, sp\nli a2, 1\nli a7, 63\necall",
+        Some(0),
+    );
+    assert!(
+        matches!(run_with_abi_options(&source, b"x", false), AbiTestResult::Violation(message) if message.contains("overwrite non-byte data"))
+    );
+}
+
+#[test]
+fn test_test_helper_reports_execution_errors() {
+    let source = ".global _start\n.text\n_start:\nli a7, 999\necall";
+    assert!(
+        matches!(run_with_abi_check(source), AbiTestResult::RuntimeError(message) if message.contains("unsupported syscall"))
+    );
+    let source = ".global _start\n.text\n_start:\nli t0, 0\nlw t1, 0(t0)";
+    assert!(matches!(
+        run_with_abi_check(source),
+        AbiTestResult::RuntimeError(_)
+    ));
+    let source = ".global _start\n.text\n_start:\nnop";
+    assert!(matches!(
+        run_with_abi_check(source),
+        AbiTestResult::RuntimeError(_)
+    ));
 }

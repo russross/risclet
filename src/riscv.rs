@@ -208,6 +208,7 @@ pub const ZERO: usize = 0;
 pub const RA: usize = 1;
 pub const SP: usize = 2;
 pub const GP: usize = 3;
+pub const TP: usize = 4;
 pub const A0: usize = 10;
 pub const A1: usize = 11;
 pub const A2: usize = 12;
@@ -1987,7 +1988,7 @@ pub fn fields_to_string(
         .join(", ");
     let disasm = format!("{:<8}{}", inst, operands);
 
-    format!("{addr_part}{label:<16}{disasm:<48}")
+    format!("{addr_part}{label:<16}{disasm:<32}")
 }
 
 pub enum Field {

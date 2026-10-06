@@ -24,6 +24,16 @@ In addition:
 
 There are various other options and controls as well. Notably `--check-abi` for `run`, `trace`, and `debug` will check for common ABI errors and common mistakes beginning programmers are likely to make and treats them as errors.
 
+With ABI checking enabled, incoming saved registers can be moved or saved as
+words, but must be initialized before use in calculations or as addresses.
+Stack reads require initialized bytes at or above the current stack pointer;
+releasing stack space discards its initialization history. Functions must
+preserve saved registers and cannot write `gp` or `tp`; startup code can
+initialize those registers. An optional absolute symbol named `function_args`
+declares zero through eight register arguments for `function`. After a return,
+`a0` retains the callee's result state, while temporary registers and `a1` through
+`a7` become unavailable.
+
 Each command defaults to reading all `*.s` files in the current directory, assembling and linking them, and then proceeding. Or if there are no `*.s` files it will look for `a.out` instead. Obvious exceptions apply, but this does mean that `disassemble` will assemble and link the entire program and then disassemble it by default.
 
 
