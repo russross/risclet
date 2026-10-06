@@ -1,15 +1,14 @@
                 .global test_search
                 .equ    test_search_args, 3
+
                 .data
-query:
-                .ascii "target "
+query:          .ascii "target "
                 .equ    query_len, (. - query)
-result:
-                .ascii " -> index "
+result:         .ascii " -> index "
                 .equ    result_len, (. - result)
-newline:
-                .ascii "\n"
+newline:        .ascii "\n"
                 .equ    newline_len, (. - newline)
+
                 .text
                 # test_search(bytes, count, target): display the query and returned index.
 test_search:
@@ -22,7 +21,7 @@ test_search:
                 mv      s1, a1
                 mv      s2, a2
 
-                # Print the target before restoring the three search arguments.
+                # print the target before restoring the three search arguments.
                 li      a0, 1
                 la      a1, query
                 li      a2, query_len
@@ -41,12 +40,13 @@ test_search:
                 jal     binary_search
                 jal     print_int
 
-                # Finish this output line, then restore the caller's frame.
+                # finish this output line, then restore the caller's frame.
                 li      a0, 1
                 la      a1, newline
                 li      a2, newline_len
                 li      a7, 64
                 ecall
+
                 lw      s0, 0(sp)
                 lw      s1, 4(sp)
                 lw      s2, 8(sp)
