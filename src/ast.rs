@@ -620,7 +620,7 @@ pub enum PseudoOp {
 /// `| Global Identifier`
 /// `| Equ Identifier Comma expression`
 /// `| Text | Data | Bss`
-/// `| Space expression`
+/// `| Space expression [ , expression ]`
 /// `| String list_of_strings`
 /// `| Asciz list_of_strings`
 /// `| Byte list_of_expressions`
@@ -629,7 +629,8 @@ pub enum PseudoOp {
 ///
 /// **Parsing Notes:**
 /// The parser must check for a label preceding a directive. A label can only precede
-/// `.space`, `.string`, `.asciz`, `.byte`, `.2byte`, or `.4byte`. It cannot
+/// `.space`, `.zero`, `.ascii`, `.string`, `.asciz`, `.byte`, `.half`, `.2byte`,
+/// `.word`, or `.4byte`. It cannot
 /// precede `.global`, `.equ`, `.text`, `.data`, or `.bss`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Directive {
@@ -643,12 +644,14 @@ pub enum Directive {
     Data,
     /// .bss
     Bss,
-    /// .space expression
-    Space(Expression),
+    /// .space size [, fill]; omitted fill emits zero bytes.
+    Space(Expression, Option<Expression>),
     /// .balign expression
     Balign(Expression),
     /// Data directives that can take a list of values.
+    /// .ascii emits strings without terminators.
     String(Vec<String>),
+    /// .string and .asciz append a zero byte to each string.
     Asciz(Vec<String>),
     Byte(Vec<Expression>),
     TwoByte(Vec<Expression>),
@@ -833,8 +836,8 @@ impl fmt::Display for DirectiveOp {
             DirectiveOp::Bss => ".bss",
             DirectiveOp::Space => ".space",
             DirectiveOp::Balign => ".balign",
-            DirectiveOp::String => ".string",
-            DirectiveOp::Asciz => ".asciz",
+            DirectiveOp::String => ".ascii",
+            DirectiveOp::Asciz => ".string",
             DirectiveOp::Byte => ".byte",
             DirectiveOp::TwoByte => ".2byte",
             DirectiveOp::FourByte => ".4byte",
@@ -1112,7 +1115,13 @@ impl fmt::Display for Directive {
             Directive::Text => write!(f, ".text"),
             Directive::Data => write!(f, ".data"),
             Directive::Bss => write!(f, ".bss"),
-            Directive::Space(expr) => write!(f, "{:<7} {}", ".space", expr),
+            Directive::Space(expr, fill) => {
+                write!(f, "{:<7} {}", ".space", expr)?;
+                if let Some(fill) = fill {
+                    write!(f, ", {}", fill)?;
+                }
+                Ok(())
+            }
             Directive::Balign(expr) => write!(f, "{:<7} {}", ".balign", expr),
             Directive::String(items) => {
                 let formatted = items
@@ -1120,7 +1129,7 @@ impl fmt::Display for Directive {
                     .map(|s| format!("{:?}", s))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<7} {}", ".string", formatted)
+                write!(f, "{:<7} {}", ".ascii", formatted)
             }
             Directive::Asciz(items) => {
                 let formatted = items
@@ -1128,7 +1137,7 @@ impl fmt::Display for Directive {
                     .map(|s| format!("{:?}", s))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{:<7} {}", ".asciz", formatted)
+                write!(f, "{:<7} {}", ".string", formatted)
             }
             Directive::Byte(items) => {
                 let formatted = items

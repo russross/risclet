@@ -33,8 +33,8 @@ for (const name of [
 }
 
 const directives = new Set([
-  "global", "globl", "equ", "set", "text", "data", "bss", "space",
-  "balign", "string", "asciz", "byte", "2byte", "4byte",
+  "global", "globl", "equ", "set", "text", "data", "bss", "space", "zero",
+  "balign", "ascii", "string", "asciz", "byte", "2byte", "half", "4byte", "word",
 ]);
 const registers = /^(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])$/;
 

@@ -45,13 +45,13 @@ print_int:
                 .equ    print_array_args, 2
                 .data
 array_open:
-                .string "["
+                .ascii "["
                 .equ    array_open_len, (. - array_open)
 array_separator:
-                .string ", "
+                .ascii ", "
                 .equ    array_separator_len, (. - array_separator)
 array_close:
-                .string "]\n"
+                .ascii "]\n"
                 .equ    array_close_len, (. - array_close)
                 .text
                 # print_array(bytes, count): print signed bytes in index order.

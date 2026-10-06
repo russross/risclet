@@ -143,7 +143,7 @@ fn encode_bss_line(
 ) -> Result<u32> {
     match &line.content {
         LineContent::Label(_) => Ok(0),
-        LineContent::Directive(Directive::Space(expr)) => {
+        LineContent::Directive(Directive::Space(expr, fill)) => {
             let refs = symbol_links.get_line_refs(pointer);
             let val = eval_expr(
                 expr,
@@ -161,6 +161,17 @@ fn encode_bss_line(
                     line.location.clone(),
                 ));
             }
+            // BSS reserves storage without an on-disk initialization payload.
+            let fill = encode_space_fill(
+                fill.as_ref(), line, current_address, source,
+                symbol_values, symbol_links, pointer,
+            )?;
+            if fill != 0 {
+                return Err(RiscletError::from_context(
+                    ".space fill must be zero in .bss".to_string(),
+                    line.location.clone(),
+                ));
+            }
             Ok(size as u32)
         }
         // Segment directives themselves don't produce bytes in BSS
@@ -174,8 +185,8 @@ fn encode_bss_line(
                 Directive::Byte(_) => ".byte",
                 Directive::TwoByte(_) => ".2byte",
                 Directive::FourByte(_) => ".4byte",
-                Directive::String(_) => ".string",
-                Directive::Asciz(_) => ".asciz",
+                Directive::String(_) => ".ascii",
+                Directive::Asciz(_) => ".string",
                 Directive::Balign(_) => ".balign",
                 _ => "directive",
             };
@@ -1266,6 +1277,29 @@ fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
 // Directive Encoding
 // ============================================================================
 
+// Fill expressions use the same symbol context as the size expression. Like
+// .byte, a fill retains the low eight bits of an integer value.
+fn encode_space_fill(
+    fill: Option<&Expression>,
+    line: &Line,
+    current_address: u32,
+    source: &Source,
+    symbol_values: &SymbolValues,
+    symbol_links: &SymbolLinks,
+    pointer: LinePointer,
+) -> Result<u8> {
+    let Some(fill) = fill else { return Ok(0) };
+    let value = eval_line_expr(
+        fill,
+        current_address,
+        source,
+        symbol_values,
+        symbol_links,
+        pointer,
+    )?;
+    Ok(require_integer(value, ".space fill", &line.location)? as u8)
+}
+
 fn encode_directive(
     dir: &Directive,
     line: &Line,
@@ -1350,7 +1384,7 @@ fn encode_directive(
             Ok(bytes)
         }
 
-        Directive::Space(expr) => {
+        Directive::Space(expr, fill) => {
             let val = eval_line_expr(
                 expr,
                 current_address,
@@ -1367,7 +1401,16 @@ fn encode_directive(
                     line.location.clone(),
                 ));
             }
-            Ok(vec![0; size as usize])
+            let fill = encode_space_fill(
+                fill.as_ref(),
+                line,
+                current_address,
+                source,
+                symbol_values,
+                symbol_links,
+                pointer,
+            )?;
+            Ok(vec![fill; size as usize])
         }
 
         Directive::Balign(expr) => {

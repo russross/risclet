@@ -769,8 +769,8 @@ fn test_string_directive() {
 .string "hello"
 "#;
 
-    // "hello" without null terminator
-    let expected = &[0x68, 0x65, 0x6c, 0x6c, 0x6f]; // "hello"
+    // .string appends a null terminator just like .asciz.
+    let expected = &[0x68, 0x65, 0x6c, 0x6c, 0x6f, 0];
 
     assert_data_match(source, expected);
 }
@@ -788,6 +788,71 @@ fn test_asciz_directive() {
     assert_data_match(source, expected);
 }
 
+// Aliases preserve data widths and string termination, including empty strings.
+// Label differences verify that layout accounts for every emitted terminator.
+#[test]
+fn test_data_directive_aliases_and_layout() {
+    let source = r#"
+.data
+start: .ascii "a", "", "b"
+terminated: .string "c", "", "d"
+end: .asciz "e", ""
+.half terminated - start, end - terminated
+.word 0xdeadbeef, -1
+.zero 2
+"#;
+    assert_data_match(
+        source,
+        &[
+            b'a', b'b', b'c', 0, 0, b'd', 0, b'e', 0, 0, 2, 0, 5, 0, 0xef,
+            0xbe, 0xad, 0xde, 0xff, 0xff, 0xff, 0xff, 0, 0,
+        ],
+    );
+}
+
+#[test]
+fn test_space_fill_expressions() {
+    let source = r#"
+.equ COUNT, 3
+.equ FILL, 0x142
+.data
+start: .space COUNT, FILL
+.space 2, -1
+.space 0, 42
+end: .word end - start
+.space 2
+"#;
+    assert_data_match(
+        source,
+        &[0x42, 0x42, 0x42, 0xff, 0xff, 5, 0, 0, 0, 0, 0],
+    );
+}
+
+// BSS accepts explicit zero fills but cannot represent initialized data.
+// Malformed or unresolved fill expressions must fail even for zero-size space.
+#[test]
+fn test_space_fill_errors_and_bss() {
+    let (_, data, bss) = assemble(
+        ".equ FILL, 0\n.bss\n.space 3, FILL\n.zero 2\n",
+        &make_default_config(),
+    )
+    .expect("Zero-filled BSS should assemble");
+    assert!(data.is_empty());
+    assert_eq!(bss, 5);
+
+    for (source, message) in [
+        (".bss\n.space 3, 1", "fill must be zero"),
+        (".data\n.space -1, 0", "non-negative"),
+        (".data\n.space 0, missing", "missing"),
+    ] {
+        let error = assemble(source, &make_default_config()).unwrap_err();
+        assert!(error.to_string().contains(message), "{error}");
+    }
+    for source in [".data\n.space 2,", ".data\n.space 2, 1, 3"] {
+        assert!(assemble(source, &make_default_config()).is_err(), "{source}");
+    }
+}
+
 #[test]
 fn test_mixed_data_directives() {
     let source = r#"
@@ -795,7 +860,7 @@ fn test_mixed_data_directives() {
 .byte 0x42, 0x43, 0x44
 .2byte 0x1234, 0x5678
 .4byte 0xDEADBEEF, 0xCAFEBABE
-.string "hello"
+.ascii "hello"
 .asciz "world"
 "#;
 
@@ -804,7 +869,7 @@ fn test_mixed_data_directives() {
         0x42, 0x43, 0x44, // .byte
         0x34, 0x12, 0x78, 0x56, // .2byte
         0xef, 0xbe, 0xad, 0xde, 0xbe, 0xba, 0xfe, 0xca, // .4byte
-        0x68, 0x65, 0x6c, 0x6c, 0x6f, // .string "hello"
+        0x68, 0x65, 0x6c, 0x6c, 0x6f, // .ascii "hello"
         0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, // .asciz "world"
     ];
 
@@ -1482,6 +1547,7 @@ fn test_string_escapes() {
         0x09, // \t
         0x22, // \"
         0x5c, // \\
+        0x00, // null terminator
     ];
 
     assert_eq!(&data[..], expected);

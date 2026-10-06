@@ -781,10 +781,16 @@ fn extract_refs_from_pseudo(pseudo: &PseudoOp, refs: &mut Vec<String>) {
 fn extract_refs_from_directive(dir: &Directive, refs: &mut Vec<String>) {
     match dir {
         // Directives with a single expression
-        Directive::Equ(_, expr)
-        | Directive::Space(expr)
-        | Directive::Balign(expr) => {
+        Directive::Equ(_, expr) | Directive::Balign(expr) => {
             refs.extend(extract_from_expression(expr));
+        }
+
+        // Space can refer to symbols in both its size and fill expressions.
+        Directive::Space(size, fill) => {
+            refs.extend(extract_from_expression(size));
+            if let Some(fill) = fill {
+                refs.extend(extract_from_expression(fill));
+            }
         }
 
         // Directives with multiple expressions

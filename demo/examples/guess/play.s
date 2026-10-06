@@ -2,26 +2,26 @@
                 .equ    play_args, 1
                 .data
 prompt:
-                .string "Guess a digit (0-9): "
+                .ascii "Guess a digit (0-9): "
                 .equ    prompt_len, (. - prompt)
 invalid:
-                .string "Enter exactly one digit.\n"
+                .ascii "Enter exactly one digit.\n"
                 .equ    invalid_len, (. - invalid)
 low:
-                .string "Too low.\n"
+                .ascii "Too low.\n"
                 .equ    low_len, (. - low)
 high:
-                .string "Too high.\n"
+                .ascii "Too high.\n"
                 .equ    high_len, (. - high)
 won:
-                .string "Correct!\n"
+                .ascii "Correct!\n"
                 .equ    won_len, (. - won)
 ended:
-                .string "Input ended.\n"
+                .ascii "Input ended.\n"
                 .equ    ended_len, (. - ended)
                 .balign 4
 attempts:
-                .4byte  0
+                .word  0
                 .text
                 # play(secret): repeat guesses until correct or input ends.
 play:

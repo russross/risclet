@@ -1948,8 +1948,13 @@
     "checks": [
       [
         0,
-        "StatementError",
-        "invalid.illegal.statement"
+        "Directive",
+        "keyword.control.directive"
+      ],
+      [
+        6,
+        "Number",
+        "constant.numeric"
       ]
     ]
   },
@@ -2005,6 +2010,46 @@
         2,
         "Comment",
         "comment.line.number-sign"
+      ]
+    ]
+  },
+  {
+    "line": ".half 1",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".ascii \"text\"",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": ".zero 4",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": "buffer: .space 4, 255",
+    "checks": [
+      [
+        8,
+        "Directive",
+        "keyword.control.directive"
       ]
     ]
   }

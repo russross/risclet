@@ -1,7 +1,7 @@
                 .global _start
                 .data
 intro:
-                .string "Find the secret digit. Hints follow each guess.\n"
+                .ascii "Find the secret digit. Hints follow each guess.\n"
                 .equ    intro_len, (. - intro)
                 .text
 _start:

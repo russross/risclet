@@ -1,10 +1,10 @@
                 .global _start
                 .data
 before:
-                .string "before: "
+                .ascii "before: "
                 .equ    before_len, (. - before)
 after:
-                .string "after:  "
+                .ascii "after:  "
                 .equ    after_len, (. - after)
 values:
                 .byte   9, -3, 7, 1, 8, 2, -6, 5, 0, 4, 7, -1

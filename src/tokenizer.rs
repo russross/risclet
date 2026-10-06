@@ -136,12 +136,16 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                         "data" => DirectiveOp::Data,
                         "bss" => DirectiveOp::Bss,
                         "space" => DirectiveOp::Space,
+                        "zero" => DirectiveOp::Space,
                         "balign" => DirectiveOp::Balign,
-                        "string" => DirectiveOp::String,
+                        "ascii" => DirectiveOp::String,
+                        "string" => DirectiveOp::Asciz,
                         "asciz" => DirectiveOp::Asciz,
                         "byte" => DirectiveOp::Byte,
                         "2byte" => DirectiveOp::TwoByte,
+                        "half" => DirectiveOp::TwoByte,
                         "4byte" => DirectiveOp::FourByte,
+                        "word" => DirectiveOp::FourByte,
                         _ => {
                             return Err(format!(
                                 "Unknown directive .{}",

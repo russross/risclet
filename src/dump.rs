@@ -414,9 +414,13 @@ fn dump_directive_ast(dir: &Directive) {
         Directive::Text => print!("(directive text)"),
         Directive::Data => print!("(directive data)"),
         Directive::Bss => print!("(directive bss)"),
-        Directive::Space(expr) => {
+        Directive::Space(expr, fill) => {
             print!("(directive space ");
             dump_expression_ast(expr);
+            if let Some(fill) = fill {
+                print!(" ");
+                dump_expression_ast(fill);
+            }
             print!(")");
         }
         Directive::Balign(expr) => {
@@ -425,14 +429,14 @@ fn dump_directive_ast(dir: &Directive) {
             print!(")");
         }
         Directive::String(strings) => {
-            print!("(directive string");
+            print!("(directive ascii");
             for s in strings {
                 print!(" {:?}", s);
             }
             print!(")");
         }
         Directive::Asciz(strings) => {
-            print!("(directive asciz");
+            print!("(directive string");
             for s in strings {
                 print!(" {:?}", s);
             }

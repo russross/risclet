@@ -342,7 +342,7 @@ fn guess_line_size(content: &LineContent) -> u32 {
         },
         LineContent::Label(_) => 0,
         LineContent::Directive(dir) => match dir {
-            Directive::Space(_expr) => 0,
+            Directive::Space(_, _) => 0,
             Directive::Balign(_expr) => 0,
             Directive::Byte(exprs) => exprs.len(),
             Directive::TwoByte(exprs) => exprs.len() * 2,

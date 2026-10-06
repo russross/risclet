@@ -400,8 +400,8 @@ impl<'a> Parser<'a> {
         Ok(lines)
     }
 
-    // Grammar: .global ident | .equ ident , exp | .text | .data | .bss | .space exp | .balign exp | .string string [, string]* | .asciz string [, string]* | .byte exp [, exp]* | .2byte exp [, exp]* | .4byte exp [, exp]* | .8byte exp [, exp]*
-    // Examples: .global main, .equ SIZE, 100, .text, .data, .bss, .space 4, .balign 8, .string "hello", "world", .asciz "foo", .byte 1, 2, 3, .2byte 10, 20, .4byte 100, .8byte 1000
+    // Aliases are normalized by the tokenizer. Space takes a size and optional
+    // fill expression; string and numeric data directives accept value lists.
     fn parse_directive(&mut self) -> Result<Directive> {
         if let Some(Token::Directive(d)) = self.next() {
             match d {
@@ -425,7 +425,13 @@ impl<'a> Parser<'a> {
                 DirectiveOp::Bss => Ok(Directive::Bss),
                 DirectiveOp::Space => {
                     let expr = self.parse_expression()?;
-                    Ok(Directive::Space(expr))
+                    let fill = if let Some(Token::Comma) = self.peek() {
+                        self.next();
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    };
+                    Ok(Directive::Space(expr, fill))
                 }
                 DirectiveOp::Balign => {
                     let expr = self.parse_expression()?;

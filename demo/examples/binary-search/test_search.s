@@ -2,13 +2,13 @@
                 .equ    test_search_args, 3
                 .data
 query:
-                .string "target "
+                .ascii "target "
                 .equ    query_len, (. - query)
 result:
-                .string " -> index "
+                .ascii " -> index "
                 .equ    result_len, (. - result)
 newline:
-                .string "\n"
+                .ascii "\n"
                 .equ    newline_len, (. - newline)
                 .text
                 # test_search(bytes, count, target): display the query and returned index.

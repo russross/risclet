@@ -196,7 +196,9 @@ fn test_parse_directive_space() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Directive(Directive::Space(expr)) = &ast[0].content {
+    if let LineContent::Directive(Directive::Space(expr, None)) =
+        &ast[0].content
+    {
         if let Expression::Literal(4) = *expr {
             // ok
         } else {
@@ -230,7 +232,7 @@ fn test_parse_directive_string() {
     let tokens = tokenize(line).unwrap();
     let ast = parse(&tokens, "test".to_string(), 1).unwrap();
     assert_eq!(ast.len(), 1);
-    if let LineContent::Directive(Directive::String(vec)) = &ast[0].content {
+    if let LineContent::Directive(Directive::Asciz(vec)) = &ast[0].content {
         assert_eq!(*vec, vec!["hello".to_string(), "world".to_string()]);
     } else {
         panic!("Unexpected AST");
