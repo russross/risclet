@@ -79,17 +79,16 @@ export class VmSession {
             onError: error => { if (active()) { this.fail(error); this.options.onError(error); } },
         };
         try {
-            const response = await fetch(this.image.wasmUrl, { cache: "no-cache" });
-            if (!response.ok) throw new Error(`WASM request failed with status ${response.status}`);
-            const runtime = await this.runtimeConstructor.instantiate(await response.arrayBuffer(), callbacks);
+            const runtime = await this.runtimeConstructor.prepare({
+                config: { url: this.image.configUrl },
+                wasmUrl: this.image.wasmUrl,
+                ramMiB: this.image.memoryMiB,
+                ...callbacks,
+            });
             this.machine = runtime;
-            const config = await this.runtimeConstructor.loadResolvedConfig(this.image.configUrl);
-            const drives = [config.drive0, config.drive1, config.drive2, config.drive3]
-                .filter(drive => drive !== undefined);
-            if (drives.some(drive => !("file" in drive))) throw new Error("VM recovery requires HTTP-backed disks");
-            await runtime.prepareResolved(config, this.image.memoryMiB);
             this.share = runtime.filesystem(this.image.shareName);
-            this.disks = drives.map((_, index) => runtime.block(index));
+            // The generated image has one HTTP-backed root disk whose overlay resets on switches.
+            this.disks = [runtime.block(0)];
             this.unsubscribe = this.share.subscribe(change => { if (active()) this.options.onFilesystemChange(change); });
         } catch (error: unknown) {
             await this.destroyMachine();
@@ -114,7 +113,7 @@ export class VmSession {
             if (runtime === undefined) throw new Error("VM is unavailable");
             await runtime.coldReset();
             if (!isCurrent()) return false;
-            for (const disk of this.disks) disk.discardChanges();
+            for (const disk of this.disks) disk.reset();
             if (target.snapshot !== undefined) restoreWorkspace(this.filesystem, target.snapshot);
             else populateWorkspace(this.filesystem, target.files);
             this.loaded = true;

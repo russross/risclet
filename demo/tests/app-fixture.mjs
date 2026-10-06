@@ -7,9 +7,9 @@ window.testAlerts = [];
 window.alert = message => window.testAlerts.push(String(message));
 window.addEventListener('error', event => window.testErrors.push(event.message));
 window.addEventListener('unhandledrejection', event => window.testErrors.push(String(event.reason)));
-const instantiate = Riscbox.instantiate.bind(Riscbox);
-Riscbox.instantiate = async (bytes, options) => {
-    const runtime = await instantiate(bytes, { ...options,
+const prepare = Riscbox.prepare.bind(Riscbox);
+Riscbox.prepare = async options => {
+    const runtime = await prepare({ ...options,
         consoleWrite: text => { window.testOutput += text; options.consoleWrite?.(text); },
         onVmReset: cause => { window.testEvents.push(cause); options.onVmReset?.(cause); },
         onError: error => { window.testErrors.push(String(error)); options.onError?.(error); },

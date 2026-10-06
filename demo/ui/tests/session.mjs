@@ -120,17 +120,19 @@ async function vmTests() {
     const machines = [];
     const errors = [];
     let failConfig = true;
+    let failedCallbacks;
     let holdReset;
     let releaseReset;
     const constructor = {
-        async loadResolvedConfig() {
-            if (failConfig) { failConfig = false; throw new Error("configuration unavailable"); }
-            return { version: 1, machine: "riscv64", memory_size: 64, drive0: { file: "https://image.invalid/disk.json" } };
-        },
-        async instantiate(_, callbacks) {
+        async prepare(callbacks) {
+            if (failConfig) {
+                failConfig = false;
+                failedCallbacks = callbacks;
+                throw new Error("configuration unavailable");
+            }
             const machine = { started: false, boots: 0, halted: 0, destroyed: false, discards: 0, resizes: 0, input: [], callbacks,
-                async prepareResolved() {}, filesystem() { return this.fs; },
-                block() { return { discardChanges: () => { this.discards++; } }; },
+                filesystem() { return this.fs; },
+                block() { return { reset: () => { this.discards++; } }; },
                 async boot() { this.started = true; this.boots++; callbacks.consoleReset(); callbacks.onVmReset(); callbacks.onVmStarted(); },
                 async halt() { this.started = false; this.halted++; callbacks.onVmHalted("forced"); },
                 async requestReboot() {},
@@ -156,10 +158,10 @@ async function vmTests() {
 
     // Failed preparation releases its handles and remains retryable through Boot VM.
     await session.switchWorkspace(first, () => true).then(() => { throw new Error("configuration failure must reject"); }, () => {});
-    check(session.state === "failed" && machines[0].destroyed, "failed preparation did not release the machine");
+    check(session.state === "failed" && machines.length === 0, "failed preparation retained a machine");
     await session.boot();
-    check(session.state === "running" && machines.length === 2, "boot did not retry preparation");
-    const machine = machines[1];
+    check(session.state === "running" && machines.length === 1, "boot did not retry preparation");
+    const machine = machines[0];
     check(machine.resizes === 1, "host boot processed both reset and started callbacks");
     const screen = host.querySelector(".xterm-screen");
     const cellHeight = screen.getBoundingClientRect().height / terminal.rows;
@@ -169,8 +171,8 @@ async function vmTests() {
     terminal.fit();
     check(Math.abs(screen.getBoundingClientRect().height / terminal.rows - cellHeight) < 1 / devicePixelRatio,
         "resize resampled the root font size after startup");
-    machines[0].callbacks.onVmStarted();
-    machines[0].callbacks.consoleWrite("retired callback");
+    failedCallbacks.onVmStarted();
+    failedCallbacks.consoleWrite("retired callback");
     check(await terminal.readText() === "", "retired preparation forwarded old output");
 
     // A delayed editor flush cannot inject input into a replacement workspace.

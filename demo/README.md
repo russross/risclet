@@ -55,6 +55,11 @@ including its documentation, declarations, runtime, firmware, kernel, and disk
 splitter. Public TypeScript declarations and runtime bytes come from that same
 release.
 
+`VmSession` calls `Riscbox.prepare` with the configuration URL, matching WASM URL,
+RAM size, and lifecycle callbacks. The factory returns a prepared, halted machine
+and releases partial resources on failure. The generated configuration supplies
+one HTTP-backed root disk; workspace switches discard its overlay through `block(0)`.
+
 Image construction extracts the verified Alpine minirootfs, adds the selected
 published Risclet binary and guest configuration, and populates a 16 MiB ext4
 image with `mkfs.ext4 -d` under fakeroot. It does not boot a VM or install additional

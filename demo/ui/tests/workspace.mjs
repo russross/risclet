@@ -1,9 +1,6 @@
 // Real WASM namespaces exercise copied content, literal links, and metadata.
 export async function snapshotRegression(runtime, snapshotWorkspace, restoreWorkspace) {
     const check = (condition, message) => { if (!condition) throw new Error(message); };
-    await runtime.prepareResolved({ version: 1, machine: "riscv64", memory_size: 32,
-        bios: "firmware.bin", console: "uart",
-        fs0: { server: "snapshot", tag: "snapshot" } });
     const filesystem = runtime.filesystem("snapshot");
     filesystem.mkdir("empty");
     filesystem.mkdir("nested");
@@ -35,6 +32,5 @@ export async function snapshotRegression(runtime, snapshotWorkspace, restoreWork
     check(filesystem.stat("nested").mode === 0o750 && filesystem.stat("nested").mtime.seconds === 900n, "parent metadata restored after children");
     filesystem.writeFile("alias", "through link");
     check(new TextDecoder().decode(filesystem.readFile("nested/executable")) === "through link", "restored aliases share writes");
-    await runtime.destroy();
     return 1;
 }
