@@ -6,10 +6,50 @@
 use crate::assembler::relaxation_loop;
 use crate::ast::{Source, SourceFile};
 use crate::config::{Config, Relax};
+use crate::elf_builder::ExecutableLayout;
 use crate::layout::approximate_line_sizes;
 use crate::parser::parse;
+use crate::riscv::{Op, fields_to_string};
 use crate::symbols::{create_builtin_symbols_file, link_symbols};
 use crate::tokenizer::tokenize;
+use std::collections::HashMap;
+
+// Every compressed halfword must survive strict formatting and reassembly, including hints.
+#[test]
+fn compressed_disassembly_exhaustively_round_trips() {
+    let mut config = make_default_config();
+    config.verbose_instructions = true;
+    config.relax.gp = Some(false);
+    config.relax.pseudo = false;
+    let symbols = HashMap::new();
+    let mut source = String::new();
+    let mut expected = Vec::new();
+    for encoding in 0_u32..=u16::MAX.into() {
+        if encoding & 3 == 3 {
+            continue;
+        }
+        let pc = config.text_start + expected.len() as u32;
+        let fields = Op::new(encoding as i32).to_encoding_fields(encoding);
+        source.push_str(
+            fields_to_string(&config, &fields, pc, 0, true, None, &symbols)
+                .trim(),
+        );
+        source.push('\n');
+        expected.extend_from_slice(&(encoding as u16).to_le_bytes());
+    }
+    let (actual, _, _) = assemble(&source, &config)
+        .expect("reassemble all compressed halfwords");
+    assert_eq!(actual.len(), expected.len());
+    for (index, (actual, expected)) in actual
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<2>().0)
+        .enumerate()
+    {
+        assert_eq!(actual, expected, "halfword {index}");
+    }
+}
 
 // Default relaxation settings for most tests (compression disabled for predictable sizes)
 fn make_default_config() -> Config {
@@ -333,6 +373,241 @@ jalr x27, x28, 0
     ];
 
     assert_instructions_match(source, expected);
+}
+
+#[test]
+fn test_jalr_operand_forms() {
+    // Omitted destinations save the return address in ra, including zero offsets.
+    let cases: &[(&str, u32)] = &[
+        ("jalr t0", 0x000280e7),
+        ("jalr (t0)", 0x000280e7),
+        ("jalr 0(t0)", 0x000280e7),
+        ("jalr t0, 0", 0x000280e7),
+        ("jalr ra, t0", 0x000280e7),
+        ("jalr ra, (t0)", 0x000280e7),
+        ("jalr ra, 0(t0)", 0x000280e7),
+        ("jalr ra, t0, 0", 0x000280e7),
+        // Two registers retain their explicit destination/source interpretation.
+        ("jalr t1, t0", 0x00028367),
+        ("jalr t1, (t0)", 0x00028367),
+        ("jalr zero, t0", 0x00028067),
+        ("jalr t0, ra", 0x000082e7),
+        ("jalr zero", 0x000000e7),
+        // Parenthesized expressions remain distinct from parenthesized registers.
+        ("jalr 12(t0)", 0x00c280e7),
+        ("jalr t0, 12", 0x00c280e7),
+        ("jalr (4 + 8)(t0)", 0x00c280e7),
+        ("jalr t0, (4 + 8)", 0x00c280e7),
+        ("jalr t1, (4 + 8)(t0)", 0x00c28367),
+        ("jalr t1, t0, 4 + 8", 0x00c28367),
+        ("jalr OFFSET(t0)", 0x00c280e7),
+        ("jalr t0, OFFSET", 0x00c280e7),
+        // The signed immediate limits apply equally to abbreviated forms.
+        ("jalr -2048(t0)", 0x800280e7),
+        ("jalr t0, 2047", 0x7ff280e7),
+    ];
+    for &(instruction, expected) in cases {
+        let source = format!(".equ OFFSET, 12\n{instruction}");
+        let (text, _, _) = assemble(&source, &make_default_config())
+            .unwrap_or_else(|error| panic!("{instruction}: {error}"));
+        assert_eq!(text, expected.to_le_bytes(), "{instruction}");
+    }
+}
+
+#[test]
+fn test_jalr_invalid_operands() {
+    // A missing operand or delimiter must not silently select a default.
+    for instruction in [
+        "jalr",
+        "jalr t0,",
+        "jalr 12",
+        "jalr ()",
+        "jalr (t0",
+        "jalr t0 t1",
+        "jalr t0, t1,",
+        "jalr t0, 12, t1",
+        "jalr 12(t0), t1",
+        "jalr t0, 0(t1) extra",
+    ] {
+        assert!(
+            assemble(instruction, &make_default_config()).is_err(),
+            "accepted malformed instruction: {instruction}"
+        );
+    }
+
+    // Abbreviations retain integer type checking and signed 12-bit range checks.
+    for instruction in [
+        "jalr 2048(t0)",
+        "jalr t0, -2049",
+        "jalr target(t0)",
+        "jalr t0, target",
+    ] {
+        let source = format!("target: nop\n{instruction}");
+        let error = assemble(&source, &make_default_config()).unwrap_err();
+        assert!(error.contains("I-type immediate"), "{instruction}: {error}");
+    }
+}
+
+#[test]
+fn test_jalr_abbreviations_with_compression() {
+    // All zero-offset calls through t0 can use c.jalr when compression is enabled.
+    let config = make_config_with_compression();
+    for instruction in ["jalr t0", "jalr (t0)", "jalr 0(t0)", "jalr t0, 0"] {
+        let (text, _, _) = assemble(instruction, &config).unwrap();
+        assert_eq!(text, [0x82, 0x92], "{instruction}");
+    }
+
+    // A nonzero offset or zero base register requires the full instruction.
+    for (instruction, expected) in
+        [("jalr t0, 12", 0x00c280e7u32), ("jalr zero", 0x000000e7u32)]
+    {
+        let (text, _, _) = assemble(instruction, &config).unwrap();
+        assert_eq!(text, expected.to_le_bytes(), "{instruction}");
+    }
+}
+
+#[test]
+fn test_compatible_jr_and_compressed_memory_forms() {
+    // Abbreviations retain the exact encoding of their explicit counterparts.
+    for (short, full) in [
+        ("jr t0", "jalr zero, t0, 0"),
+        ("jr (t0)", "jalr zero, t0, 0"),
+        ("jr 4(t0)", "jalr zero, t0, 4"),
+        ("jr t0, -4", "jalr zero, t0, -4"),
+        ("jr (2 + 2)(t0)", "jalr zero, t0, 4"),
+        ("c.lw a0, (a1)", "c.lw a0, 0(a1)"),
+        ("c.sw a0, (a1)", "c.sw a0, 0(a1)"),
+        ("c.lwsp a0, (sp)", "c.lwsp a0, 0(sp)"),
+        ("c.swsp a0, (sp)", "c.swsp a0, 0(sp)"),
+        ("c.lw a0, (2 + 2)(a1)", "c.lw a0, 4(a1)"),
+    ] {
+        for config in [make_default_config(), make_config_with_compression()] {
+            assert_eq!(
+                assemble(short, &config).unwrap(),
+                assemble(full, &config).unwrap(),
+                "{short}"
+            );
+        }
+    }
+
+    // Missing delimiters, bad bases, and out-of-range offsets remain errors.
+    for source in [
+        "jr",
+        "jr t0,",
+        "jr 2048(t0)",
+        "jr target\ntarget: nop",
+        "c.lw a0, (t0)",
+        "c.lwsp a0, (a1)",
+        "c.swsp a0, (sp",
+        "c.sw a0, ()",
+        "c.lw a0, (a1), 0",
+    ] {
+        assert!(assemble(source, &make_default_config()).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn test_signed_minimum_literals_and_zero_backward_labels() {
+    // The minimum signed value is valid in decimal and hexadecimal literal form.
+    for literal in ["-2147483648", "-0x80000000"] {
+        assert_data_match(&format!(".data\n.word {literal}"), &[0, 0, 0, 0x80]);
+        assert_instructions_match(
+            &format!("li a0, {literal}"),
+            &[0x37, 0x05, 0, 0x80],
+        );
+    }
+    // Computed negation still reports overflow rather than silently wrapping.
+    for expression in ["--2147483648", "-(0x80000000)"] {
+        assert!(
+            assemble(&format!(".word {expression}"), &make_default_config())
+                .is_err()
+        );
+    }
+
+    // Binary literals and backward references to zero remain distinct tokens.
+    assert_instructions_match(
+        "0: nop\nj 0b",
+        &[0x13, 0, 0, 0, 0x6f, 0xf0, 0xdf, 0xff],
+    );
+    assert_data_match(
+        ".data\n0: .byte 0b1010, 0B11\n.word . - 0b",
+        &[10, 3, 2, 0, 0, 0],
+    );
+}
+
+#[test]
+fn test_atomic_release_suffix() {
+    // Release uses the standard suffix; the removed spelling is not an alias.
+    for (instruction, operands) in [
+        ("lr.w", "a0, (a2)"),
+        ("sc.w", "a0, a1, (a2)"),
+        ("amoswap.w", "a0, a1, (a2)"),
+        ("amoadd.w", "a0, a1, (a2)"),
+        ("amoxor.w", "a0, a1, (a2)"),
+        ("amoand.w", "a0, a1, (a2)"),
+        ("amoor.w", "a0, a1, (a2)"),
+        ("amomin.w", "a0, a1, (a2)"),
+        ("amomax.w", "a0, a1, (a2)"),
+        ("amominu.w", "a0, a1, (a2)"),
+        ("amomaxu.w", "a0, a1, (a2)"),
+    ] {
+        let config = make_default_config();
+        let (mut expected, _, _) =
+            assemble(&format!("{instruction} {operands}"), &config).unwrap();
+        expected[3] |= 2;
+        let (actual, _, _) =
+            assemble(&format!("{instruction}.rl {operands}"), &config).unwrap();
+        assert_eq!(actual, expected);
+        assert!(
+            assemble(&format!("{instruction}.rel {operands}"), &config)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn test_compressed_lui_field_limits() {
+    // GNU syntax uses the unsigned 20-bit field, including sign-extended values.
+    for (operand, expected) in [
+        ("1", [0x05, 0x65]),
+        ("31", [0x7d, 0x65]),
+        ("0xfffe0", [0x01, 0x75]),
+        ("0xfffff", [0x7d, 0x75]),
+    ] {
+        assert_instructions_match(&format!("c.lui a0, {operand}"), &expected);
+    }
+    for operand in ["0", "32", "0xfffdf", "0x100000", "-1", "-32"] {
+        assert!(
+            assemble(&format!("c.lui a0, {operand}"), &make_default_config())
+                .is_err(),
+            "{operand}"
+        );
+    }
+}
+
+#[test]
+fn test_data_and_fill_ranges_after_relaxation() {
+    // Initial four-byte estimates exceed a byte, but the final compressed size fits.
+    let config = make_config_with_compression();
+    let prefix = format!("start:\n{}end:\n", "nop\n".repeat(64));
+    for directive in
+        [".byte end - start", ".space 1, end - start", ".zero 1, end - start"]
+    {
+        let (_, data, _) =
+            assemble(&format!("{prefix}.data\n{directive}"), &config).unwrap();
+        assert_eq!(data, [128]);
+    }
+
+    // BSS fills also use final values, while final overflow still fails.
+    let (_, _, bss) = assemble(
+        &format!("{prefix}.bss\n.space 1, end - start - 128"),
+        &config,
+    )
+    .unwrap();
+    assert_eq!(bss, 1);
+    let source =
+        format!("start:\n{}end:\n.byte end - start", "nop\n".repeat(128));
+    assert!(assemble(&source, &config).unwrap_err().contains("out of range"));
 }
 
 // ============================================================================
@@ -763,6 +1038,130 @@ fn test_fourbyte_directive() {
 }
 
 #[test]
+fn test_data_directive_integer_limits() {
+    // Each width accepts both signed values and unsigned bit patterns.
+    assert_data_match(
+        ".data\n.byte -128, -1, 0, 127, 128, 255",
+        &[0x80, 0xff, 0, 0x7f, 0x80, 0xff],
+    );
+    for directive in [".half", ".2byte"] {
+        assert_data_match(
+            &format!(".data\n{directive} -32768, -1, 0, 32767, 32768, 65535"),
+            &[0, 0x80, 0xff, 0xff, 0, 0, 0xff, 0x7f, 0, 0x80, 0xff, 0xff],
+        );
+    }
+
+    // Words preserve all 32 bits, including the signed minimum and high bit.
+    for directive in [".word", ".4byte"] {
+        assert_data_match(
+            &format!(
+                ".data\n{directive} 0x80000000, -1, 0, 0x7fffffff, 0xffffffff"
+            ),
+            &[
+                0, 0, 0, 0x80, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0xff, 0xff,
+                0xff, 0x7f, 0xff, 0xff, 0xff, 0xff,
+            ],
+        );
+    }
+}
+
+#[test]
+fn test_data_directive_range_errors() {
+    // Expressions and later list elements receive the same checks as literals.
+    for (directive, value, range) in [
+        (".byte", "-129", "-128 to 255"),
+        (".byte", "256", "-128 to 255"),
+        (".byte", "128 * 2", "-128 to 255"),
+        (".half", "-32769", "-32768 to 65535"),
+        (".half", "65536", "-32768 to 65535"),
+        (".2byte", "-32769", "-32768 to 65535"),
+        (".2byte", "65536", "-32768 to 65535"),
+    ] {
+        let source = format!(".data\n{directive} 0, {value}");
+        let error = assemble(&source, &make_default_config()).unwrap_err();
+        assert!(error.contains(directive), "{error}");
+        assert!(error.contains("out of range"), "{error}");
+        assert!(error.contains(range), "{error}");
+    }
+}
+
+#[test]
+fn test_data_directive_address_limits() {
+    // A low address can fit in narrow storage; the next address cannot.
+    let header_size = ExecutableLayout::new(true, false).header_size();
+    for (directive, maximum, expected) in [
+        (".byte", 255, vec![0xff]),
+        (".half", 65535, vec![0xff, 0xff]),
+        (".2byte", 65535, vec![0xff, 0xff]),
+    ] {
+        let mut config = make_default_config();
+        config.text_start = maximum - header_size;
+        let source = format!(".text\ntarget:\n.data\n{directive} target");
+        let (_, data, _) = assemble(&source, &config).unwrap();
+        assert_eq!(data, expected, "{directive}");
+
+        config.text_start += 1;
+        let error = assemble(&source, &config).unwrap_err();
+        assert!(error.contains("out of range"), "{error}");
+    }
+
+    // A high unsigned address must not be mistaken for the signed integer -1.
+    let mut config = make_default_config();
+    config.text_start = 0;
+    let prefix = format!(
+        ".equ HIGH, . - {header_size} + 0x7fffffff + 0x7fffffff + 1\n.data\n"
+    );
+    for directive in [".byte", ".half", ".2byte"] {
+        let source = format!("{prefix}{directive} HIGH");
+        let error = assemble(&source, &config).unwrap_err();
+        assert!(error.contains("0xffffffff out of range"), "{error}");
+    }
+    for directive in [".word", ".4byte"] {
+        let source = format!("{prefix}{directive} HIGH");
+        let (_, data, _) = assemble(&source, &config).unwrap();
+        assert_eq!(data, [0xff; 4]);
+    }
+}
+
+#[test]
+fn test_current_address_in_data_lists() {
+    // GNU as advances the location counter for each value, at every data width.
+    for (directive, expected) in [
+        (".byte", vec![0, 1, 2]),
+        (".half", vec![0, 0, 2, 0, 4, 0]),
+        (".2byte", vec![0, 0, 2, 0, 4, 0]),
+        (".word", vec![0, 0, 0, 0, 4, 0, 0, 0, 8, 0, 0, 0]),
+        (".4byte", vec![0, 0, 0, 0, 4, 0, 0, 0, 8, 0, 0, 0]),
+    ] {
+        let source = format!(
+            ".data\nstart: {directive} . - start, . - start, . - start"
+        );
+        assert_data_match(&source, &expected);
+    }
+
+    // Symbol definitions retain their own location; nested expressions use the item.
+    assert_data_match(
+        ".data\n.equ START, .\n.byte 0, (. - START) * 2, (end - .)\nend:",
+        &[0, 2, 1],
+    );
+}
+
+#[test]
+fn test_current_address_data_list_range_checks() {
+    // The first address fits, but the second element crosses the width's limit.
+    for (directive, maximum) in
+        [(".byte", 255), (".half", 65535), (".2byte", 65535)]
+    {
+        let mut config = make_default_config();
+        let header_size = ExecutableLayout::new(false, false).header_size();
+        config.text_start = maximum - header_size;
+        let source = format!(".text\n{directive} ., .");
+        let error = assemble(&source, &config).unwrap_err();
+        assert!(error.contains("out of range"), "{error}");
+    }
+}
+
+#[test]
 fn test_string_directive() {
     let source = r#"
 .data
@@ -814,7 +1213,7 @@ end: .asciz "e", ""
 fn test_space_fill_expressions() {
     let source = r#"
 .equ COUNT, 3
-.equ FILL, 0x142
+.equ FILL, 0x40 + 2
 .data
 start: .space COUNT, FILL
 .space 2, -1
@@ -850,6 +1249,34 @@ fn test_space_fill_errors_and_bss() {
     }
     for source in [".data\n.space 2,", ".data\n.space 2, 1, 3"] {
         assert!(assemble(source, &make_default_config()).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn test_space_fill_range_limits() {
+    // Both spellings accept the complete signed/unsigned byte range.
+    for directive in [".space", ".zero"] {
+        assert_data_match(
+            &format!(
+                ".data\n{directive} 2, -128\n{directive} 2, 255\n{directive} 0, -1"
+            ),
+            &[0x80, 0x80, 0xff, 0xff],
+        );
+
+        // Validate fills even when no bytes are emitted or BSS would discard them.
+        for section in [".text", ".data", ".bss"] {
+            for size in [0, 1] {
+                for fill in [-129, 256] {
+                    let source =
+                        format!("{section}\n{directive} {size}, {fill}");
+                    let error =
+                        assemble(&source, &make_default_config()).unwrap_err();
+                    assert!(error.contains("fill"), "{error}");
+                    assert!(error.contains("out of range"), "{error}");
+                    assert!(error.contains("-128 to 255"), "{error}");
+                }
+            }
+        }
     }
 }
 
@@ -909,6 +1336,52 @@ buffer2: .space 256
     assert_eq!(text.len(), 0, "Expected no text segment output");
     assert_eq!(data.len(), 0, "Expected no data segment output");
     assert_eq!(bss_size, 384, "Expected BSS size of 384 (128 + 256)");
+}
+
+#[test]
+fn test_bss_alignment() {
+    // BSS starts after initialized data, which need not end on an aligned address.
+    let source = r#"
+.equ ALIGNMENT, 8
+.data
+.byte 42
+.word aligned - start, end - aligned
+.bss
+start:
+.balign ALIGNMENT
+aligned:
+.zero 3
+.balign 4
+.balign 4
+end:
+"#;
+    let (text, data, bss_size) =
+        assemble(source, &make_default_config()).unwrap();
+    assert!(text.is_empty());
+    assert_eq!(data, [42, 7, 0, 0, 0, 4, 0, 0, 0]);
+    assert_eq!(bss_size, 11);
+
+    // Alignment works without initialized data, including a non-power-of-two value.
+    let (_, data, bss_size) =
+        assemble(".bss\n.zero 2\n.balign 3\n.zero 1", &make_default_config())
+            .unwrap();
+    assert!(data.is_empty());
+    assert_eq!(bss_size, 5);
+}
+
+#[test]
+fn test_bss_alignment_errors() {
+    // Alignment values must remain positive integers in BSS as in other sections.
+    for (expression, message) in [
+        ("0", "must be positive"),
+        ("-4", "must be positive"),
+        (".", "must be a numeric value"),
+        ("missing", "missing"),
+    ] {
+        let source = format!(".bss\n.balign {expression}");
+        let error = assemble(&source, &make_default_config()).unwrap_err();
+        assert!(error.contains(message), "{error}");
+    }
 }
 
 #[test]

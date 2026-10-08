@@ -1,23 +1,88 @@
 [
   {
     "line": ".L1: nop",
-    "checks": [[0, "Label", "entity.name.label"], [5, "Instruction", "keyword.control.instruction"]]
+    "checks": [
+      [
+        0,
+        "Label",
+        "entity.name.label"
+      ],
+      [
+        5,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
   },
   {
     "line": ".Lloop: j .Lloop",
-    "checks": [[0, "Label", "entity.name.label"], [8, "Instruction", "keyword.control.instruction"], [10, "Symbol", "variable.other.symbol"]]
+    "checks": [
+      [
+        0,
+        "Label",
+        "entity.name.label"
+      ],
+      [
+        8,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        10,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
   },
   {
     "line": ".Ldata: .word .L1",
-    "checks": [[0, "Label", "entity.name.label"], [8, "Directive", "keyword.control.directive"], [14, "Symbol", "variable.other.symbol"]]
+    "checks": [
+      [
+        0,
+        "Label",
+        "entity.name.label"
+      ],
+      [
+        8,
+        "Directive",
+        "keyword.control.directive"
+      ],
+      [
+        14,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
   },
   {
     "line": ".equ .Lsize, . - .L1",
-    "checks": [[5, "Symbol", "variable.other.symbol"], [13, "Address", "constant.language.current-address"], [17, "Symbol", "variable.other.symbol"]]
+    "checks": [
+      [
+        5,
+        "Symbol",
+        "variable.other.symbol"
+      ],
+      [
+        13,
+        "Address",
+        "constant.language.current-address"
+      ],
+      [
+        17,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
   },
   {
     "line": ".global .Lexport",
-    "checks": [[8, "Symbol", "variable.other.symbol"]]
+    "checks": [
+      [
+        8,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
   },
   {
     "line": "add",
@@ -1060,7 +1125,7 @@
     ]
   },
   {
-    "line": "lr.w.rel",
+    "line": "lr.w.rl",
     "checks": [
       [
         0,
@@ -1100,7 +1165,7 @@
     ]
   },
   {
-    "line": "sc.w.rel",
+    "line": "sc.w.rl",
     "checks": [
       [
         0,
@@ -1140,7 +1205,7 @@
     ]
   },
   {
-    "line": "amoswap.w.rel",
+    "line": "amoswap.w.rl",
     "checks": [
       [
         0,
@@ -1180,7 +1245,7 @@
     ]
   },
   {
-    "line": "amoadd.w.rel",
+    "line": "amoadd.w.rl",
     "checks": [
       [
         0,
@@ -1220,7 +1285,7 @@
     ]
   },
   {
-    "line": "amoxor.w.rel",
+    "line": "amoxor.w.rl",
     "checks": [
       [
         0,
@@ -1260,7 +1325,7 @@
     ]
   },
   {
-    "line": "amoand.w.rel",
+    "line": "amoand.w.rl",
     "checks": [
       [
         0,
@@ -1300,7 +1365,7 @@
     ]
   },
   {
-    "line": "amoor.w.rel",
+    "line": "amoor.w.rl",
     "checks": [
       [
         0,
@@ -1340,7 +1405,7 @@
     ]
   },
   {
-    "line": "amomin.w.rel",
+    "line": "amomin.w.rl",
     "checks": [
       [
         0,
@@ -1380,7 +1445,7 @@
     ]
   },
   {
-    "line": "amomax.w.rel",
+    "line": "amomax.w.rl",
     "checks": [
       [
         0,
@@ -1420,7 +1485,7 @@
     ]
   },
   {
-    "line": "amominu.w.rel",
+    "line": "amominu.w.rl",
     "checks": [
       [
         0,
@@ -1460,7 +1525,7 @@
     ]
   },
   {
-    "line": "amomaxu.w.rel",
+    "line": "amomaxu.w.rl",
     "checks": [
       [
         0,
@@ -1999,7 +2064,7 @@
     ]
   },
   {
-    "line": "amoadd.w.rl a0, a1, (a2)",
+    "line": "amoadd.w.rel a0, a1, (a2)",
     "checks": [
       [
         0,
@@ -2070,6 +2135,143 @@
         8,
         "Directive",
         "keyword.control.directive"
+      ]
+    ]
+  },
+  {
+    "line": "c.addi16sp sp, -16",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        11,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        16,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": "c.addi4spn a0, sp, 1020",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        11,
+        "Register",
+        "variable.language.register"
+      ],
+      [
+        15,
+        "Register",
+        "variable.language.register"
+      ]
+    ]
+  },
+  {
+    "line": "c.lui a0, 0xfffff",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        10,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": "sw a0, count, t0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        7,
+        "Symbol",
+        "variable.other.symbol"
+      ],
+      [
+        14,
+        "Register",
+        "variable.language.register"
+      ]
+    ]
+  },
+  {
+    "line": "la a0, . + 2147483647 + 1",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        7,
+        "Address",
+        "constant.language.current-address"
+      ],
+      [
+        11,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, -0x80000000",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ],
+      [
+        8,
+        "Number",
+        "constant.numeric"
+      ]
+    ]
+  },
+  {
+    "line": "li a0, 0x1f",
+    "checks": [[7, "Number", "constant.numeric"]]
+  },
+  {
+    "line": "li a0, 0xab",
+    "checks": [[7, "Number", "constant.numeric"]]
+  },
+  {
+    "line": "j 0x1 f",
+    "checks": [[2, "Reference", "entity.name.label"]]
+  },
+  {
+    "line": ".2byte 0x1002",
+    "checks": [
+      [
+        0,
+        "Directive",
+        "keyword.control.directive"
+      ],
+      [
+        7,
+        "Number",
+        "constant.numeric"
       ]
     ]
   }

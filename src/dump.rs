@@ -66,7 +66,7 @@ impl Default for ElfDumpParts {
 pub struct DumpConfig {
     pub dump_ast: Option<DumpSpec>,
     pub dump_symbols: Option<DumpSpec>,
-    pub dump_values: Option<DumpSpec>,
+    pub dump_layout: Option<DumpSpec>,
     pub dump_code: Option<DumpSpec>,
     pub dump_elf: Option<ElfDumpParts>,
 }
@@ -82,7 +82,7 @@ impl DumpConfig {
         Self {
             dump_ast: None,
             dump_symbols: None,
-            dump_values: None,
+            dump_layout: None,
             dump_code: None,
             dump_elf: None,
         }
@@ -639,10 +639,10 @@ pub fn dump_symbols(
 }
 
 // ============================================================================
-// Symbol Values Dump
+// Layout Dump
 // ============================================================================
 
-pub fn dump_values(
+pub fn dump_layout(
     pass_number: usize,
     is_final: bool,
     source: &Source,
@@ -654,7 +654,7 @@ pub fn dump_values(
     }
 
     println!(
-        "========== SYMBOL VALUES DUMP (Pass {}{}) ==========\n",
+        "========== LAYOUT DUMP (Pass {}{}) ==========\n",
         pass_number,
         if is_final { " - FINAL" } else { "" }
     );
@@ -736,27 +736,45 @@ pub fn dump_code(
     );
 
     let addr_width = calculate_address_width(layout.text_start);
+    let mut text_offset = 0;
+    let mut data_offset = 0;
 
     for (file_index, file) in source.files.iter().enumerate() {
         if is_builtin_file(file) {
             continue;
         }
-        if !should_include_file(&file.file, &spec.files) {
-            continue;
+        let included = should_include_file(&file.file, &spec.files);
+        if included {
+            println!("File: {}", file.file);
+            println!("{}", "=".repeat(79));
         }
-
-        println!("File: {}", file.file);
-        println!("{}", "=".repeat(79));
 
         let max_line_width = calculate_max_line_width_for_file(file);
 
         for (line_index, line) in file.lines.iter().enumerate() {
-            // Get absolute address and encoded bytes from layout
+            // Addresses describe the layout used to encode this pass. Byte positions
+            // follow its actual output sizes, even in files omitted from the report.
             let pointer = LinePointer { file_index, line_index };
-            let &LineLayout { segment, offset, size } = layout.get(pointer);
+            let &LineLayout { segment, size, .. } = layout.get(pointer);
+            let offset = match segment {
+                Segment::Text => {
+                    let offset = text_offset;
+                    text_offset += size;
+                    offset
+                }
+                Segment::Data => {
+                    let offset = data_offset;
+                    data_offset += size;
+                    offset
+                }
+                Segment::Bss => 0,
+            };
+            if !included {
+                continue;
+            }
 
             let abs_addr = layout.get_line_address(pointer);
-            let encoded_bytes = get_encoded_bytes_with_layout(
+            let encoded_bytes = get_encoded_bytes(
                 size, segment, offset, text_bytes, data_bytes,
             );
 
@@ -1197,7 +1215,7 @@ fn format_address(addr: u32, addr_width: usize, segment: Segment) -> String {
     format!("{:0width$x}{}", addr, suffix, width = addr_width)
 }
 
-fn get_encoded_bytes_with_layout(
+fn get_encoded_bytes(
     size: u32,
     segment: Segment,
     offset: u32,

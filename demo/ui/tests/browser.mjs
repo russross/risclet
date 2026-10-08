@@ -9,9 +9,11 @@ export async function compileFixture(entry, library) {
     const compiler = webpack({ mode: "development", context: join(import.meta.dirname, ".."),
         entry, output: { path: directory, filename: "fixture.js", library: { name: library, type: "window" } },
         module: { rules: [
-            { test: /\.ts$/, use: { loader: "ts-loader", options: { transpileOnly: true } }, exclude: /node_modules/ },
+            { test: /\.ts$/, use: { loader: "ts-loader", options: {
+                transpileOnly: true, configFile: join(import.meta.dirname, "../tsconfig.json"),
+            } }, exclude: /node_modules/ },
             { test: /\.css$/, use: ["style-loader", "css-loader"] }] },
-        resolve: { extensions: [".ts", ".js"] } });
+        resolve: { extensions: [".ts", ".js"], modules: [join(import.meta.dirname, "../node_modules"), "node_modules"] } });
     await new Promise((resolve, reject) => compiler.run((error, stats) => {
         compiler.close(() => {});
         if (error) reject(error);

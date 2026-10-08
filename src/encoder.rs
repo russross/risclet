@@ -20,6 +20,7 @@ use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues, eval_expr};
 use crate::layout::{Layout, LineLayout, LineSizes};
 use crate::symbols::SymbolLinks;
+use std::ops::RangeInclusive;
 
 // ============================================================================
 // Public API
@@ -30,6 +31,7 @@ pub struct EncodedPass {
     pub line_sizes: LineSizes,
     pub text_bytes: Vec<u8>,
     pub data_bytes: Vec<u8>,
+    pub deferred_error: Option<RiscletError>,
 }
 
 /// Encode all lines using a read-only layout snapshot.
@@ -43,6 +45,7 @@ pub fn encode(
     let mut line_sizes = LineSizes::new();
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
+    let mut deferred_error = None;
 
     for file_index in 0..source.files.len() {
         for line_index in 0..source.files[file_index].lines.len() {
@@ -64,6 +67,7 @@ pub fn encode(
                         pointer,
                         current_address,
                         data_start,
+                        &mut deferred_error,
                     )?;
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
@@ -76,6 +80,7 @@ pub fn encode(
                         line,
                         pointer,
                         current_address,
+                        &mut deferred_error,
                     )?;
                     (None, size)
                 }
@@ -93,7 +98,7 @@ pub fn encode(
         }
     }
 
-    Ok(EncodedPass { line_sizes, text_bytes, data_bytes })
+    Ok(EncodedPass { line_sizes, text_bytes, data_bytes, deferred_error })
 }
 
 /// Encode a single line
@@ -106,6 +111,7 @@ fn encode_line(
     pointer: LinePointer,
     current_address: u32,
     data_start: u32,
+    deferred_error: &mut Option<RiscletError>,
 ) -> Result<Vec<u8>> {
     match &line.content {
         LineContent::Label(_) => Ok(Vec::new()),
@@ -128,11 +134,12 @@ fn encode_line(
             symbol_values,
             symbol_links,
             pointer,
+            deferred_error,
         ),
     }
 }
 
-/// Encode BSS segment line (must be space directive only)
+/// Compute reserved storage for a BSS line without emitting initialized bytes.
 fn encode_bss_line(
     source: &Source,
     symbol_links: &SymbolLinks,
@@ -140,6 +147,7 @@ fn encode_bss_line(
     line: &Line,
     pointer: LinePointer,
     current_address: u32,
+    deferred_error: &mut Option<RiscletError>,
 ) -> Result<u32> {
     match &line.content {
         LineContent::Label(_) => Ok(0),
@@ -165,14 +173,26 @@ fn encode_bss_line(
             let fill = encode_space_fill(
                 fill.as_ref(), line, current_address, source,
                 symbol_values, symbol_links, pointer,
+                deferred_error,
             )?;
             if fill != 0 {
-                return Err(RiscletError::from_context(
+                deferred_error.get_or_insert_with(|| RiscletError::from_context(
                     ".space fill must be zero in .bss".to_string(),
                     line.location.clone(),
                 ));
             }
             Ok(size as u32)
+        }
+        LineContent::Directive(Directive::Balign(expr)) => {
+            let value = eval_line_expr(
+                expr,
+                current_address,
+                source,
+                symbol_values,
+                symbol_links,
+                pointer,
+            )?;
+            alignment_padding(value, current_address, &line.location)
         }
         // Segment directives themselves don't produce bytes in BSS
         LineContent::Directive(Directive::Text)
@@ -187,19 +207,18 @@ fn encode_bss_line(
                 Directive::FourByte(_) => ".4byte",
                 Directive::String(_) => ".ascii",
                 Directive::Asciz(_) => ".string",
-                Directive::Balign(_) => ".balign",
                 _ => "directive",
             };
             Err(RiscletError::from_context(
                 format!(
-                    "{} cannot be used in .bss segment (only .space and labels are allowed)",
+                    "{} cannot be used in .bss segment (reserve storage with .space, .zero, or .balign)",
                     dir_name
                 ),
                 line.location.clone(),
             ))
         }
         LineContent::Instruction(_) => Err(RiscletError::from_context(
-            "Instructions cannot be used in .bss segment (only .space and labels are allowed)"
+            "Instructions cannot be used in .bss segment (reserve storage with .space, .zero, or .balign)"
                 .to_string(),
             line.location.clone(),
         )),
@@ -421,6 +440,14 @@ fn encode_i_type_family(
 
     // Try compressed encoding if enabled
     if config.relax.compressed {
+        // The canonical no-op has its own compressed encoding.
+        if matches!(op, ITypeOp::Addi)
+            && rd == Register::X0
+            && rs1 == Register::X0
+            && imm == 0
+        {
+            return Ok(0x0001u16.to_le_bytes().to_vec());
+        }
         // c.addi rd, imm (rd == rs1, rd != x0, imm fits in 6-bit signed)
         if matches!(op, ITypeOp::Addi)
             && rd == rs1
@@ -1277,8 +1304,60 @@ fn encode_special(op: &SpecialOp) -> Result<Vec<u8>> {
 // Directive Encoding
 // ============================================================================
 
-// Fill expressions use the same symbol context as the size expression. Like
-// .byte, a fill retains the low eight bits of an integer value.
+// Alignment is based on the absolute address in every section. BSS reserves
+// the padding, while text and data emit the same number of zero bytes.
+fn alignment_padding(
+    value: EvaluatedValue,
+    current_address: u32,
+    location: &Location,
+) -> Result<u32> {
+    let alignment = require_integer(value, ".balign directive", location)?;
+    if alignment <= 0 {
+        return Err(RiscletError::from_context(
+            format!(".balign alignment must be positive: {}", alignment),
+            location.clone(),
+        ));
+    }
+
+    let address = i64::from(current_address);
+    Ok(((alignment - address % alignment) % alignment) as u32)
+}
+
+// Data accepts signed integers and unsigned bit patterns of the requested width.
+// Addresses keep their unsigned value until after validation. Range errors are
+// retained for the pass so tentative addresses do not prevent relaxation.
+fn encode_data_value(
+    value: EvaluatedValue,
+    range: RangeInclusive<i64>,
+    context: &str,
+    location: &Location,
+    deferred_error: &mut Option<RiscletError>,
+) -> u32 {
+    let number = match value {
+        EvaluatedValue::Integer(value) => i64::from(value),
+        EvaluatedValue::Address(value) => i64::from(value),
+    };
+    if !range.contains(&number) {
+        deferred_error.get_or_insert_with(|| {
+            RiscletError::from_context(
+                format!(
+                    "{} value {} out of range (expected {} to {})",
+                    context,
+                    value,
+                    range.start(),
+                    range.end(),
+                ),
+                location.clone(),
+            )
+        });
+    }
+
+    // Negative integers retain their two's-complement representation.
+    number as u32
+}
+
+// Fill expressions use the same symbol context as the size expression.
+// They require integers that fit in one byte, even for zero-sized allocations.
 fn encode_space_fill(
     fill: Option<&Expression>,
     line: &Line,
@@ -1287,6 +1366,7 @@ fn encode_space_fill(
     symbol_values: &SymbolValues,
     symbol_links: &SymbolLinks,
     pointer: LinePointer,
+    deferred_error: &mut Option<RiscletError>,
 ) -> Result<u8> {
     let Some(fill) = fill else { return Ok(0) };
     let value = eval_line_expr(
@@ -1297,7 +1377,14 @@ fn encode_space_fill(
         symbol_links,
         pointer,
     )?;
-    Ok(require_integer(value, ".space fill", &line.location)? as u8)
+    require_integer(value, ".space fill", &line.location)?;
+    Ok(encode_data_value(
+        value,
+        -128..=255,
+        ".space/.zero fill",
+        &line.location,
+        deferred_error,
+    ) as u8)
 }
 
 fn encode_directive(
@@ -1308,6 +1395,7 @@ fn encode_directive(
     symbol_values: &SymbolValues,
     symbol_links: &SymbolLinks,
     pointer: LinePointer,
+    deferred_error: &mut Option<RiscletError>,
 ) -> Result<Vec<u8>> {
     match dir {
         Directive::Text
@@ -1319,15 +1407,22 @@ fn encode_directive(
         Directive::Byte(exprs) => {
             let mut bytes = Vec::new();
             for expr in exprs {
+                // Each element sees its own address, including nested uses of '.'.
                 let val = eval_line_expr(
                     expr,
-                    current_address,
+                    current_address + bytes.len() as u32,
                     source,
                     symbol_values,
                     symbol_links,
                     pointer,
                 )?;
-                let byte_val = evaluated_value_to_i32(val) as u8;
+                let byte_val = encode_data_value(
+                    val,
+                    -128..=255,
+                    ".byte",
+                    &line.location,
+                    deferred_error,
+                ) as u8;
                 bytes.push(byte_val);
             }
             Ok(bytes)
@@ -1338,13 +1433,19 @@ fn encode_directive(
             for expr in exprs {
                 let val = eval_line_expr(
                     expr,
-                    current_address,
+                    current_address + bytes.len() as u32,
                     source,
                     symbol_values,
                     symbol_links,
                     pointer,
                 )?;
-                let short_val = evaluated_value_to_i32(val) as u16;
+                let short_val = encode_data_value(
+                    val,
+                    -32768..=65535,
+                    ".half/.2byte",
+                    &line.location,
+                    deferred_error,
+                ) as u16;
                 bytes.extend_from_slice(&short_val.to_le_bytes());
             }
             Ok(bytes)
@@ -1355,7 +1456,7 @@ fn encode_directive(
             for expr in exprs {
                 let val = eval_line_expr(
                     expr,
-                    current_address,
+                    current_address + bytes.len() as u32,
                     source,
                     symbol_values,
                     symbol_links,
@@ -1409,6 +1510,7 @@ fn encode_directive(
                 symbol_values,
                 symbol_links,
                 pointer,
+                deferred_error,
             )?;
             Ok(vec![fill; size as usize])
         }
@@ -1422,19 +1524,8 @@ fn encode_directive(
                 symbol_links,
                 pointer,
             )?;
-            let alignment =
-                require_integer(val, ".balign directive", &line.location)?;
-            if alignment <= 0 {
-                return Err(RiscletError::from_context(
-                    format!(
-                        ".balign alignment must be positive: {}",
-                        alignment
-                    ),
-                    line.location.clone(),
-                ));
-            }
-            let abs_addr = current_address as i64;
-            let padding = (alignment - (abs_addr % alignment)) % alignment;
+            let padding =
+                alignment_padding(val, current_address, &line.location)?;
             Ok(vec![0; padding as usize])
         }
     }
@@ -1966,10 +2057,12 @@ fn encode_compressed_inst(
                     location.clone(),
                 ));
             }
-            if !fits_signed(*imm as i64, 6) {
+            // The operand uses the same unshifted 20-bit field as ordinary lui.
+            // Only nonzero fields that sign-extend from six bits are encodable.
+            if !(1..=31).contains(imm) && !(0xfffe0..=0xfffff).contains(imm) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.lui immediate must be in range -32 to 31 (6-bit signed), got {} (must fit in 6-bit signed)",
+                        "c.lui immediate must be in range 1 to 31 or 0xfffe0 to 0xfffff, got {}",
                         imm
                     ),
                     location.clone(),
@@ -2445,7 +2538,8 @@ fn fits_signed(value: i64, bits: u32) -> bool {
 
 fn split_offset_hi_lo(offset: i64) -> (i64, i64) {
     let lo = ((offset as i32) << 20) >> 20;
-    let hi = ((offset as i32) - lo) >> 12;
+    // The upper field wraps at the RV32 boundary when rounding carries into bit 31.
+    let hi = (offset as i32).wrapping_sub(lo) >> 12;
     (hi as i64, lo as i64)
 }
 

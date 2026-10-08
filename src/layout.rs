@@ -180,9 +180,6 @@ impl Layout {
         let mut global_data_offset: u32 = 0;
         let mut global_bss_offset: u32 = 0;
 
-        // Track current segment as we iterate through lines
-        let mut current_segment = Segment::Text;
-
         // Check if there's a builtin symbols file (last file)
         if source.files.is_empty() {
             return;
@@ -194,6 +191,8 @@ impl Layout {
             .unwrap_or(false);
 
         for (file_index, source_file) in source.files.iter().enumerate() {
+            // Each file starts in text; only storage offsets carry across files.
+            let mut current_segment = Segment::Text;
             let is_builtin_file =
                 has_builtin && file_index == source.files.len() - 1;
 

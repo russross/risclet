@@ -9,10 +9,13 @@ export default {
         clean: true,
     },
     module: { rules: [
-        { test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ },
+        { test: /\.ts$/, use: { loader: "ts-loader", options: {
+            configFile: fileURLToPath(new URL("./tsconfig.json", import.meta.url)),
+        } }, exclude: /node_modules/ },
         { test: /\.css$/i, use: ["style-loader", "css-loader"] },
     ] },
     resolve: {
+        modules: [fileURLToPath(new URL("./node_modules", import.meta.url)), "node_modules"],
         extensions: [".ts", ".js"],
         extensionAlias: { ".js": [".ts", ".js"] },
     },

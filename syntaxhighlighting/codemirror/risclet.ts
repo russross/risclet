@@ -16,7 +16,7 @@ const instructions = new Set([
 ]);
 
 // Compressed and atomic names are closed sets, rather than arbitrary c.* or
-// amo* instructions. The assembler uses .rel (not .rl) for release ordering.
+// amo* instructions. Release ordering uses the standard .rl suffix.
 for (const name of [
   "add", "mv", "jr", "jalr", "li", "lui", "addi", "addi16sp", "addi4spn",
   "slli", "lwsp", "swsp", "lw", "sw", "and", "or", "xor", "sub", "srli",
@@ -27,7 +27,7 @@ for (const name of [
   "lr", "sc", "amoswap", "amoadd", "amoxor", "amoand", "amoor", "amomin",
   "amomax", "amominu", "amomaxu",
 ]) {
-  for (const suffix of ["", ".aq", ".rel", ".aqrl"]) {
+  for (const suffix of ["", ".aq", ".rl", ".aqrl"]) {
     instructions.add(`${name}.w${suffix}`);
   }
 }
@@ -93,6 +93,11 @@ function quotedLiteral(stream: StringStream, quote: string): string {
 // Match the tokenizer's radix rules, including traditional leading-zero
 // octal. Signs remain operators, and unsigned 32-bit bit patterns are accepted.
 function integerLiteral(stream: StringStream): string | null {
+  // A bare lowercase 0b is a local-label reference, not an empty binary literal.
+  if (stream.match(/^0b(?![01])/, false)) {
+    stream.next();
+    return "number";
+  }
   const matched = stream.match(/^(?:0[xX][0-9a-fA-F]*|0[bB][01]*|0[oO][0-7]*|0[0-7]*|[1-9][0-9]*)/);
   if (!matched) return null;
   const text = stream.current();

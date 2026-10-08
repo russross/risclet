@@ -149,9 +149,9 @@ fn parse_dump_option(arg: &str, config: &mut Config) -> Result<bool, String> {
     } else if arg.starts_with("--dump-symbols") {
         let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
         config.dump.dump_symbols = Some(spec);
-    } else if arg.starts_with("--dump-values") {
+    } else if arg.starts_with("--dump-layout") {
         let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
-        config.dump.dump_values = Some(spec);
+        config.dump.dump_layout = Some(spec);
     } else if arg.starts_with("--dump-code") {
         let spec = dump::parse_dump_spec(option_value_after_equals(arg))?;
         config.dump.dump_code = Some(spec);
@@ -480,7 +480,7 @@ Output Behavior:
 Debug Dump Options:
   --dump-ast[=PASSES[:FILES]]     Dump AST after parsing (s-expression format)
   --dump-symbols[=PASSES[:FILES]] Dump after symbol linking with references
-  --dump-values[=PASSES[:FILES]]  Dump symbol values for specific passes/files
+  --dump-layout[=PASSES[:FILES]]  Dump addresses and sections for specific passes/files
   --dump-code[=PASSES[:FILES]]    Dump generated code for specific passes/files
   --dump-elf[=PARTS]              Dump detailed ELF info
 

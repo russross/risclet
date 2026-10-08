@@ -48,11 +48,14 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
                 n
             } else {
                 instructions[i].pseudo_fields =
-                    instructions[i].op.to_pseudo_fields();
+                    instructions[i].op.to_pseudo_fields_with_symbols(
+                        m.global_pointer,
+                        &m.address_symbols,
+                    );
                 1
             };
             for inst in &mut instructions[i..i + n] {
-                inst.verbose_fields = inst.op.to_fields();
+                inst.verbose_fields = inst.op.to_encoding_fields(inst.encoding);
                 inst.pseudo_index = j;
             }
             pseudo_addresses.insert(j, i);

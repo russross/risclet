@@ -3,7 +3,7 @@ import { VmSession } from "../vm-session.ts";
 import { TerminalView } from "../terminal.ts";
 import { renderFileTree } from "../workspace-view.ts";
 import { language } from "@codemirror/language";
-import { riscletLanguage } from "../risclet.ts";
+import { riscletLanguage } from "../../../syntaxhighlighting/codemirror/risclet.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

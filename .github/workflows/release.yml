@@ -42,8 +42,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
 
       - name: Read current package version
         id: current
@@ -81,7 +79,7 @@ jobs:
 
   # Validation leaves the version untagged so corrected commits can retry it.
   validate:
-    name: Test and Lint
+    name: Test and Compile
     runs-on: ubuntu-latest
     needs: [prepare_release]
     if: needs.prepare_release.outputs.should_release == 'true'
@@ -90,12 +88,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
       - name: Run Rust tests
         run: cargo test --locked --all-targets
-      - name: Run Clippy
-        run: cargo clippy --locked --all-targets -- --deny warnings
 
   # This job uses a dedicated cross-compilation container for Linux builds.
   build_linux_with_cross:

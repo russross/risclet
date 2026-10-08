@@ -9,7 +9,9 @@ use crate::checkabi::CheckABI;
 use crate::config::{Config, Mode};
 use crate::error::{Result, RiscletError};
 use crate::memory::{CpuState, MemoryLayout, MemoryManager, Segment};
-use crate::riscv::{Field, Op, fields_to_string, format_instruction_address};
+use crate::riscv::{
+    Field, Op, ZERO, fields_to_string, format_instruction_address,
+};
 use crate::trace::{
     Effects, FrameChange, MemoryValue, MemoryWrite, RegisterValue,
     RegisterWrite,
@@ -642,6 +644,23 @@ pub fn add_local_labels(m: &mut Machine, instructions: &[Instruction]) {
     for inst in instructions {
         if let Some(target) = inst.op.branch_target(inst.address) {
             branch_targets.insert(target);
+        }
+    }
+
+    // Static AUIPC/JALR destinations are entry points even when no symbol names them.
+    // Labeling them before grouping prevents a pair from hiding reachable instructions.
+    for pair in instructions.windows(2) {
+        if let (Op::Auipc { rd, imm }, Op::Jalr { rs1, offset, .. }) =
+            (&pair[0].op, &pair[1].op)
+            && *rd != ZERO
+            && rd == rs1
+            && pair[0].address.checked_add(pair[0].length)
+                == Some(pair[1].address)
+        {
+            branch_targets.insert(
+                pair[0].address.wrapping_add(imm.wrapping_add(*offset) as u32)
+                    & !1,
+            );
         }
     }
 

@@ -6,7 +6,7 @@ ALPINE_SHA256 := 57132e6e4f3a4ba9ffdf24e485513ce507e45471e7fd565aeed91c055cd63f7
 RISCBOX_ARCHIVE := build/downloads/riscbox-$(RISCBOX_VERSION).tar.gz
 RISCLET_BINARY := build/downloads/risclet-$(RISCLET_VERSION)
 ALPINE_ARCHIVE := build/downloads/alpine-minirootfs-$(ALPINE_VERSION)-riscv64.tar.gz
-UI_SOURCES := $(shell find ui -maxdepth 1 -type f | sort)
+UI_SOURCES := $(shell find ui -maxdepth 1 -type f | sort) ../syntaxhighlighting/codemirror/risclet.ts
 GUEST_SOURCES := $(shell find guest -type f | sort)
 EXAMPLE_SOURCES := $(shell find examples -type f | sort)
 

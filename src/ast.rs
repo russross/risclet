@@ -348,9 +348,9 @@ pub enum Instruction {
     /// Atomic instructions (A extension): (op, rd, rs1, rs2, ordering)
     /// - For LR instructions: rs2 must be x0 (unused)
     /// - For SC/AMO instructions: all registers are used
-    /// - Syntax: lr.w[.aq|.rel|.aqrl] rd, (rs1)
-    ///   sc.w[.aq|.rel|.aqrl] rd, rs2, (rs1)
-    ///   amo*.w[.aq|.rel|.aqrl] rd, rs2, (rs1)
+    /// - Syntax: lr.w[.aq|.rl|.aqrl] rd, (rs1)
+    ///   sc.w[.aq|.rl|.aqrl] rd, rs2, (rs1)
+    ///   amo*.w[.aq|.rl|.aqrl] rd, rs2, (rs1)
     Atomic(AtomicOp, Register, Register, Register, MemoryOrdering),
     /// Compressed instructions (C extension) - 16-bit encoding
     Compressed(CompressedOp, CompressedOperands),
@@ -578,12 +578,12 @@ pub enum AtomicOp {
 ///
 /// All atomic operations in the A extension support optional memory ordering annotations:
 /// - `.aq` (acquire): Load-acquire semantics
-/// - `.rel` (release): Store-release semantics
+/// - `.rl` (release): Store-release semantics
 /// - `.aqrl` (both): Full memory barrier
 ///
 /// **Examples:**
 /// - `lr.w.aq a0, (a1)` - Load with acquire semantics
-/// - `sc.w.rel a0, a2, (a1)` - Store with release semantics
+/// - `sc.w.rl a0, a2, (a1)` - Store with release semantics
 /// - `amoswap.w.aqrl a0, a2, (a1)` - Atomic operation with full barrier
 #[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub enum MemoryOrdering {
@@ -928,7 +928,7 @@ impl fmt::Display for MemoryOrdering {
         match self {
             MemoryOrdering::None => Ok(()),
             MemoryOrdering::Aq => write!(f, ".aq"),
-            MemoryOrdering::Rel => write!(f, ".rel"),
+            MemoryOrdering::Rel => write!(f, ".rl"),
             MemoryOrdering::AqRl => write!(f, ".aqrl"),
         }
     }

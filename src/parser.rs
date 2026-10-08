@@ -273,6 +273,15 @@ impl<'a> Parser<'a> {
     fn parse_unary(&mut self) -> Result<Expression> {
         if let Some(Token::Operator(OperatorOp::Minus)) = self.peek() {
             self.next();
+            // The magnitude 2^31 is legal in a negative literal, even though its
+            // token already carries the signed 32-bit bit pattern.
+            if self.peek() == Some(&Token::Integer(i32::MIN))
+                && !matches!(self.tokens.get(self.pos + 1),
+                    Some(Token::Identifier(name)) if name == "f" || name == "b")
+            {
+                self.next();
+                return Ok(Expression::Literal(i32::MIN));
+            }
             let expr = self.parse_unary()?;
             Ok(Expression::NegateOp { expr: Box::new(expr) })
         } else if let Some(Token::Operator(OperatorOp::BitwiseNot)) =
@@ -774,12 +783,24 @@ impl<'a> Parser<'a> {
                 ))
             }
             "jr" => {
-                let rs = self.parse_register()?;
+                let (offset, rs) = if let Some(Token::Register(_)) = self.peek()
+                {
+                    let rs = self.parse_register()?;
+                    let offset = if self.peek() == Some(&Token::Comma) {
+                        self.next();
+                        self.parse_expression()?
+                    } else {
+                        Expression::Literal(0)
+                    };
+                    (offset, rs)
+                } else {
+                    self.parse_memory_operand()?
+                };
                 Ok(Instruction::IType(
                     ITypeOp::Jalr,
                     Register::X0,
                     rs,
-                    Box::new(Expression::Literal(0)),
+                    Box::new(offset),
                 ))
             }
             "not" => {
@@ -832,11 +853,50 @@ impl<'a> Parser<'a> {
         Ok(Instruction::IType(op, rd, rs1, Box::new(imm)))
     }
 
-    // Grammar: reg , [offset] ( reg ) | reg , reg [, offset]
-    // Examples: jalr ra, 0(t0), jalr ra, (t0), jalr ra, t0, jalr ra, t0, 0
+    // Memory operands allow an omitted zero offset. Parenthesized expressions
+    // remain offsets unless their only contents are a register.
+    fn parse_memory_operand(&mut self) -> Result<(Expression, Register)> {
+        if let [
+            Token::OpenParen,
+            Token::Register(base),
+            Token::CloseParen,
+            ..,
+        ] = &self.tokens[self.pos..]
+        {
+            let base = *base;
+            self.pos += 3;
+            return Ok((Expression::Literal(0), base));
+        }
+
+        let offset = self.parse_expression()?;
+        self.expect(&Token::OpenParen)?;
+        let base = self.parse_register()?;
+        self.expect(&Token::CloseParen)?;
+        Ok((offset, base))
+    }
+
+    // Grammar: [rd ,] [offset] ( rs1 ) | [rd ,] rs1 [, offset]
+    // An omitted destination defaults to ra; two registers mean rd, rs1.
     fn parse_jalr(&mut self) -> Result<Instruction> {
-        let rd = self.parse_register()?;
-        self.expect(&Token::Comma)?;
+        let first_register = if let Some(Token::Register(_)) = self.peek() {
+            Some(self.parse_register()?)
+        } else {
+            None
+        };
+
+        // A lone register is the source, with both destination and offset omitted.
+        if let Some(rs1) = first_register {
+            if self.peek().is_none() {
+                return Ok(Instruction::IType(
+                    ITypeOp::Jalr,
+                    Register::X1,
+                    rs1,
+                    Box::new(Expression::Literal(0)),
+                ));
+            }
+            self.expect(&Token::Comma)?;
+        }
+        let rd = first_register.unwrap_or(Register::X1);
 
         // Lookahead for ( reg ) to handle zero offset: jalr rd, (rs1)
         if let Some(Token::OpenParen) = self.peek() {
@@ -883,7 +943,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Not a register, so must be offset(rs1) format
+        // A following base register makes the expression a memory-style operand.
         self.pos = first_token_pos;
         let offset = self.parse_expression()?;
         if let Some(Token::OpenParen) = self.peek() {
@@ -891,6 +951,14 @@ impl<'a> Parser<'a> {
             let rs1 = self.parse_register()?;
             self.expect(&Token::CloseParen)?;
             Ok(Instruction::IType(ITypeOp::Jalr, rd, rs1, Box::new(offset)))
+        } else if let Some(rs1) = first_register {
+            // Without a parenthesized base, the first register is rs1, not rd.
+            Ok(Instruction::IType(
+                ITypeOp::Jalr,
+                Register::X1,
+                rs1,
+                Box::new(offset),
+            ))
         } else {
             Err(RiscletError::from_context(
                 "jalr expects offset(rs1), (rs1), rs1, or rs1, offset syntax"
@@ -1056,7 +1124,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Grammar: atomic_op[.aq|.rel|.aqrl] rd, (rs1) | atomic_op[.aq|.rel|.aqrl] rd, rs2, (rs1)
+    // Grammar: atomic_op[.aq|.rl|.aqrl] rd, (rs1) | atomic_op[.aq|.rl|.aqrl] rd, rs2, (rs1)
     // Examples:
     //   lr.w a0, (a1)
     //   lr.w.aq a0, (a1)
@@ -1104,14 +1172,14 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // Parse ordering suffix (.aq, .rel, .aqrl)
+        // Parse ordering suffix (.aq, .rl, .aqrl)
         let has_ordering =
-            matches!(parts.last(), Some(&"aqrl") | Some(&"aq") | Some(&"rel"));
+            matches!(parts.last(), Some(&"aqrl") | Some(&"aq") | Some(&"rl"));
         let ordering = if has_ordering {
             match parts.last() {
                 Some(&"aqrl") => MemoryOrdering::AqRl,
                 Some(&"aq") => MemoryOrdering::Aq,
-                Some(&"rel") => MemoryOrdering::Rel,
+                Some(&"rl") => MemoryOrdering::Rel,
                 _ => MemoryOrdering::None, // Should not reach here given has_ordering check
             }
         } else {
@@ -1263,9 +1331,7 @@ impl<'a> Parser<'a> {
             "lwsp" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
-                let offset = self.parse_expression()?;
-                self.expect(&Token::OpenParen)?;
-                let base = self.parse_register()?;
+                let (offset, base) = self.parse_memory_operand()?;
                 if base != Register::X2 {
                     return Err(RiscletError::from_context(
                         format!(
@@ -1275,7 +1341,6 @@ impl<'a> Parser<'a> {
                         self.location(),
                     ));
                 }
-                self.expect(&Token::CloseParen)?;
                 (
                     CompressedOp::CLwsp,
                     CompressedOperands::CIStackLoad {
@@ -1289,9 +1354,7 @@ impl<'a> Parser<'a> {
             "swsp" => {
                 let rs2 = self.parse_register()?;
                 self.expect(&Token::Comma)?;
-                let offset = self.parse_expression()?;
-                self.expect(&Token::OpenParen)?;
-                let base = self.parse_register()?;
+                let (offset, base) = self.parse_memory_operand()?;
                 if base != Register::X2 {
                     return Err(RiscletError::from_context(
                         format!(
@@ -1301,7 +1364,6 @@ impl<'a> Parser<'a> {
                         self.location(),
                     ));
                 }
-                self.expect(&Token::CloseParen)?;
                 (
                     CompressedOp::CSwsp,
                     CompressedOperands::CSSStackStore {
@@ -1316,11 +1378,8 @@ impl<'a> Parser<'a> {
                 let rd = self.parse_register()?;
                 self.require_compressed_register(rd, "c.lw destination")?;
                 self.expect(&Token::Comma)?;
-                let offset = self.parse_expression()?;
-                self.expect(&Token::OpenParen)?;
-                let rs1 = self.parse_register()?;
+                let (offset, rs1) = self.parse_memory_operand()?;
                 self.require_compressed_register(rs1, "c.lw base register")?;
-                self.expect(&Token::CloseParen)?;
                 (
                     CompressedOp::CLw,
                     CompressedOperands::CL {
@@ -1336,11 +1395,8 @@ impl<'a> Parser<'a> {
                 let rs2 = self.parse_register()?;
                 self.require_compressed_register(rs2, "c.sw source")?;
                 self.expect(&Token::Comma)?;
-                let offset = self.parse_expression()?;
-                self.expect(&Token::OpenParen)?;
-                let rs1 = self.parse_register()?;
+                let (offset, rs1) = self.parse_memory_operand()?;
                 self.require_compressed_register(rs1, "c.sw base register")?;
-                self.expect(&Token::CloseParen)?;
                 (
                     CompressedOp::CSw,
                     CompressedOperands::CS {

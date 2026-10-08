@@ -105,6 +105,38 @@ fn default_run_and_assemble_discover_sources_before_saved_executables() {
     assert_eq!(workspace.run(&["a.out"]).status.code(), Some(11));
 }
 
+// Section selection resets per file, while storage offsets continue across files.
+#[test]
+fn source_files_default_to_text_after_data_or_bss() {
+    let workspace = Workspace::new();
+    write(
+        workspace.0.join("second.s"),
+        ".global _start, second_data, second_bss\n_start:\n\
+         call helper\nli a7, 93\necall\n\
+         .data\nsecond_data: .word 7\n.bss\nsecond_bss: .space 4\n",
+    )
+    .expect("write source with implicit text section");
+
+    // The helper reads initialized and zero-filled storage from both source files.
+    for section in [".data", ".bss"] {
+        write(
+            workspace.0.join("first.s"),
+            format!(
+                ".global helper, first_data, first_bss\nhelper:\n\
+                 lw a0, first_data\nlw a1, second_data\nadd a0, a0, a1\n\
+                 lw a1, first_bss\nadd a0, a0, a1\n\
+                 lw a1, second_bss\nadd a0, a0, a1\nret\n\
+                 .data\nfirst_data: .word 5\n.bss\nfirst_bss: .space 4\n{section}\n"
+            ),
+        )
+        .expect("write source ending in a storage section");
+        success(&workspace.run(&["assemble", "first.s", "second.s"]));
+        let output = workspace.run(&["run", "a.out"]);
+        assert_eq!(output.status.code(), Some(12), "{section}: {output:?}");
+        assert!(output.stderr.is_empty(), "{section}: {output:?}");
+    }
+}
+
 #[test]
 fn discovery_without_sources_only_falls_back_to_elf_for_execution() {
     let workspace = Workspace::new();
@@ -154,7 +186,7 @@ fn dumps_succeed_without_creating_or_overwriting_output() {
     for dumps in [
         vec!["--dump-ast"],
         vec!["--dump-symbols"],
-        vec!["--dump-values"],
+        vec!["--dump-layout"],
         vec!["--dump-code"],
     ] {
         let mut args = vec!["assemble", "program.s", "-o", "saved"];
@@ -167,7 +199,7 @@ fn dumps_succeed_without_creating_or_overwriting_output() {
             let heading = match dump {
                 "--dump-ast" => "AST Dump",
                 "--dump-symbols" => "SYMBOL RESOLUTION DUMP",
-                "--dump-values" => "SYMBOL VALUES DUMP",
+                "--dump-layout" => "LAYOUT DUMP",
                 "--dump-code" => "CODE GENERATION DUMP",
                 "--dump-elf" => "ELF DUMP",
                 _ => panic!("unknown inspection option"),
@@ -197,7 +229,7 @@ fn dumps_succeed_without_creating_or_overwriting_output() {
         "saved",
         "--dump-ast",
         "--dump-symbols",
-        "--dump-values",
+        "--dump-layout",
         "--dump-code",
         "--dump-elf",
     ]);
@@ -256,6 +288,48 @@ fn elf_dumps_describe_the_completed_executable() {
     assert!(listing.contains("_start"));
     assert!(!workspace.0.join("a.out").exists());
     assert_eq!(read(workspace.0.join("saved")).unwrap(), bytes);
+}
+
+#[test]
+fn intermediate_code_dumps_follow_emitted_sizes_and_file_filters() {
+    let workspace = Workspace::new();
+    write(
+        workspace.0.join("first.s"),
+        ".text\nli a0, 1\n.data\n.space 3, 170\n",
+    )
+    .unwrap();
+    write(
+        workspace.0.join("second.s"),
+        ".text\nli a1, 2\necall\n.data\n.byte 187\n.bss\n.space 5\n",
+    )
+    .unwrap();
+
+    // Instructions shrink and data grows on the first pass. Both byte streams
+    // must advance through the hidden file before reporting the selected file.
+    for selector in ["--dump-code=1", "--dump-code=1:second.s", "--dump-code"] {
+        let output =
+            workspace.run(&["assemble", "first.s", "second.s", selector]);
+        success(&output);
+        let listing = String::from_utf8_lossy(&output.stdout);
+        let li = listing
+            .lines()
+            .find(|line| line.contains("li      a1, 2"))
+            .unwrap();
+        assert!(li.contains("93 05 20 00"), "{listing}");
+        let ecall =
+            listing.lines().find(|line| line.contains("ecall")).unwrap();
+        assert!(ecall.contains("73 00 00 00"), "{listing}");
+        assert!(
+            listing.lines().any(|line| {
+                line.contains("[second.s:5]")
+                    && line.split_whitespace().last() == Some("bb")
+            }),
+            "{listing}"
+        );
+        if selector.ends_with(":second.s") {
+            assert!(!listing.contains("File: first.s"), "{listing}");
+        }
+    }
 }
 
 #[test]

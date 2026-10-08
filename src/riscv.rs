@@ -1442,10 +1442,18 @@ impl Op {
 
             // u-type
             Op::Lui { rd, imm } => {
-                vec![Field::Opcode("lui"), Field::Reg(rd), Field::Imm(imm)]
+                vec![
+                    Field::Opcode("lui"),
+                    Field::Reg(rd),
+                    Field::Imm(((imm as u32) >> 12) as i32),
+                ]
             }
             Op::Auipc { rd, imm } => {
-                vec![Field::Opcode("auipc"), Field::Reg(rd), Field::Imm(imm)]
+                vec![
+                    Field::Opcode("auipc"),
+                    Field::Reg(rd),
+                    Field::Imm(((imm as u32) >> 12) as i32),
+                ]
             }
 
             // misc
@@ -1637,8 +1645,11 @@ impl Op {
             Op::Jal { rd: RA, offset } => {
                 vec![Field::Opcode("jal"), Field::PCRelAddr(offset)]
             }
-            Op::Addi { rd, rs1: GP, imm } => {
-                vec![Field::Opcode("la"), Field::Reg(rd), Field::GPRelAddr(imm)]
+            Op::Add { rd, rs1: ZERO, rs2 } => {
+                vec![Field::Opcode("mv"), Field::Reg(rd), Field::Reg(rs2)]
+            }
+            Op::Lui { rd, imm } if rd != ZERO => {
+                vec![Field::Opcode("li"), Field::Reg(rd), Field::Imm(imm)]
             }
             Op::Xori { rd, rs1, imm: -1 } => {
                 vec![Field::Opcode("not"), Field::Reg(rd), Field::Reg(rs1)]
@@ -1720,6 +1731,166 @@ impl Op {
         }
     }
 
+    // Strict listings retain the compressed form encoded in the original halfword.
+    // Expanded operations alone cannot distinguish stack forms from ordinary forms.
+    pub fn to_encoding_fields(&self, encoding: u32) -> Vec<Field> {
+        if encoding & 3 == 3 {
+            return self.to_fields();
+        }
+        let quadrant = encoding & 3;
+        let funct3 = (encoding >> 13) & 7;
+        match (quadrant, funct3, self) {
+            (0, 0, Self::Addi { rd, imm, .. }) => vec![
+                Field::Opcode("c.addi4spn"),
+                Field::Reg(*rd),
+                Field::Reg(SP),
+                Field::Imm(*imm),
+            ],
+            (0, 2, Self::Lw { rd, rs1, offset }) => vec![
+                Field::Opcode("c.lw"),
+                Field::Reg(*rd),
+                Field::Indirect(*offset, *rs1),
+            ],
+            (0, 6, Self::Sw { rs1, rs2, offset }) => vec![
+                Field::Opcode("c.sw"),
+                Field::Reg(*rs2),
+                Field::Indirect(*offset, *rs1),
+            ],
+
+            // Immediate forms share expanded operations but have distinct operand lists.
+            (1, 0, _) if encoding == 1 => vec![Field::Opcode("c.nop")],
+            (1, 0, Self::Addi { rd, imm, .. }) => {
+                vec![Field::Opcode("c.addi"), Field::Reg(*rd), Field::Imm(*imm)]
+            }
+            (1, 1, Self::Jal { offset, .. }) => {
+                vec![Field::Opcode("c.jal"), Field::PCRelAddr(*offset)]
+            }
+            (1, 2, Self::Addi { rd, imm, .. }) => {
+                vec![Field::Opcode("c.li"), Field::Reg(*rd), Field::Imm(*imm)]
+            }
+            (1, 3, Self::Addi { imm, .. }) => vec![
+                Field::Opcode("c.addi16sp"),
+                Field::Reg(SP),
+                Field::Imm(*imm),
+            ],
+            (1, 3, Self::Lui { rd, imm }) => vec![
+                Field::Opcode("c.lui"),
+                Field::Reg(*rd),
+                Field::Imm(((*imm as u32) >> 12) as i32),
+            ],
+            (1, 4, Self::Srli { rd, shamt, .. })
+                if encoding & 0x1000 == 0 && *shamt != 0 =>
+            {
+                vec![
+                    Field::Opcode("c.srli"),
+                    Field::Reg(*rd),
+                    Field::Imm(*shamt),
+                ]
+            }
+            (1, 4, Self::Srai { rd, shamt, .. })
+                if encoding & 0x1000 == 0 && *shamt != 0 =>
+            {
+                vec![
+                    Field::Opcode("c.srai"),
+                    Field::Reg(*rd),
+                    Field::Imm(*shamt),
+                ]
+            }
+            (1, 4, Self::Andi { rd, imm, .. }) => {
+                vec![Field::Opcode("c.andi"), Field::Reg(*rd), Field::Imm(*imm)]
+            }
+
+            // Register arithmetic uses its destination as an implicit first source.
+            (1, 4, Self::Sub { rd, rs2, .. }) => {
+                vec![Field::Opcode("c.sub"), Field::Reg(*rd), Field::Reg(*rs2)]
+            }
+            (1, 4, Self::Xor { rd, rs2, .. }) => {
+                vec![Field::Opcode("c.xor"), Field::Reg(*rd), Field::Reg(*rs2)]
+            }
+            (1, 4, Self::Or { rd, rs2, .. }) => {
+                vec![Field::Opcode("c.or"), Field::Reg(*rd), Field::Reg(*rs2)]
+            }
+            (1, 4, Self::And { rd, rs2, .. }) => {
+                vec![Field::Opcode("c.and"), Field::Reg(*rd), Field::Reg(*rs2)]
+            }
+            (1, 5, Self::Jal { offset, .. }) => {
+                vec![Field::Opcode("c.j"), Field::PCRelAddr(*offset)]
+            }
+            (1, 6, Self::Beq { rs1, offset, .. }) => vec![
+                Field::Opcode("c.beqz"),
+                Field::Reg(*rs1),
+                Field::PCRelAddr(*offset),
+            ],
+            (1, 7, Self::Bne { rs1, offset, .. }) => vec![
+                Field::Opcode("c.bnez"),
+                Field::Reg(*rs1),
+                Field::PCRelAddr(*offset),
+            ],
+
+            // Stack memory and indirect jumps keep their compressed syntax intact.
+            (2, 0, Self::Slli { rd, shamt, .. })
+                if encoding & 0x1000 == 0 && *shamt != 0 =>
+            {
+                vec![
+                    Field::Opcode("c.slli"),
+                    Field::Reg(*rd),
+                    Field::Imm(*shamt),
+                ]
+            }
+            (2, 2, Self::Lw { rd, offset, .. }) => vec![
+                Field::Opcode("c.lwsp"),
+                Field::Reg(*rd),
+                Field::Indirect(*offset, SP),
+            ],
+            (2, 4, Self::Jalr { rd: ZERO, rs1, .. }) => {
+                vec![Field::Opcode("c.jr"), Field::Reg(*rs1)]
+            }
+            (2, 4, Self::Jalr { rd: RA, rs1, .. }) => {
+                vec![Field::Opcode("c.jalr"), Field::Reg(*rs1)]
+            }
+            (2, 4, Self::Ebreak) => vec![Field::Opcode("c.ebreak")],
+            (2, 4, Self::Add { rd, rs2, .. }) => vec![
+                Field::Opcode(if encoding & 0x1000 == 0 {
+                    "c.mv"
+                } else {
+                    "c.add"
+                }),
+                Field::Reg(*rd),
+                Field::Reg(*rs2),
+            ],
+            (2, 6, Self::Sw { rs2, offset, .. }) => vec![
+                Field::Opcode("c.swsp"),
+                Field::Reg(*rs2),
+                Field::Indirect(*offset, SP),
+            ],
+            // Unsupported and reserved halfwords remain reproducible as raw data.
+            _ => vec![
+                Field::Opcode(".2byte"),
+                Field::Imm((encoding & 0xffff) as i32),
+            ],
+        }
+    }
+
+    // GP-relative aliases require a known address so their operand remains symbolic.
+    pub fn to_pseudo_fields_with_symbols(
+        &self,
+        gp: u32,
+        symbols: &HashMap<u32, String>,
+    ) -> Vec<Field> {
+        if let Self::Addi { rd, rs1: GP, imm } = *self
+            && rd != GP
+            && rd != ZERO
+            && symbols.contains_key(&gp.wrapping_add(imm as u32))
+        {
+            return vec![
+                Field::Opcode("la"),
+                Field::Reg(rd),
+                Field::GPRelAddr(imm),
+            ];
+        }
+        self.to_pseudo_fields()
+    }
+
     pub fn to_string(
         &self,
         config: &crate::config::Config,
@@ -1732,7 +1903,7 @@ impl Op {
         let fields = if config.verbose_instructions {
             self.to_fields()
         } else {
-            self.to_pseudo_fields()
+            self.to_pseudo_fields_with_symbols(gp, symbols)
         };
         fields_to_string(config, &fields, pc, gp, is_compressed, arrow, symbols)
     }
@@ -1757,7 +1928,7 @@ impl Op {
             Self::Bgeu { offset, .. } => {
                 Some((pc as i32).wrapping_add(*offset) as u32)
             }
-            Self::Jal { rd: ZERO, offset, .. } => {
+            Self::Jal { offset, .. } => {
                 Some((pc as i32).wrapping_add(*offset) as u32)
             }
             _ => None,
@@ -1779,7 +1950,29 @@ pub fn get_pseudo_sequence(
         return None;
     }
 
+    // Only adjacent instructions with a live upper-immediate result form a pair.
+    if inst1.address.checked_add(inst1.length) != Some(inst2.address)
+        || matches!(
+            inst1.op,
+            Op::Auipc { rd: ZERO, .. } | Op::Lui { rd: ZERO, .. }
+        )
+    {
+        return None;
+    }
+
     match (&inst1.op, &inst2.op) {
+        (Op::Lui { rd, imm }, Op::Addi { rd: rd2, rs1, imm: lo })
+            if rd == rd2 && rd == rs1 =>
+        {
+            Some((
+                2,
+                vec![
+                    Field::Opcode("li"),
+                    Field::Reg(*rd),
+                    Field::Imm(imm.wrapping_add(*lo)),
+                ],
+            ))
+        }
         (
             Op::Auipc { rd: rd1, imm: imm1 },
             Op::Addi { rd: rd2, rs1: rs2, imm: imm2 },
@@ -1788,14 +1981,19 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("la"),
                 Field::Reg(*rd1),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
             ],
         )),
 
-        (Op::Auipc { rd: RA, imm }, Op::Jalr { rd: RA, rs1: RA, offset }) => {
+        (Op::Auipc { rd: RA, imm }, Op::Jalr { rd: RA, rs1: RA, offset })
+            if offset & 1 == 0 =>
+        {
             Some((
                 2,
-                vec![Field::Opcode("call"), Field::PCRelAddr(imm + offset)],
+                vec![
+                    Field::Opcode("call"),
+                    Field::PCRelAddr(imm.wrapping_add(*offset)),
+                ],
             ))
         }
 
@@ -1803,9 +2001,12 @@ pub fn get_pseudo_sequence(
         (
             Op::Auipc { rd: 6, imm: imm1 },
             Op::Jalr { rd: ZERO, rs1: 6, offset: imm2 },
-        ) => Some((
+        ) if imm2 & 1 == 0 => Some((
             2,
-            vec![Field::Opcode("tail"), Field::PCRelAddr(imm1 + imm2)],
+            vec![
+                Field::Opcode("tail"),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
+            ],
         )),
 
         // lb rd, symbol: auipc rd, hi + lb rd, lo(rd)
@@ -1817,7 +2018,7 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("lb"),
                 Field::Reg(*rd1),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
             ],
         )),
 
@@ -1830,7 +2031,7 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("lh"),
                 Field::Reg(*rd1),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
             ],
         )),
 
@@ -1843,7 +2044,7 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("lw"),
                 Field::Reg(*rd1),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
             ],
         )),
 
@@ -1856,7 +2057,7 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("lbu"),
                 Field::Reg(*rd1),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
             ],
         )),
 
@@ -1869,7 +2070,7 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("lhu"),
                 Field::Reg(*rd1),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
             ],
         )),
 
@@ -1882,7 +2083,8 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("sb"),
                 Field::Reg(*data_reg),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
+                Field::Reg(*rd1),
             ],
         )),
 
@@ -1895,7 +2097,8 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("sh"),
                 Field::Reg(*data_reg),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
+                Field::Reg(*rd1),
             ],
         )),
 
@@ -1908,7 +2111,8 @@ pub fn get_pseudo_sequence(
             vec![
                 Field::Opcode("sw"),
                 Field::Reg(*data_reg),
-                Field::PCRelAddr(imm1 + imm2),
+                Field::PCRelAddr(imm1.wrapping_add(*imm2)),
+                Field::Reg(*rd1),
             ],
         )),
 
@@ -1934,7 +2138,7 @@ pub fn fields_to_string(
     fields: &[Field],
     pc: u32,
     gp: u32,
-    is_compressed: bool,
+    _is_compressed: bool,
     arrow: Option<&str>,
     symbols: &HashMap<u32, String>,
 ) -> String {
@@ -1945,12 +2149,9 @@ pub fn fields_to_string(
     } else {
         Vec::new()
     };
-    if label.len() > 14 {
-        label.truncate(14);
-        label.push('…');
-    }
     if !label.is_empty() {
         label.push(':');
+        label.push(' ');
     }
     while label.len() < 16 {
         label.push(' ');
@@ -1963,16 +2164,13 @@ pub fn fields_to_string(
     }
     let label: String = label.into_iter().collect();
 
-    let mut inst = fields[0].to_string(
+    let inst = fields[0].to_string(
         pc,
         gp,
         config.hex_mode,
         config.verbose_instructions,
         symbols,
     );
-    if config.verbose_instructions && is_compressed {
-        inst.insert_str(0, "c.");
-    }
     let operands = fields[1..]
         .iter()
         .map(|elt| {
@@ -1986,11 +2184,17 @@ pub fn fields_to_string(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let disasm = format!("{:<8}{}", inst, operands);
+    let disasm = format!(
+        "{:<8}{}{}",
+        inst,
+        if inst.len() >= 8 && !operands.is_empty() { " " } else { "" },
+        operands
+    );
 
     format!("{addr_part}{label:<16}{disasm:<32}")
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Field {
     Opcode(&'static str),
     Reg(usize),
@@ -2014,8 +2218,12 @@ impl Field {
             Field::Opcode(inst) => String::from(*inst),
             Field::Reg(reg) => String::from(R[*reg]),
             Field::Imm(i) if !hex || (0..=9).contains(i) => format!("{}", i),
+            Field::Imm(i) if *i < 0 => format!("-0x{:x}", i.unsigned_abs()),
             Field::Imm(i) => format!("0x{:x}", i),
             Field::Indirect(0, reg) if !verbose => format!("({})", R[*reg]),
+            Field::Indirect(imm, reg) if hex && *imm < 0 => {
+                format!("-0x{:x}({})", imm.unsigned_abs(), R[*reg])
+            }
             Field::Indirect(imm, reg) if hex => {
                 format!("0x{:x}({})", imm, R[*reg])
             }
@@ -2024,35 +2232,44 @@ impl Field {
                 let addr = (pc as i32).wrapping_add(*offset) as u32;
                 match symbols.get(&addr) {
                     Some(symbol) if !verbose => match symbol.parse::<u32>() {
-                        Ok(num) if num > 0 => {
+                        Ok(_) => {
                             let suffix = if addr <= pc { "b" } else { "f" };
                             format!("{}{}", symbol, suffix)
                         }
                         _ => symbol.clone(),
                     },
                     _ => {
-                        if !hex || (0..=9).contains(offset) {
-                            format!("{}", offset)
-                        } else {
-                            format!("0x{:x}", offset)
+                        // Use the wrapped target's distance so address expressions stay in range.
+                        let distance = i64::from(addr) - i64::from(pc);
+                        let mut remaining = distance;
+                        let mut expression = String::from(".");
+                        // Integer operands are signed RV32 values, so split larger distances.
+                        loop {
+                            let part = remaining.clamp(
+                                -i64::from(i32::MAX),
+                                i64::from(i32::MAX),
+                            );
+                            let sign = if part < 0 { "-" } else { "+" };
+                            let magnitude = part.unsigned_abs();
+                            let number = if hex && magnitude > 9 {
+                                format!("0x{magnitude:x}")
+                            } else {
+                                magnitude.to_string()
+                            };
+                            expression.push_str(&format!(" {sign} {number}"));
+                            remaining -= part;
+                            if remaining == 0 {
+                                break;
+                            }
                         }
+                        expression
                     }
                 }
             }
             Field::GPRelAddr(offset) => {
-                // gp-relative only applies to pseudo-instructions in !verbose mode
-                // i.e., "la"
-                let addr = (gp as i32).wrapping_add(*offset) as u32;
-                match symbols.get(&addr) {
-                    Some(symbol) => symbol.clone(),
-                    _ => {
-                        if !hex || (0..=9).contains(&{ *offset }) {
-                            format!("{}", offset)
-                        } else {
-                            format!("0x{:x}", offset)
-                        }
-                    }
-                }
+                let addr = gp.wrapping_add(*offset as u32);
+                Field::PCRelAddr(addr.wrapping_sub(pc) as i32)
+                    .to_string(pc, gp, hex, verbose, symbols)
             }
             Field::FenceOrdering(pred, succ) => format!("{}, {}", pred, succ),
         }

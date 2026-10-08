@@ -7,7 +7,7 @@ use crate::ast::{
     Source, SourceFile,
 };
 use crate::config::Config;
-use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
+use crate::dump::{dump_ast, dump_code, dump_elf, dump_layout, dump_symbols};
 use crate::elf::ElfFile;
 use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
@@ -229,9 +229,9 @@ pub fn relaxation_loop(
         // Step 2: Calculate all symbol values upfront
         let symbol_values = eval_symbol_values(source, symbol_links, &layout)?;
 
-        // Dump symbol values if requested
-        if let Some(ref spec) = config.dump.dump_values {
-            dump_values(pass_number, false, source, &layout, spec);
+        // Dump layout if requested
+        if let Some(ref spec) = config.dump.dump_layout {
+            dump_layout(pass_number, false, source, &layout, spec);
         }
 
         // Step 3: Encode everything and produce the next size estimates
@@ -239,6 +239,12 @@ pub fn relaxation_loop(
             encode(config, source, symbol_links, &symbol_values, &layout)?;
         let any_changed = encoded.line_sizes != line_sizes;
         layout.set_line_sizes(&encoded.line_sizes);
+
+        // Data widths and fills are checked against the converged addresses.
+        // Invalid intermediate values cannot escape as a successful assembly.
+        if !any_changed && let Some(error) = encoded.deferred_error {
+            return Err(error);
+        }
 
         // Dump generated code if requested
         if let Some(ref spec) = config.dump.dump_code {
@@ -255,9 +261,9 @@ pub fn relaxation_loop(
 
         // Step 4: Check for size changes
         if !any_changed {
-            // Dump final symbol values if requested
-            if let Some(ref spec) = config.dump.dump_values {
-                dump_values(pass_number, true, source, &layout, spec);
+            // Dump final layout if requested
+            if let Some(ref spec) = config.dump.dump_layout {
+                dump_layout(pass_number, true, source, &layout, spec);
             }
             if config.verbose {
                 eprintln!(
@@ -298,7 +304,7 @@ fn should_dump_phase(config: &Config, phase: Phase) -> bool {
         Phase::Parse => config.dump.dump_ast.is_some(),
         Phase::SymbolLinking => config.dump.dump_symbols.is_some(),
         Phase::Relaxation => {
-            config.dump.dump_values.is_some() || config.dump.dump_code.is_some()
+            config.dump.dump_layout.is_some() || config.dump.dump_code.is_some()
         }
         Phase::Elf => config.dump.dump_elf.is_some(),
     }

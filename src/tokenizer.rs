@@ -210,11 +210,15 @@ fn parse_number(
     if chars.peek() == Some(&'0') {
         s.push('0');
         chars.next();
-        match chars.peek() {
+        match chars.peek().copied() {
             Some('x') | Some('X') => {
                 s.push('x');
                 chars.next();
                 base = 16;
+            }
+            // Lowercase 0b without binary digits is a backward reference to 0:.
+            Some('b') if !matches!(chars.clone().nth(1), Some('0' | '1')) => {
+                return Ok(0);
             }
             Some('b') | Some('B') => {
                 s.push('b');
@@ -226,7 +230,7 @@ fn parse_number(
                 chars.next();
                 base = 8;
             }
-            Some(&ch) if ch.is_ascii_digit() => {
+            Some(ch) if ch.is_ascii_digit() => {
                 // Leading 0 followed by digits -> octal (traditional C-style)
                 base = 8;
             }

@@ -5,6 +5,7 @@ This is a lightweight RISC-V assembler, disassembler, simulator, debugger, and l
 
 Try it out: [live demo](https://russross.github.io/risclet/)
 
+
 Running risclet
 ---------------
 
@@ -24,7 +25,7 @@ In addition:
 
 There are various other options and controls as well. Notably `--check-abi` for `run`, `trace`, and `debug` will check for common ABI errors and common mistakes beginning programmers are likely to make and treats them as errors.
 
-Each command defaults to reading all `*.s` files in the current directory, assembling and linking them, and then proceeding. Or if there are no `*.s` files it will look for `a.out` instead. Obvious exceptions apply, but this does mean that `disassemble` will assemble and link the entire program and then disassemble it by default.
+Each command defaults to reading all `*.s` files in the current directory, assembling and linking them, and then proceeding. If there are no `*.s` files it falls back to looking for `a.out` instead. Obvious exceptions apply, but this means, for example, that `diassemble` will default to assembling and linking the entire program and then disassembling it.
 
 
 The debugger
@@ -67,7 +68,7 @@ risclet is intended for students learning the basics of assembly language, and i
 Features
 --------
 
-*   Support for the full rv32imac instruction set
+*   Support for RV32 integer instructions and the M, A, and C extensions (rv32imac)
 *   Checks for proper register use according to the ABI, and lints to enforce simple function structure and stack usage
 *   Minimal controls, no breakpoints or watch expressions
 *   Lightweight navigation that makes it quick and easy to move to different execution points in the program
@@ -80,15 +81,23 @@ Features
 *   Releases on github with single-file, statically linked, self-contained binaries for common systems
 
 
+More details
+------------
+
+Specifics about the language supported are [available here](SYNTAX.md).
+
+A description of [how the assembler workds is available here](ASSEBMLER.md).
+
+
 Editor syntax highlighting
 --------------------------
 
 Syntax definitions follow the language implemented by the assembler:
 
-*   [CodeMirror 6](syntaxhighlighting/codemirror/)
-*   [Vim](syntaxhighlighting/vim/)
-*   [VS Code](syntaxhighlighting/vscode/)
-*   [Micro](syntaxhighlighting/micro/)
+*   [CodeMirror 6](syntaxhighlighting/codemirror/README.md)
+*   [Vim](syntaxhighlighting/vim/README.md)
+*   [VS Code](syntaxhighlighting/vscode/README.md)
+*   [Micro](syntaxhighlighting/micro/README.md)
 
 
 Contributors
