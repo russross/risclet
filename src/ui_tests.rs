@@ -91,7 +91,7 @@ fn debugger(data: bool) -> Tui {
         addresses,
         pseudo_addresses,
         sequence,
-        &Config::simulator_default(Mode::Debug),
+        &Config::for_mode(Mode::Debug),
     )
 }
 

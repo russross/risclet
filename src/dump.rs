@@ -86,15 +86,6 @@ impl DumpConfig {
             dump_elf: None,
         }
     }
-
-    /// Returns true if any dump option is enabled
-    pub fn has_dumps(&self) -> bool {
-        self.dump_ast.is_some()
-            || self.dump_symbols.is_some()
-            || self.dump_values.is_some()
-            || self.dump_code.is_some()
-            || self.dump_elf.is_some()
-    }
 }
 
 // ============================================================================

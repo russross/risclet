@@ -1,3 +1,4 @@
+use crate::assembler::AssemblyOutput;
 #[cfg(test)]
 use crate::config::{Config, Mode, Relax};
 use crate::elf_loader::{ElfInput, load_elf};
@@ -44,7 +45,13 @@ fn assemble_source(source: &str, compressed: bool) -> Result<Vec<u8>, String> {
     let mut config = make_test_config(false);
     config.relax.compressed = compressed;
     let sources = vec![("test.s".to_string(), source.to_string())];
-    crate::assembler::assemble(&mut config, sources).map_err(|e| e.to_string())
+    match crate::assembler::assemble(&mut config, sources) {
+        Ok(AssemblyOutput::Elf(bytes)) => Ok(bytes),
+        Ok(AssemblyOutput::Dumped) => {
+            panic!("unexpected dump in execution test")
+        }
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 /// Run assembled code with ABI checking and capture result

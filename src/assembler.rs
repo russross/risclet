@@ -23,10 +23,19 @@ use std::fs::File;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 
+/// A dump completes successfully without producing an executable.
+#[derive(Debug)]
+pub enum AssemblyOutput {
+    Elf(Vec<u8>),
+    Dumped,
+}
+
 /// Assemble source files and write ELF to disk
 pub fn assemble_and_save(config: &mut Config) -> Result<()> {
     // Generate ELF bytes (handles all phases and dump checkpoints)
-    let elf_bytes = assemble_files(config)?;
+    let AssemblyOutput::Elf(elf_bytes) = assemble_files(config)? else {
+        return Ok(());
+    };
 
     // Write to output file
     let mut file = File::create(&config.output_file)
@@ -53,7 +62,8 @@ pub fn assemble_and_save(config: &mut Config) -> Result<()> {
 pub fn assemble(
     config: &mut Config,
     sources: Vec<(String, String)>,
-) -> Result<Vec<u8>> {
+) -> Result<AssemblyOutput> {
+    let terminal_phase = last_dump_phase(config);
     // ========================================================================
     // Phase 1: Parse source code from strings into AST
     // ========================================================================
@@ -70,8 +80,8 @@ pub fn assemble(
     // Checkpoint: dump AST if requested
     if should_dump_phase(config, Phase::Parse) {
         dump_ast(config, &source);
-        if is_terminal_phase(config, Phase::Parse) {
-            return dump_mode_no_elf_generated();
+        if terminal_phase == Some(Phase::Parse) {
+            return finish_dump();
         }
         println!(); // Separator between phase dumps
     }
@@ -84,8 +94,8 @@ pub fn assemble(
     // Checkpoint: dump symbol linking if requested
     if should_dump_phase(config, Phase::SymbolLinking) {
         dump_symbols(config, &source, symbol_links);
-        if is_terminal_phase(config, Phase::SymbolLinking) {
-            return dump_mode_no_elf_generated();
+        if terminal_phase == Some(Phase::SymbolLinking) {
+            return finish_dump();
         }
         println!(); // Separator between phase dumps
     }
@@ -107,10 +117,8 @@ pub fn assemble(
         relaxation_loop(config, &source, symbol_links, initial_line_sizes)?;
 
     // Checkpoint: after relaxation, check if we should exit before ELF generation
-    if should_dump_phase(config, Phase::Relaxation)
-        && is_terminal_phase(config, Phase::Relaxation)
-    {
-        return dump_mode_no_elf_generated();
+    if terminal_phase == Some(Phase::Relaxation) {
+        return finish_dump();
     }
 
     // ========================================================================
@@ -125,15 +133,7 @@ pub fn assemble(
     // Checkpoint: dump ELF if requested
     if should_dump_phase(config, Phase::Elf) {
         dump_elf(config, &elf_builder);
-        if is_terminal_phase(config, Phase::Elf) {
-            return dump_mode_no_elf_generated();
-        }
-        println!(); // Separator (though this won't be reached for ELF dumps currently)
-    }
-
-    // If any dump options were used, we skip generating ELF
-    if config.dump.has_dumps() {
-        return dump_mode_no_elf_generated();
+        return finish_dump();
     }
 
     // Find entry point (_start symbol is required for executables)
@@ -148,16 +148,16 @@ pub fn assemble(
         }
     }?;
 
-    elf_builder.build(entry_point)
+    elf_builder.build(entry_point).map(AssemblyOutput::Elf)
 }
 
-fn dump_mode_no_elf_generated<T>() -> Result<T> {
+fn finish_dump() -> Result<AssemblyOutput> {
     println!("\n(No output file generated)");
-    Err(RiscletError::io("Dump mode: no ELF generated".to_string()))
+    Ok(AssemblyOutput::Dumped)
 }
 
 /// Read source files from config and assemble to ELF bytes
-pub fn assemble_files(config: &mut Config) -> Result<Vec<u8>> {
+pub fn assemble_files(config: &mut Config) -> Result<AssemblyOutput> {
     // Read all input files into (filename, content) pairs
     let mut sources = Vec::new();
     for file_path in &config.input_files {
@@ -303,29 +303,11 @@ fn should_dump_phase(config: &Config, phase: Phase) -> bool {
     }
 }
 
-// Helper: Check if this is the last phase we need to execute (early exit after dump)
-fn is_terminal_phase(config: &Config, phase: Phase) -> bool {
-    // If this phase has a dump option, check if any later phases also have dump options
-    if !should_dump_phase(config, phase) {
-        return false;
-    }
-
-    match phase {
-        Phase::Parse => {
-            !should_dump_phase(config, Phase::SymbolLinking)
-                && !should_dump_phase(config, Phase::Relaxation)
-                && !should_dump_phase(config, Phase::Elf)
-        }
-        Phase::SymbolLinking => {
-            !should_dump_phase(config, Phase::Relaxation)
-                && !should_dump_phase(config, Phase::Elf)
-        }
-        Phase::Relaxation => !should_dump_phase(config, Phase::Elf),
-        Phase::Elf => {
-            // ELF is always terminal if we're dumping it
-            true
-        }
-    }
+// The latest requested dump determines how far the assembly pipeline runs.
+fn last_dump_phase(config: &Config) -> Option<Phase> {
+    [Phase::Elf, Phase::Relaxation, Phase::SymbolLinking, Phase::Parse]
+        .into_iter()
+        .find(|&phase| should_dump_phase(config, phase))
 }
 
 /// Parse source code from a string (for in-memory assembly in tests)

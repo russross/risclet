@@ -46,8 +46,8 @@ mod symbols_tests;
 #[cfg(test)]
 mod tokenizer_tests;
 
-use crate::assembler::{assemble_and_save, assemble_files};
-use crate::config::{Mode, parse_cli_args};
+use crate::assembler::{AssemblyOutput, assemble_and_save, assemble_files};
+use crate::config::{CliAction, Mode, parse_cli_args};
 use crate::elf_loader::ElfInput;
 use crate::simulator::run_simulator;
 
@@ -56,7 +56,15 @@ fn main() {
 
     // Parse CLI arguments using unified parser
     let mut config = match parse_cli_args(&args[1..]) {
-        Ok(config) => config,
+        Ok(CliAction::Execute(config)) => config,
+        Ok(CliAction::Help(help)) => {
+            println!("{}", help);
+            return;
+        }
+        Ok(CliAction::Version) => {
+            println!("risclet {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
         Err(e) => {
             eprintln!("{}", e);
             std::process::exit(1);
@@ -73,39 +81,27 @@ fn main() {
         }
 
         Mode::Run | Mode::Debug | Mode::Disassemble | Mode::Trace => {
-            // Check if we have .s files to assemble first
-            if !config.input_files.is_empty() {
-                // We have .s files - assemble them in-memory, then run simulator
-                let elf_bytes = match assemble_files(&mut config) {
-                    Ok(bytes) => bytes,
+            // Source input produces an in-memory executable; file input loads directly.
+            let elf_bytes = if config.input_files.is_empty() {
+                None
+            } else {
+                match assemble_files(&mut config) {
+                    Ok(AssemblyOutput::Elf(bytes)) => Some(bytes),
+                    Ok(AssemblyOutput::Dumped) => return,
                     Err(e) => {
                         eprintln!("{}", e);
                         std::process::exit(1);
                     }
-                };
-
-                // Pass in-memory ELF to simulator
-                if let Err(e) =
-                    run_simulator(&config, ElfInput::Bytes(&elf_bytes))
-                {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
                 }
-            } else {
-                // No .s files - load executable and run simulator
-                if let Err(e) =
-                    run_simulator(&config, ElfInput::File(&config.executable))
-                {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+            };
+            let input = match elf_bytes.as_deref() {
+                Some(bytes) => ElfInput::Bytes(bytes),
+                None => ElfInput::File(&config.executable),
+            };
+            if let Err(e) = run_simulator(&config, input) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
             }
-        }
-
-        Mode::Default => {
-            // This mode should no longer be used, but keep for compatibility
-            eprintln!("Error: Default mode is deprecated");
-            std::process::exit(1);
         }
     }
 }

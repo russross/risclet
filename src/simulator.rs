@@ -117,7 +117,7 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
         return Ok(());
     }
 
-    if config.mode == Mode::Debug || config.mode == Mode::Default {
+    if config.mode == Mode::Debug {
         m.reset();
         m.set_most_recent_memory(&sequence, 0);
         let mut tui = Tui::new(
