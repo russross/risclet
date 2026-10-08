@@ -39,8 +39,14 @@ fn listings_preserve_encodings_and_pseudo_sequences() {
                 String::from_utf8(output.stdout).expect("UTF-8 listing")
             };
 
+            // Defaults differ by mode, while explicit encoding display works in both.
+            let default_listing = run(&[]);
+            assert_eq!(default_listing.contains("00000517"), mode == "disassemble");
+            assert_eq!(default_listing.contains("01450513"), mode == "disassemble");
+            assert!(default_listing.contains("la      a0, target"));
+
             // The pseudo-operation has two encodings, with effects on its first row.
-            let listing = run(&[]);
+            let listing = run(&["--show-encoding"]);
             let lines: Vec<_> = listing.lines().collect();
             assert!(lines[0].starts_with("    0001 "));
             assert!(lines[1].starts_with("00000517 "));
@@ -56,7 +62,7 @@ fn listings_preserve_encodings_and_pseudo_sequences() {
             }
 
             // Strict mode gives each encoding its own decoded instruction.
-            let strict = run(&["--verbose-instructions"]);
+            let strict = run(&["--verbose-instructions", "--show-encoding"]);
             assert!(strict.lines().any(|line| {
                 line.starts_with("01450513 ") && line.contains("addi")
             }));

@@ -98,8 +98,9 @@ impl Config {
 
     /// Create default config for simulator modes (run, debug, disassemble, trace)
     pub fn simulator_default(mode: Mode) -> Self {
-        // show_addresses defaults to true for disassemble and trace modes
+        // Both listings show addresses; only disassembly shows encodings by default.
         let show_addresses = mode == Mode::Disassemble || mode == Mode::Trace;
+        let show_encoding = mode == Mode::Disassemble;
 
         Config {
             mode,
@@ -109,7 +110,7 @@ impl Config {
             check_abi: false,
             hex_mode: false,
             show_addresses,
-            show_encoding: show_addresses,
+            show_encoding,
             verbose_instructions: false,
             input_files: Vec::new(),
             output_file: OUTPUT_FILE_DEFAULT.to_string(),
@@ -632,7 +633,10 @@ fn print_simulator_help(config: &Config) -> String {
     }
 
     if matches!(config.mode, Mode::Disassemble | Mode::Trace) {
-        help.push_str("  --show-encoding               Show original instruction hex (default: on)\n");
+        help.push_str(&format!(
+            "  --show-encoding               Show original instruction hex (default: {})\n",
+            if config.show_encoding { "on" } else { "off" }
+        ));
         help.push_str(
             "  --no-show-encoding            Hide original instruction hex\n",
         );
