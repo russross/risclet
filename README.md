@@ -86,7 +86,7 @@ More details
 
 Specifics about the language supported are [available here](SYNTAX.md).
 
-A description of [how the assembler workds is available here](ASSEBMLER.md).
+A description of [how the assembler works is available here](ASSEMBLER.md).
 
 
 Editor syntax highlighting
