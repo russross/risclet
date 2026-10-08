@@ -39,7 +39,7 @@ pub struct Config {
 
     // Simulator/debugger options
     pub executable: String,
-    pub check_abi: bool,
+    pub strict: bool,
 
     // Display options (for debug/disassemble modes)
     pub hex_mode: bool,
@@ -93,7 +93,7 @@ impl Config {
             verbose: false,
             max_steps: MAX_STEPS_DEFAULT,
             executable: EXECUTABLE_DEFAULT.to_string(),
-            check_abi: false,
+            strict: false,
             hex_mode: false,
             show_addresses,
             show_encoding,
@@ -252,11 +252,11 @@ fn parse_options(
                     require_option_value(args, &mut i, arg.as_str())?;
                 has_explicit_executable = true;
             }
-            (false, "--check-abi") => {
-                config.check_abi = true;
+            (false, "--strict") => {
+                config.strict = true;
             }
-            (false, "--no-check-abi") => {
-                config.check_abi = false;
+            (false, "--no-strict") => {
+                config.strict = false;
             }
             (false, "-s" | "--steps") => {
                 let value = require_option_value(args, &mut i, arg.as_str())?;
@@ -430,7 +430,7 @@ File Arguments:
   - assemble: treat explicit paths as source; with no paths, discover *.s files
 
 Common Options:
-  --check-abi / --no-check-abi  Enable ABI checking (default: {})
+  --strict / --no-strict        Apply strict checks for common errors (default: {})
   -s, --steps <count>           Max execution steps (default: {})
   --hex / --no-hex              Display values in hexadecimal
   --show-addresses              Show addresses in disassembly
@@ -447,12 +447,12 @@ Examples:
   risclet a.out                    # Run a.out
   risclet run prog.s               # Assemble and run prog.s (exit after completion)
   risclet debug prog.s             # Assemble and debug prog.s with interactive TUI
-  risclet trace a.out --check-abi  # Trace a.out with ABI checking
+  risclet trace a.out --strict     # Trace a.out with ABI checking
   risclet disassemble prog.s       # Assemble and disassemble
   risclet assemble -o prog prog.s  # Assemble to disk as 'prog'
 
 Use 'risclet <subcommand> --help' for subcommand-specific help.",
-        if defaults.check_abi { "true" } else { "false" },
+        if defaults.strict { "true" } else { "false" },
         defaults.max_steps,
         assembler_options(&defaults)
     )
@@ -563,8 +563,8 @@ fn print_simulator_help(config: &Config) -> String {
 
     help.push_str("Simulator Options:\n");
     help.push_str(&format!(
-        "  --check-abi / --no-check-abi  Enable ABI checking (default: {})\n",
-        if config.check_abi { "true" } else { "false" }
+        "  --strict / --no-strict        Enable ABI checking (default: {})\n",
+        if config.strict { "true" } else { "false" }
     ));
     help.push_str(&format!(
         "  -s, --steps <count>           Max execution steps (default: {})\n",

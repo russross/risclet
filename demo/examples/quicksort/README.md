@@ -4,7 +4,7 @@ Quicksort
 ```sh
 risclet
 risclet disassemble
-risclet debug --check-abi
+risclet debug --strict
 ```
 
 Run from this demo's directory; no Makefile or executable is needed. `start.s`
@@ -52,7 +52,7 @@ shows help and `q` quits.
 Break a frame restore
 ---------------------
 
-Run `risclet --check-abi` on the original. In the quicksort postlude, swap the
+Run `risclet --strict` on the original. In the quicksort postlude, swap the
 **offsets** of the first two restores: use `lw s0, 4(sp)` and `lw s1, 0(sp)`.
 Keep the saves unchanged. Run again with ABI checking: restoring a register
 from another register's slot violates preservation, even when the two visible

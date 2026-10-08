@@ -4,8 +4,8 @@ Binary search
 ```sh
 risclet
 risclet disassemble
-risclet trace --check-abi
-risclet debug --check-abi
+risclet trace --strict
+risclet debug --strict
 ```
 
 Run in this directory; Risclet assembles all `.s` files directly. `start.s`
@@ -46,6 +46,6 @@ Read an undeclared argument
 
 `binary_search_args` is 3, so only a0, a1, and a2 arrive as initialized
 arguments. Insert `mv t5, a3` immediately after `mv t1, a1` in
-`binary_search.s`. Run `risclet --check-abi`: it reports the read of an
+`binary_search.s`. Run `risclet --strict`: it reports the read of an
 uninitialized a3. This is distinct from using a3 as a temporary after writing
 it, which is allowed. Remove the inserted instruction afterward.

@@ -354,6 +354,51 @@ fn dumps_stop_at_requested_phase_and_preserve_real_errors() {
 }
 
 #[test]
+fn strict_checks_execution_and_respects_the_last_override() {
+    let workspace = Workspace::new();
+    write(
+        workspace.0.join("program.s"),
+        ".text\n.global _start\n_start:\nmv a0, t0\nli a0, 0\nli a7, 93\necall\n",
+    )
+    .expect("write source reading an uninitialized register");
+
+    // Both inferred run mode and explicit execution commands enable the checker.
+    success(&workspace.run(&["program.s"]));
+    for args in [
+        vec!["--strict", "program.s"],
+        vec!["run", "--strict", "program.s"],
+        vec!["trace", "--strict", "program.s"],
+        vec!["--no-strict", "--strict", "program.s"],
+    ] {
+        let output = workspace.run(&args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("t0"));
+    }
+    success(&workspace.run(&["--strict", "--no-strict", "program.s"]));
+
+    // Help exposes the replacement spelling, and obsolete flags are rejected.
+    for args in [
+        vec!["--help"],
+        vec!["run", "--help"],
+        vec!["debug", "--help"],
+        vec!["trace", "--help"],
+    ] {
+        let output = workspace.run(&args);
+        success(&output);
+        let help = String::from_utf8_lossy(&output.stdout);
+        assert!(help.contains("--strict / --no-strict"));
+        assert!(!help.contains("--check-abi"));
+    }
+    for flag in ["--check-abi", "--no-check-abi"] {
+        let output = workspace.run(&[flag, "program.s"]);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("unknown option")
+        );
+    }
+}
+
+#[test]
 fn conflicting_inputs_and_options_remain_errors() {
     let workspace = Workspace::new();
     for args in [
@@ -361,7 +406,7 @@ fn conflicting_inputs_and_options_remain_errors() {
         vec!["run", "program.s", "a.out"],
         vec!["run", "one", "two"],
         vec!["run", "--dump-ast", "program.s"],
-        vec!["assemble", "--check-abi", "program.s"],
+        vec!["assemble", "--strict", "program.s"],
         vec!["run", "-o", "saved", "program.s"],
         vec!["-t", "0x10000", "assemble", "program.s"],
         vec!["run", "--steps", "invalid", "program.s"],

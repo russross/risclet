@@ -21,13 +21,13 @@ enum AbiTestResult {
 }
 
 /// Create a minimal config for testing
-fn make_test_config(check_abi: bool) -> Config {
+fn make_test_config(strict: bool) -> Config {
     Config {
         mode: Mode::Run,
         verbose: false,
         max_steps: 1_000_000,
         executable: "a.out".to_string(),
-        check_abi,
+        strict,
         hex_mode: false,
         show_addresses: false,
         show_encoding: false,

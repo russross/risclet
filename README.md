@@ -23,7 +23,7 @@ In addition:
 *   `risclet disassemble`: disassemble and dump the program
 *   `risclet debug`: run the program to completion, then enter a TUI to step back and forth through execution and examine its effects
 
-There are various other options and controls as well. Notably `--check-abi` for `run`, `trace`, and `debug` will check for common ABI errors and common mistakes beginning programmers are likely to make and treats them as errors.
+There are various other options and controls as well. Notably `--strict` for `run`, `trace`, and `debug` checks for common ABI errors and common mistakes beginning programmers are likely to make and treats them as errors.
 
 Each command defaults to reading all `*.s` files in the current directory, assembling and linking them, and then proceeding. If there are no `*.s` files it falls back to looking for `a.out` instead. Obvious exceptions apply, but this means, for example, that `diassemble` will default to assembling and linking the entire program and then disassembling it.
 

@@ -868,7 +868,7 @@ pub fn trace(
 
         // Perform ABI checking if enabled
         if !effects.is_terminal()
-            && config.check_abi
+            && config.strict
             && let Err(msg) = abi.check_instruction(
                 m,
                 instruction,

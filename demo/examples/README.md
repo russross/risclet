@@ -8,7 +8,7 @@ Select a demo and read its README for commands and debugger exercises:
 *   `binary-search`: contracting bounds and whole query calls.
 *   `guess`: an interactive guessing game, then replay of captured input.
 
-Each directory runs directly with `risclet` or `risclet debug --check-abi`.
+Each directory runs directly with `risclet` or `risclet debug --strict`.
 `start.s` drives the demo and exits; functions declare their argument counts.
 There are no Makefiles or deliberately incomplete student solutions.
 

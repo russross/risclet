@@ -3,7 +3,7 @@ Guess the digit
 
 ```sh
 risclet
-risclet debug --check-abi
+risclet debug --strict
 ```
 
 Run in this directory or the browser's VM tab. Guess a digit from 0 to 9 and
@@ -22,7 +22,7 @@ a final digit without a newline is accepted too.
 Play first, replay afterward
 ----------------------------
 
-1. Launch `risclet debug --check-abi` and play the complete game using the sequence
+1. Launch `risclet debug --strict` and play the complete game using the sequence
     above. The debugger opens **after** the win or EOF. During playback it uses
     captured input; it does not ask for new guesses or allow you to change them.
 2. Hide stack and text memory with `s` and `t`; keep output, data, and registers
@@ -51,13 +51,13 @@ Play first, replay afterward
 A repeatable plain trace can also consume piped input:
 
 ```sh
-printf '2\n9\nxx\n6\n' | risclet trace --check-abi
+printf '2\n9\nxx\n6\n' | risclet trace --strict
 ```
 
 Break preservation of the secret
 --------------------------------
 
-Run `risclet --check-abi` first. In `play.s`, replace `mv s0, a0` with
+Run `risclet --strict` first. In `play.s`, replace `mv s0, a0` with
 `mv t6, a0` and change both comparisons using s0 to use t6. Run again with ABI
 checking and enter a valid digit. `jal read_guess` invalidates caller-saved t6,
 so the later comparison fails validation even though `read_guess` does not

@@ -10,7 +10,7 @@ Run these commands in this demo's directory (or the browser's VM tab):
 ```sh
 risclet
 risclet trace
-risclet debug --check-abi
+risclet debug --strict
 ```
 
 `start.s` prints each array before and after calling
@@ -70,7 +70,7 @@ Create a caller-saved register violation
 
 Risclet can watch for common mistakes and treat them as fatal errors.
 
-Run `risclet --check-abi` first. In `print_array`, replace **both** the
+Run `risclet --strict` first. In `print_array`, replace **both** the
 initialization `mv s0, a0` and the later cursor update `addi s0, s0, 1` with
 corresponding uses of `t5`: `mv t5, a0` and `addi t5, t5, 1`. Also change
 `lb a0, (s0)` to `lb a0, (t5)`. Run again with ABI checking. The update reads
