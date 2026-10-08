@@ -14,6 +14,7 @@
 //! - Cannot be redefined (duplicate label error)
 //! - .equ can redefine previous .equ definitions
 //! - Can be declared global with .global directive
+//! - Internal .L names follow these rules and are omitted from ELF unless global
 //!
 //! ## Numeric Labels
 //! - Can be reused (e.g., multiple "1:" labels in a file)
@@ -45,6 +46,11 @@ pub const SPECIAL_GLOBAL_POINTER: &str = "__global_pointer$";
 
 /// Name of the builtin symbols file that's injected at the start of assembly
 pub const BUILTIN_FILE_NAME: &str = "<builtin>";
+
+/// Internal names resolve normally but are omitted from ELF unless global.
+pub fn is_internal_symbol(name: &str) -> bool {
+    name.starts_with(".L")
+}
 
 /// A struct representing a symbol definition site in a source file.
 /// This represents where a symbol is actually defined (e.g., a label or .equ).

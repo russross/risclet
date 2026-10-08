@@ -1,5 +1,42 @@
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn internal_names_follow_named_symbol_scope() {
+        let source = create_source(vec![
+            ("a.s", "j .L1\nordinary: nop\n.data\n.L1: .word .L1\n"),
+            ("b.s", ".L1: nop\nj .L1\n"),
+        ])
+        .unwrap();
+        let links = link_symbols(&source).unwrap();
+        let forward = &links.line_refs[0][0][0].definition;
+        let backward = &links.line_refs[1][2][0].definition;
+        assert_eq!(forward.symbol, ".L1");
+        assert_eq!(forward.pointer.file_index, 0);
+        assert_eq!(backward.pointer.file_index, 1);
+
+        // An undeclared internal name cannot resolve from another file.
+        let source =
+            create_source(vec![("a.s", "j .L1"), ("b.s", ".L1: nop")]).unwrap();
+        assert!(link_symbols(&source).is_err());
+        let source =
+            create_source(vec![("a.s", ".L1: nop\n.L1: nop")]).unwrap();
+        assert!(
+            link_symbols(&source)
+                .unwrap_err()
+                .to_string()
+                .contains("already defined")
+        );
+
+        // Explicit exports retain the ordinary cross-file linking behavior.
+        let source = create_source(vec![
+            ("a.s", "j .Lexport"),
+            ("b.s", ".global .Lexport\n.Lexport: nop"),
+        ])
+        .unwrap();
+        let links = link_symbols(&source).unwrap();
+        assert_eq!(links.line_refs[0][0][0].definition.pointer.file_index, 1);
+    }
+
     use crate::ast::*;
     use crate::parser;
     use crate::symbols::{

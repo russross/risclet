@@ -1,5 +1,25 @@
 [
   {
+    "line": ".L1: nop",
+    "checks": [[0, "Label", "entity.name.label"], [5, "Instruction", "keyword.control.instruction"]]
+  },
+  {
+    "line": ".Lloop: j .Lloop",
+    "checks": [[0, "Label", "entity.name.label"], [8, "Instruction", "keyword.control.instruction"], [10, "Symbol", "variable.other.symbol"]]
+  },
+  {
+    "line": ".Ldata: .word .L1",
+    "checks": [[0, "Label", "entity.name.label"], [8, "Directive", "keyword.control.directive"], [14, "Symbol", "variable.other.symbol"]]
+  },
+  {
+    "line": ".equ .Lsize, . - .L1",
+    "checks": [[5, "Symbol", "variable.other.symbol"], [13, "Address", "constant.language.current-address"], [17, "Symbol", "variable.other.symbol"]]
+  },
+  {
+    "line": ".global .Lexport",
+    "checks": [[8, "Symbol", "variable.other.symbol"]]
+  },
+  {
     "line": "add",
     "checks": [
       [

@@ -21,7 +21,7 @@ use crate::elf::{
 use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues};
 use crate::layout::{Layout, LineLayout};
-use crate::symbols::{SymbolDefinition, SymbolLinks};
+use crate::symbols::{SymbolDefinition, SymbolLinks, is_internal_symbol};
 
 // ============================================================================
 // ELF Builder
@@ -503,8 +503,11 @@ impl<'a> ElfBuilder<'a> {
                                 && g.definition_pointer.line_index == line_index
                         });
 
-                    // Skip numeric labels (they are local/temporary)
-                    if name.chars().all(|c| c.is_ascii_digit()) {
+                    // Numeric labels and non-global internal names remain
+                    // available to encoding without appearing in ELF metadata.
+                    if name.chars().all(|c| c.is_ascii_digit())
+                        || (!is_global && is_internal_symbol(name))
+                    {
                         continue;
                     }
 

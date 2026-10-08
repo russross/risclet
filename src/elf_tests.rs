@@ -220,6 +220,94 @@ fn assembled(source: &str) -> Vec<u8> {
 }
 
 #[test]
+fn internal_symbols_resolve_without_entering_elf_metadata() {
+    let bytes = assembled(
+        ".text\n.global _start, .Lexport, .Lconstant\n_start:\nj .Lend\n.Lbegin: nop\nordinary: nop\n.Lend: la a0, .Ldata\nbeq a0, zero, .Lbegin\n.Lexport: nop\n.equ .Lconstant, 43\n.equ .Lsize, .Lend - .Lbegin\n.data\n.Ldata: .word .Lbegin, .Lsize\n.bss\n.Lbss: .zero 4\n",
+    );
+    let file = ElfFile::parse(&bytes).unwrap();
+    let table =
+        file.section_headers.iter().position(|s| s.sh_type == 2).unwrap();
+    let symbols = file.symbols(table).unwrap();
+    let names: Vec<_> =
+        symbols.iter().map(|s| file.symbol_name(table, s).unwrap()).collect();
+    for name in
+        [b".Lbegin".as_slice(), b".Lend", b".Ldata", b".Lbss", b".Lsize"]
+    {
+        assert!(!names.contains(&name));
+        let strings = file
+            .section_data(file.section_headers[table].sh_link as usize)
+            .unwrap();
+        assert!(!strings.windows(name.len()).any(|window| window == name));
+    }
+
+    // Ordinary locals and explicitly exported internal names remain visible.
+    let local = &symbols[names.iter().position(|n| *n == b"ordinary").unwrap()];
+    assert_eq!(local.binding(), 0);
+    let exported =
+        &symbols[names.iter().position(|n| *n == b".Lexport").unwrap()];
+    assert_eq!(exported.binding(), 1);
+    assert_eq!(
+        file.section_name(exported.st_shndx as usize).unwrap(),
+        b".text"
+    );
+    let constant =
+        &symbols[names.iter().position(|n| *n == b".Lconstant").unwrap()];
+    assert_eq!(
+        (constant.binding(), constant.st_value, constant.st_shndx),
+        (1, 43, 0xfff1)
+    );
+
+    // The table boundary and simulator consume the filtered metadata normally.
+    let first_global = file.section_headers[table].sh_info as usize;
+    assert!(symbols[..first_global].iter().all(|s| s.binding() == 0));
+    assert!(symbols[first_global..].iter().all(|s| s.binding() == 1));
+    let machine = load_elf(ElfInput::Bytes(&bytes)).unwrap();
+    assert!(machine.address_symbols.values().any(|name| name == ".Lexport"));
+    assert_eq!(machine.other_symbols.get(".Lconstant"), Some(&43));
+}
+
+#[test]
+fn internal_and_ordinary_names_encode_identically_after_relaxation() {
+    // li starts with an eight-byte estimate and shrinks to four bytes, so
+    // the label difference in data must use the final instruction sizes.
+    let source = ".text\n.global _start\n_start: la a0, .Ldata\nj .Lend\n.Lbegin: li a1, 1\n.Lend: beq a0, zero, .Lbegin\n.data\n.Ldata: .word .Lbegin, .Lend - .Lbegin\n";
+    let internal_bytes = assembled(source);
+    let ordinary_bytes = assembled(&source.replace(".L", "label_"));
+    let internal = ElfFile::parse(&internal_bytes).unwrap();
+    let ordinary = ElfFile::parse(&ordinary_bytes).unwrap();
+    for name in [b".text".as_slice(), b".data"] {
+        let a = internal
+            .section_headers
+            .iter()
+            .enumerate()
+            .find(|(i, _)| internal.section_name(*i).unwrap() == name)
+            .unwrap()
+            .0;
+        let b = ordinary
+            .section_headers
+            .iter()
+            .enumerate()
+            .find(|(i, _)| ordinary.section_name(*i).unwrap() == name)
+            .unwrap()
+            .0;
+        assert_eq!(
+            internal.section_data(a).unwrap(),
+            ordinary.section_data(b).unwrap()
+        );
+        assert_eq!(
+            internal.section_headers[a].sh_addr,
+            ordinary.section_headers[b].sh_addr
+        );
+        if name == b".data" {
+            assert_eq!(
+                &internal.section_data(a).unwrap()[4..8],
+                &4_u32.to_le_bytes()
+            );
+        }
+    }
+}
+
+#[test]
 fn assembler_layout_and_loader_agree_for_data_and_bss_combinations() {
     for (data, bss) in
         [(false, false), (true, false), (false, true), (true, true)]

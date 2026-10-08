@@ -40,8 +40,8 @@ const registers = /^(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?
 
 // Rust permits ASCII letters, _ and $ at the start of an identifier, and
 // Unicode alphanumeric characters, _, . and $ afterward. A leading dot is
-// either a directive introducer or the current-address expression, never a label.
-const identifier = /^[A-Za-z_$][\p{Alphabetic}\p{N}_.$]*/u;
+// a directive introducer, an internal .L name, or the current-address expression.
+const identifier = /^(?:[A-Za-z_$]|\.L)[\p{Alphabetic}\p{N}_.$]*/u;
 const directiveName = /^[\p{Alphabetic}\p{N}][\p{Alphabetic}\p{N}_.$]*/u;
 const labelColon = /^[ \t\r]*:/;
 const referenceSuffix = /^[ \t\r]*[fb](?![\p{Alphabetic}\p{N}_.$])/u;
@@ -149,7 +149,7 @@ export const riscletStreamParser: StreamParser<RiscletState> = {
     }
 
     // The leading dot decision is lexical, including unknown directive errors.
-    if (stream.eat(".")) {
+    if (!stream.match(/^\.L/, false) && stream.eat(".")) {
       if (!stream.match(directiveName)) return "atom";
       state.position = "operands";
       return directives.has(stream.current().slice(1)) ? "meta" : "invalid";

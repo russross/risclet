@@ -127,6 +127,12 @@ pub fn tokenize(line: &str) -> Result<Vec<Token>, String> {
                     && chars.peek().unwrap().is_alphanumeric()
                 {
                     let ident = parse_identifier(&mut chars)?;
+                    // Internal names use the same identifier tokens as ordinary
+                    // symbols, preserving their leading dot through linking.
+                    if ident.starts_with('L') {
+                        tokens.push(Token::Identifier(format!(".{}", ident)));
+                        continue;
+                    }
                     let dir = match ident.as_str() {
                         "global" => DirectiveOp::Global,
                         "globl" => DirectiveOp::Global,

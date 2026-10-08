@@ -14,6 +14,12 @@ export async function run() {
         ['.space 4, 255', ['meta', 'number', 'punctuation', 'number']],
         ['.wordx 4', ['invalid', 'number']],
         ['.asciix "text"', ['invalid', 'string']],
+        ['.L1: nop', ['labelName', 'punctuation', 'keyword']],
+        ['.Lloop: j .Lloop', ['labelName', 'punctuation', 'keyword', 'variableName']],
+        ['.Ldata: .word .L1', ['labelName', 'punctuation', 'meta', 'variableName']],
+        ['.equ .Lsize, . - .L1', ['meta', 'variableName', 'punctuation', 'atom', 'operator', 'variableName']],
+        ['.global .Lexport', ['meta', 'variableName']],
+        ['.l1', ['invalid']],
     ]) {
         const stream = new StringStream(line, 4, 2);
         const state = riscletStreamParser.startState(2);

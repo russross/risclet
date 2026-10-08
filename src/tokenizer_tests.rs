@@ -2,6 +2,28 @@ use crate::ast::*;
 use crate::tokenizer::*;
 
 #[test]
+fn internal_names_preserve_the_dot_and_directive_distinction() {
+    for name in [".L", ".L1", ".Lloop", ".Lfoo.bar_$"] {
+        assert_eq!(
+            tokenize(&format!("{}:", name)).unwrap(),
+            vec![Token::Identifier(name.into()), Token::Colon]
+        );
+    }
+
+    // The current address and known directives retain their own token kinds.
+    assert_eq!(tokenize(".").unwrap(), vec![Token::Dot]);
+    assert_eq!(
+        tokenize(".globl .L1").unwrap(),
+        vec![
+            Token::Directive(DirectiveOp::Global),
+            Token::Identifier(".L1".into())
+        ]
+    );
+    assert!(tokenize(".l1").unwrap_err().contains("Unknown directive"));
+    assert!(tokenize(".wordx").unwrap_err().contains("Unknown directive"));
+}
+
+#[test]
 fn test_tokenize_simple_instruction() {
     let line = "add a0, a1, a2";
     let tokens = tokenize(line).unwrap();

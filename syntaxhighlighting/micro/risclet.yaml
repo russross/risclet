@@ -10,20 +10,20 @@ rules:
   - constant.number: "[0-9]+"
   - constant: "\\."
   - error.directive: "\\.[\\p{L}\\p{N}][\\p{L}\\p{N}_.$]*"
-  - identifier.var: "[A-Za-z_$][\\p{L}\\p{N}_.$]*"
+  - identifier.var: "(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*"
   - constant.number: "(?:^|[^\\p{L}\\p{N}_.$])(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)"
   - error.number: "(?:^|[^\\p{L}\\p{N}_.$])0[xXbBoO](?:$|[^\\p{L}\\p{N}_.$])"
   - special.register: "(?:^|[^\\p{L}\\p{N}_.$])(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])(?:[,() \\t\\r]+(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7]))*(?:$|[^\\p{L}\\p{N}_.$])"
   - special.label: "(?:^|[^\\p{L}\\p{N}_.$])(?:0[xX][0-9a-fA-F]+[ \\t\\r]+|(?:0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)[ \\t\\r]*)[fb](?:$|[^\\p{L}\\p{N}_.$])"
 
   # Statement rules include the optional label; its own rule restores its color.
-  - error.statement: "^[ \\t\\r]*(?:(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|\\.[\\p{L}\\p{N}][\\p{L}\\p{N}_.$]*)"
-  - statement: "^[ \\t\\r]*(?:(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?(?:add|sub|sll|slt|sltu|xor|srl|sra|or|and|mul|mulh|mulhsu|mulhu|div|divu|rem|remu|addi|slli|slti|sltiu|xori|ori|andi|srli|srai|jalr|beq|bne|blt|bge|bltu|bgeu|bgez|bnez|lui|auipc|jal|fence|fence\\.tso|fence\\.i|ecall|ebreak|lb|lh|lw|lbu|lhu|sb|sh|sw|li|la|call|tail|mv|ret|nop|neg|seqz|snez|sltz|sgtz|beqz|blez|bltz|bgtz|bgt|ble|bgtu|bleu|j|jr|not|c\\.(?:add|mv|jr|jalr|li|lui|addi|addi16sp|addi4spn|slli|lwsp|swsp|lw|sw|and|or|xor|sub|srli|srai|andi|beqz|bnez|j|jal|nop|ebreak)|(?:lr|sc|amoswap|amoadd|amoxor|amoand|amoor|amomin|amomax|amominu|amomaxu)\\.w(?:\\.(?:aq|rel|aqrl))?)(?:$|[^\\p{L}\\p{N}_.$])"
-  - preproc: "^[ \\t\\r]*(?:(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?\\.(?:global|globl|equ|set|text|data|bss|space|zero|balign|ascii|string|asciz|byte|2byte|half|4byte|word)(?:$|[^\\p{L}\\p{N}_.$])"
-  - constant.fence: "^[ \\t\\r]*(?:(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?fence[ \\t\\r]+[iorw]+(?:[ \\t\\r]*,[ \\t\\r]*[iorw]+)?(?:$|[^\\p{L}\\p{N}_.$])"
-  - statement: "^[ \\t\\r]*(?:(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?fence(?:$|[^\\p{L}\\p{N}_.$])"
-  - special.label: "^[ \\t\\r]*(?:[A-Za-z_$][\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:"
-  - identifier.var: "^[ \\t\\r]*(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])[ \\t\\r]*:[ \\t\\r]*[A-Za-z_$][\\p{L}\\p{N}_.$]*(?:$|[^\\p{L}\\p{N}_.$])"
+  - error.statement: "^[ \\t\\r]*(?:(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|\\.[\\p{L}\\p{N}][\\p{L}\\p{N}_.$]*)"
+  - statement: "^[ \\t\\r]*(?:(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?(?:add|sub|sll|slt|sltu|xor|srl|sra|or|and|mul|mulh|mulhsu|mulhu|div|divu|rem|remu|addi|slli|slti|sltiu|xori|ori|andi|srli|srai|jalr|beq|bne|blt|bge|bltu|bgeu|bgez|bnez|lui|auipc|jal|fence|fence\\.tso|fence\\.i|ecall|ebreak|lb|lh|lw|lbu|lhu|sb|sh|sw|li|la|call|tail|mv|ret|nop|neg|seqz|snez|sltz|sgtz|beqz|blez|bltz|bgtz|bgt|ble|bgtu|bleu|j|jr|not|c\\.(?:add|mv|jr|jalr|li|lui|addi|addi16sp|addi4spn|slli|lwsp|swsp|lw|sw|and|or|xor|sub|srli|srai|andi|beqz|bnez|j|jal|nop|ebreak)|(?:lr|sc|amoswap|amoadd|amoxor|amoand|amoor|amomin|amomax|amominu|amomaxu)\\.w(?:\\.(?:aq|rel|aqrl))?)(?:$|[^\\p{L}\\p{N}_.$])"
+  - preproc: "^[ \\t\\r]*(?:(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?\\.(?:global|globl|equ|set|text|data|bss|space|zero|balign|ascii|string|asciz|byte|2byte|half|4byte|word)(?:$|[^\\p{L}\\p{N}_.$])"
+  - constant.fence: "^[ \\t\\r]*(?:(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?fence[ \\t\\r]+[iorw]+(?:[ \\t\\r]*,[ \\t\\r]*[iorw]+)?(?:$|[^\\p{L}\\p{N}_.$])"
+  - statement: "^[ \\t\\r]*(?:(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:[ \\t\\r]*)?fence(?:$|[^\\p{L}\\p{N}_.$])"
+  - special.label: "^[ \\t\\r]*(?:(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t\\r]*:"
+  - identifier.var: "^[ \\t\\r]*(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])[ \\t\\r]*:[ \\t\\r]*(?:[A-Za-z_$]|\\.L)[\\p{L}\\p{N}_.$]*(?:$|[^\\p{L}\\p{N}_.$])"
   - error.statement: "^[ \\t\\r]*(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])[ \\t\\r]*:"
 
   # Restore delimiters consumed by boundary matches, without recoloring dots in names.
