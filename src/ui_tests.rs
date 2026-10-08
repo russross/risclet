@@ -13,8 +13,8 @@ use super::{
 use crate::config::{Config, Mode};
 use crate::execution::{Instruction, Machine};
 use crate::memory::Segment;
-use crate::riscv::Op;
-use crate::trace::{Effects, MemoryValue};
+use crate::riscv::{Op, SP};
+use crate::trace::{Effects, MemoryValue, MemoryWrite};
 
 const ALL: MemoryVisibility =
     MemoryVisibility { stack: true, data: true, text: true };
@@ -299,6 +299,22 @@ fn text_tracks_execution_with_exact_lengths_and_ignores_source_cursor() {
 }
 
 #[test]
+fn text_highlight_follows_execution_order_and_overlap() {
+    let mut tui = debugger(true);
+    // A jump can leave the previous instruction above the upcoming address.
+    tui.sequence[0].instruction = tui.instructions[3].clone();
+    key(&mut tui, KeyCode::Right);
+    assert_text_bytes(&mut tui, 0x1002..0x1006);
+    key(&mut tui, KeyCode::Left);
+    assert_text_bytes(&mut tui, 0x100a..0x100c);
+
+    // Repeated execution of the same address keeps the full highlight.
+    tui.sequence[0].instruction = tui.instructions[1].clone();
+    key(&mut tui, KeyCode::Right);
+    assert_text_bytes(&mut tui, 0x1002..0x1006);
+}
+
+#[test]
 fn stack_colors_preserve_callers_and_inactive_space() {
     let palette = [
         Colors::new(Color::Red, Color::Black),
@@ -373,6 +389,127 @@ fn data_keeps_partial_rows_and_recent_access_highlighting() {
     assert_eq!(screen[row][48], ('1', inverted));
     assert_eq!(screen[row][71], ('q', inverted));
     assert_eq!(screen[row][72], (' ', tui.normal_color));
+}
+
+#[test]
+fn upcoming_memory_access_takes_priority_and_rewinds() {
+    for segment in [Data, Stack] {
+        let mut tui = debugger(true);
+        let address =
+            if segment == Data { 0x2000 } else { tui.machine.stack_end() - 16 };
+        if segment == Stack {
+            tui.machine.set(SP, address as i32);
+        }
+        tui.sequence[0].mem_read =
+            Some(MemoryValue { address, value: vec![0; 4] });
+        tui.sequence[1].mem_write = Some(MemoryWrite {
+            address: address + 2,
+            old_value: vec![0; 4],
+            new_value: vec![1; 4],
+        });
+        key(&mut tui, KeyCode::Right);
+
+        // Only the upcoming store is highlighted, including overlapping bytes.
+        let (screen, _) = tui.render_screen(80, 24);
+        let row = label_row(&screen, &format!("{address:06x}:")).unwrap();
+        let normal = screen[row][47].1;
+        let full = screen[row][53].1.background.unwrap();
+        assert_eq!(normal.background, Some(Color::AnsiValue(16)));
+        assert_eq!(screen[row][56].1.background, Some(full));
+        assert_eq!(screen[row][71].1, normal);
+        assert_eq!(screen[row][73].1.background, Some(full));
+
+        // Non-memory instructions preserve the most recent access highlight.
+        for _ in 0..2 {
+            key(&mut tui, KeyCode::Right);
+            let (screen, _) = tui.render_screen(80, 24);
+            let row = label_row(&screen, &format!("{address:06x}:")).unwrap();
+            assert_eq!(screen[row][47].1, normal);
+            assert_eq!(screen[row][53].1.background, Some(full));
+        }
+
+        // A later access removes the store highlight entirely.
+        tui.sequence[4].mem_read =
+            Some(MemoryValue { address: address + 6, value: vec![0; 2] });
+        key(&mut tui, KeyCode::Right);
+        let (screen, _) = tui.render_screen(80, 24);
+        let row = label_row(&screen, &format!("{address:06x}:")).unwrap();
+        assert_eq!(screen[row][47].1, normal);
+        assert_eq!(screen[row][53].1, normal);
+        assert_eq!(screen[row][65].1.background, Some(full));
+
+        // Rewinding removes the store preview and restores the load preview.
+        for _ in 0..4 {
+            key(&mut tui, KeyCode::Left);
+        }
+        let (screen, _) = tui.render_screen(80, 24);
+        let row = label_row(&screen, &format!("{address:06x}:")).unwrap();
+        assert_eq!(screen[row][47].1.background, Some(full));
+        assert_eq!(screen[row][53].1.background, Some(full));
+        assert_ne!(screen[row][59].1.background, Some(full));
+    }
+}
+
+#[test]
+fn upcoming_access_selects_the_memory_pane_when_space_is_short() {
+    let mut tui = debugger(true);
+    tui.sequence[0].mem_read =
+        Some(MemoryValue { address: 0x2000, value: vec![0; 1] });
+    tui.sequence[1].mem_read = Some(MemoryValue {
+        address: tui.machine.stack_end() - 16,
+        value: vec![0; 1],
+    });
+    let (data, _) = tui.render_screen(80, 16);
+    assert!(label_row(&data, "Data").is_some());
+    assert!(label_row(&data, "Stack").is_none());
+
+    // The upcoming stack access controls layout before that access executes.
+    key(&mut tui, KeyCode::Right);
+    let (stack, _) = tui.render_screen(80, 16);
+    assert!(label_row(&stack, "Stack").is_some());
+    assert!(label_row(&stack, "Data").is_none());
+    key(&mut tui, KeyCode::Left);
+    let (rewound, _) = tui.render_screen(80, 16);
+    assert_eq!(rewound, data);
+}
+
+#[test]
+fn released_stack_keeps_recent_access_in_dim_gray() {
+    let mut tui = debugger(true);
+    let address = tui.machine.stack_end() - 16;
+    tui.machine.set(SP, address as i32);
+    tui.sequence[0].mem_read = Some(MemoryValue { address, value: vec![0; 4] });
+    let (active, _) = tui.render_screen(80, 24);
+    let row = label_row(&active, &format!("{address:06x}:")).unwrap();
+    assert_eq!(active[row][47].1.background, tui.pastels[0].foreground);
+
+    // Releasing the frame preserves focus but gives its bytes inactive gray.
+    key(&mut tui, KeyCode::Right);
+    tui.machine.set(SP, tui.machine.stack_end() as i32);
+    let (released, _) = tui.render_screen(80, 24);
+    let row = label_row(&released, &format!("{address:06x}:")).unwrap();
+    let dim = Colors::new(Color::AnsiValue(16), Color::AnsiValue(240));
+    assert_eq!(released[row][47].1, dim);
+    assert_eq!(released[row][71].1, dim);
+    assert_eq!(released[row][59].1, tui.inactive_stack_color);
+}
+
+#[test]
+fn stack_centers_one_instruction_earlier_and_keeps_its_fallback() {
+    let mut tui = debugger(true);
+    let address = tui.machine.stack_end() - 128;
+    tui.sequence[0].mem_read = Some(MemoryValue { address, value: vec![0; 4] });
+    let (preview, _) = tui.render_screen(80, 24);
+    let row = label_row(&preview, &format!("{address:06x}:")).unwrap();
+    let stack_label = label_row(&preview, "Stack").unwrap();
+    assert_eq!(row, stack_label + 4);
+
+    // After the load, an instruction without memory effects keeps the same
+    // viewport and full highlight that were already shown in the preview.
+    key(&mut tui, KeyCode::Right);
+    let (after, _) = tui.render_screen(80, 24);
+    assert_eq!(label_row(&after, &format!("{address:06x}:")), Some(row));
+    assert_eq!(preview[row][47..79], after[row][47..79]);
 }
 
 #[test]

@@ -249,15 +249,15 @@ impl Tui {
         let cursor_color = Colors::new(black, Color::AnsiValue(102));
 
         // memory chunks, with pastel foreground colors
-        // the are all saturation 20%, lightness 60%, with various hues
+        // these are all visually at similar saturation and brightness
+        // ordered to maximize contrast between adjacent colors
         let pastels = vec![
-            //Colors::new(Color::AnsiValue(102), black),
-            Colors::new(Color::AnsiValue(138), black),
+            Colors::new(Color::AnsiValue(174), black),
+            Colors::new(Color::AnsiValue(73), black),
+            Colors::new(Color::AnsiValue(104), black),
             Colors::new(Color::AnsiValue(144), black),
-            Colors::new(Color::AnsiValue(108), black),
-            Colors::new(Color::AnsiValue(109), black),
-            Colors::new(Color::AnsiValue(103), black),
             Colors::new(Color::AnsiValue(139), black),
+            Colors::new(Color::AnsiValue(108), black),
         ];
 
         // create cycling color pairs for address symbols
@@ -396,10 +396,6 @@ impl Tui {
                     self.sequence_index -= 1;
                     self.machine
                         .apply(&self.sequence[self.sequence_index], false);
-                    self.machine.set_most_recent_memory(
-                        &self.sequence,
-                        self.sequence_index,
-                    );
                     self.set_cursor_to_current();
                 }
             }
@@ -408,10 +404,6 @@ impl Tui {
                     self.machine
                         .apply(&self.sequence[self.sequence_index], true);
                     self.sequence_index += 1;
-                    self.machine.set_most_recent_memory(
-                        &self.sequence,
-                        self.sequence_index,
-                    );
                     self.set_cursor_to_current();
                 }
             }
@@ -453,10 +445,6 @@ impl Tui {
                     }
                     self.sequence_index -= 1;
                 }
-                self.machine.set_most_recent_memory(
-                    &self.sequence,
-                    self.sequence_index,
-                );
                 self.set_cursor_to_current();
             }
             KeyCode::End => {
@@ -480,10 +468,6 @@ impl Tui {
                     self.machine.apply(effects, true);
                     self.sequence_index += 1;
                 }
-                self.machine.set_most_recent_memory(
-                    &self.sequence,
-                    self.sequence_index,
-                );
                 self.set_cursor_to_current();
             }
             KeyCode::Enter => {
@@ -499,10 +483,6 @@ impl Tui {
                             );
                             self.sequence_index += 1;
                         }
-                        self.machine.set_most_recent_memory(
-                            &self.sequence,
-                            self.sequence_index,
-                        );
                         self.set_cursor_to_current();
                         break;
                     }
@@ -521,10 +501,6 @@ impl Tui {
                                 false,
                             );
                         }
-                        self.machine.set_most_recent_memory(
-                            &self.sequence,
-                            self.sequence_index,
-                        );
                         self.set_cursor_to_current();
                         break;
                     }
@@ -609,6 +585,9 @@ impl Tui {
     // Screen construction has no terminal I/O, so resize behavior and colors
     // can be checked using the same cells that are sent to the terminal.
     fn render_screen(&mut self, size_x: u16, size_y: u16) -> (Screen, u16) {
+        // Resolve memory focus once for pane selection, centering, and color.
+        self.machine
+            .set_most_recent_memory(&self.sequence, self.sequence_index);
         // build the screen layout
         let mut out = Vec::new();
         for _ in 0..size_y {

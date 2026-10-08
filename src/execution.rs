@@ -287,7 +287,9 @@ impl Machine {
         let mut stack = false;
         let mut data = false;
 
-        for effect in sequence.iter().take(index).rev() {
+        // Focus includes the instruction about to execute, then falls back to
+        // the latest access in each segment when that instruction goes elsewhere.
+        for effect in sequence.iter().take(index.saturating_add(1)).rev() {
             let (address, value_len) = if let Some(read) = &effect.mem_read {
                 (read.address, read.value.len())
             } else if let Some(write) = &effect.mem_write {
