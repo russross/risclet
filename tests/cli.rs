@@ -146,7 +146,7 @@ fn informational_commands_succeed_without_input_and_show_stable_defaults() {
 #[test]
 fn dumps_succeed_without_creating_or_overwriting_output() {
     let workspace = Workspace::new();
-    // Inspection does not require the executable's entry point.
+    // Earlier assembly phases can be inspected without an executable entry.
     write(workspace.0.join("program.s"), ".text\nlocal:\nli a0, 0\n")
         .expect("write inspection source");
     write(workspace.0.join("saved"), b"preserve me")
@@ -156,14 +156,6 @@ fn dumps_succeed_without_creating_or_overwriting_output() {
         vec!["--dump-symbols"],
         vec!["--dump-values"],
         vec!["--dump-code"],
-        vec!["--dump-elf"],
-        vec![
-            "--dump-ast",
-            "--dump-symbols",
-            "--dump-values",
-            "--dump-code",
-            "--dump-elf",
-        ],
     ] {
         let mut args = vec!["assemble", "program.s", "-o", "saved"];
         args.extend(dumps.iter().copied());
@@ -187,6 +179,83 @@ fn dumps_succeed_without_creating_or_overwriting_output() {
     }
     success(&workspace.run(&["assemble", "--dump-code"]));
     assert!(!workspace.0.join("a.out").exists());
+
+    // ELF inspection requires the same entry symbol as saved executables.
+    let output =
+        workspace.run(&["assemble", "program.s", "--dump-elf", "-o", "saved"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("_start symbol not defined")
+    );
+    assert_eq!(read(workspace.0.join("saved")).unwrap(), b"preserve me");
+    workspace.source("program.s", 0);
+    let output = workspace.run(&[
+        "assemble",
+        "program.s",
+        "-o",
+        "saved",
+        "--dump-ast",
+        "--dump-symbols",
+        "--dump-values",
+        "--dump-code",
+        "--dump-elf",
+    ]);
+    success(&output);
+    let listing = String::from_utf8_lossy(&output.stdout);
+    assert!(listing.contains("ELF DUMP"));
+    assert!(listing.contains("No output file generated"));
+    assert_eq!(read(workspace.0.join("saved")).unwrap(), b"preserve me");
+    assert!(!workspace.0.join("a.out").exists());
+}
+
+#[test]
+fn elf_dumps_describe_the_completed_executable() {
+    let workspace = Workspace::new();
+    workspace.source("program.s", 0);
+    success(&workspace.run(&["assemble", "program.s", "-o", "saved"]));
+    let bytes = read(workspace.0.join("saved")).unwrap();
+    let output = workspace.run(&["assemble", "program.s", "--dump-elf"]);
+    success(&output);
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let field = |label: &str| {
+        listing
+            .lines()
+            .find_map(|line| {
+                line.trim_start().strip_prefix(label).map(str::trim)
+            })
+            .expect("ELF dump field")
+    };
+    let word = |offset: usize| {
+        u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+    };
+    let halfword = |offset: usize| {
+        u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap())
+    };
+
+    // The inspection must reflect the actual header, not constructor defaults.
+    assert_eq!(field("Class:"), "ELF32");
+    assert_eq!(field("Entry point address:"), format!("0x{:x}", word(24)));
+    assert_eq!(
+        field("Start of program headers:"),
+        format!("{} (bytes into file)", word(28))
+    );
+    assert_eq!(
+        field("Start of section headers:"),
+        format!("{} (bytes into file)", word(32))
+    );
+    assert_eq!(field("Number of program headers:"), halfword(44).to_string());
+    assert_eq!(field("Number of section headers:"), halfword(48).to_string());
+    assert_eq!(
+        field("Section header string table index:"),
+        halfword(50).to_string()
+    );
+    assert!(listing.contains("LOAD"));
+    assert!(listing.contains(".text"));
+    assert!(listing.contains(".symtab"));
+    assert!(listing.contains("_start"));
+    assert!(!workspace.0.join("a.out").exists());
+    assert_eq!(read(workspace.0.join("saved")).unwrap(), bytes);
 }
 
 #[test]

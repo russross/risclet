@@ -7,7 +7,6 @@
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
 use crate::error::{Result, RiscletError};
-use std::collections::HashMap;
 
 // ============================================================================
 // ELF Constants
@@ -71,11 +70,6 @@ pub const STT_FILE: u8 = 4;
 pub const SHN_UNDEF: u16 = 0;
 pub const SHN_ABS: u16 = 0xfff1;
 
-// Header and entry sizes (32-bit ELF)
-pub const ELF_HEADER_SIZE: u32 = 52;
-pub const PROGRAM_HEADER_SIZE: u32 = 32;
-pub const SYMBOL_ENTRY_SIZE: usize = 16;
-
 // ============================================================================
 // ELF Data Structures
 // ============================================================================
@@ -99,47 +93,12 @@ pub struct ElfHeader {
     pub e_shstrndx: u16,   // Section name string table index
 }
 
-impl Default for ElfHeader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ElfHeader {
-    /// Create a new ELF header with standard RISC-V 32-bit values
-    pub fn new() -> Self {
-        let mut e_ident = [0u8; 16];
-        e_ident[0] = EI_MAG0;
-        e_ident[1] = EI_MAG1;
-        e_ident[2] = EI_MAG2;
-        e_ident[3] = EI_MAG3;
-        e_ident[4] = EI_CLASS;
-        e_ident[5] = EI_DATA;
-        e_ident[6] = EI_VERSION;
-        e_ident[7] = EI_OSABI;
-        e_ident[8] = EI_ABIVERSION;
-
-        Self {
-            e_ident,
-            e_type: ET_EXEC,
-            e_machine: EM_RISCV,
-            e_version: EV_CURRENT,
-            e_entry: 0,
-            e_phoff: 52,
-            e_shoff: 0,
-            e_flags: EF_RISCV_FLOAT_ABI_DOUBLE,
-            e_ehsize: 52,
-            e_phentsize: 32,
-            e_phnum: 0,
-            e_shentsize: 40,
-            e_shnum: 0,
-            e_shstrndx: 0,
-        }
-    }
+    pub const SIZE: usize = 52;
 
     /// Encode header to 52 bytes of little-endian binary
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(52);
+    pub fn encode(&self) -> [u8; Self::SIZE] {
+        let mut bytes = RecordBytes::<{ Self::SIZE }>::new();
         bytes.extend_from_slice(&self.e_ident);
         bytes.extend_from_slice(&self.e_type.to_le_bytes());
         bytes.extend_from_slice(&self.e_machine.to_le_bytes());
@@ -154,12 +113,12 @@ impl ElfHeader {
         bytes.extend_from_slice(&self.e_shentsize.to_le_bytes());
         bytes.extend_from_slice(&self.e_shnum.to_le_bytes());
         bytes.extend_from_slice(&self.e_shstrndx.to_le_bytes());
-        bytes
+        bytes.finish()
     }
 
     /// Decode header from 52 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
-        if data.len() < 52 {
+        if data.len() < Self::SIZE {
             return Err(RiscletError::elf("ELF header too short".to_string()));
         }
 
@@ -209,9 +168,11 @@ pub struct ElfProgramHeader {
 }
 
 impl ElfProgramHeader {
+    pub const SIZE: usize = 32;
+
     /// Encode program header to 32 bytes of little-endian binary
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(32);
+    pub fn encode(&self) -> [u8; Self::SIZE] {
+        let mut bytes = RecordBytes::<{ Self::SIZE }>::new();
         bytes.extend_from_slice(&self.p_type.to_le_bytes());
         bytes.extend_from_slice(&self.p_offset.to_le_bytes());
         bytes.extend_from_slice(&self.p_vaddr.to_le_bytes());
@@ -220,12 +181,12 @@ impl ElfProgramHeader {
         bytes.extend_from_slice(&self.p_memsz.to_le_bytes());
         bytes.extend_from_slice(&self.p_flags.to_le_bytes());
         bytes.extend_from_slice(&self.p_align.to_le_bytes());
-        bytes
+        bytes.finish()
     }
 
     /// Decode program header from 32 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
-        if data.len() < 32 {
+        if data.len() < Self::SIZE {
             return Err(RiscletError::elf(
                 "Program header too short".to_string(),
             ));
@@ -270,6 +231,8 @@ pub struct ElfSectionHeader {
 }
 
 impl ElfSectionHeader {
+    pub const SIZE: usize = 40;
+
     /// Create a null section header
     pub fn null() -> Self {
         Self {
@@ -287,8 +250,8 @@ impl ElfSectionHeader {
     }
 
     /// Encode section header to 40 bytes of little-endian binary
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(40);
+    pub fn encode(&self) -> [u8; Self::SIZE] {
+        let mut bytes = RecordBytes::<{ Self::SIZE }>::new();
         bytes.extend_from_slice(&self.sh_name.to_le_bytes());
         bytes.extend_from_slice(&self.sh_type.to_le_bytes());
         bytes.extend_from_slice(&self.sh_flags.to_le_bytes());
@@ -299,12 +262,12 @@ impl ElfSectionHeader {
         bytes.extend_from_slice(&self.sh_info.to_le_bytes());
         bytes.extend_from_slice(&self.sh_addralign.to_le_bytes());
         bytes.extend_from_slice(&self.sh_entsize.to_le_bytes());
-        bytes
+        bytes.finish()
     }
 
     /// Decode section header from 40 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
-        if data.len() < 40 {
+        if data.len() < Self::SIZE {
             return Err(RiscletError::elf(
                 "Section header too short".to_string(),
             ));
@@ -353,6 +316,16 @@ pub struct ElfSymbol {
 }
 
 impl ElfSymbol {
+    pub const SIZE: usize = 16;
+
+    pub fn binding(&self) -> u8 {
+        self.st_info >> 4
+    }
+
+    pub fn symbol_type(&self) -> u8 {
+        self.st_info & 0xf
+    }
+
     /// Create undefined symbol (entry 0)
     pub fn null() -> Self {
         Self {
@@ -390,20 +363,19 @@ impl ElfSymbol {
     }
 
     /// Encode symbol to 16 bytes of little-endian binary
-    pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(16);
+    pub fn encode(&self) -> [u8; Self::SIZE] {
+        let mut bytes = RecordBytes::<{ Self::SIZE }>::new();
         bytes.extend_from_slice(&self.st_name.to_le_bytes());
         bytes.extend_from_slice(&self.st_value.to_le_bytes());
         bytes.extend_from_slice(&self.st_size.to_le_bytes());
-        bytes.push(self.st_info);
-        bytes.push(self.st_other);
+        bytes.extend_from_slice(&[self.st_info, self.st_other]);
         bytes.extend_from_slice(&self.st_shndx.to_le_bytes());
-        bytes
+        bytes.finish()
     }
 
     /// Decode symbol from 16 bytes of little-endian binary
     pub fn decode(data: &[u8]) -> Result<Self> {
-        if data.len() < 16 {
+        if data.len() < Self::SIZE {
             return Err(RiscletError::elf(
                 "Symbol entry too short".to_string(),
             ));
@@ -425,145 +397,243 @@ pub fn make_st_info(bind: u8, typ: u8) -> u8 {
     (bind << 4) | (typ & 0xf)
 }
 
-// ============================================================================
-// String Table Builder
-// ============================================================================
-
-/// String table builder that deduplicates strings
-pub struct StringTable {
-    strings: Vec<u8>,
-    offsets: HashMap<String, u32>,
+// Records write fields in wire order into fixed-size storage. The cursor keeps
+// encoding independent of struct layout and avoids allocating for each entry.
+struct RecordBytes<const N: usize> {
+    bytes: [u8; N],
+    offset: usize,
 }
 
-impl Default for StringTable {
-    fn default() -> Self {
-        Self::new()
+impl<const N: usize> RecordBytes<N> {
+    fn new() -> Self {
+        Self { bytes: [0; N], offset: 0 }
+    }
+
+    fn extend_from_slice(&mut self, field: &[u8]) {
+        let end = self.offset + field.len();
+        self.bytes[self.offset..end].copy_from_slice(field);
+        self.offset = end;
+    }
+
+    fn finish(self) -> [u8; N] {
+        assert_eq!(self.offset, N);
+        self.bytes
     }
 }
 
-impl StringTable {
-    /// Create a new string table starting with a null byte
-    pub fn new() -> Self {
-        Self { strings: vec![0], offsets: HashMap::new() }
-    }
+/// A decoded ELF32 little-endian file with payloads borrowed from its bytes.
+/// Structural checks belong here; executable and machine policy belong to users.
+pub struct ElfFile<'a> {
+    bytes: &'a [u8],
+    pub header: ElfHeader,
+    pub program_headers: Vec<ElfProgramHeader>,
+    pub section_headers: Vec<ElfSectionHeader>,
+}
 
-    /// Add a string and return its offset
-    pub fn add(&mut self, s: &str) -> u32 {
-        if let Some(&offset) = self.offsets.get(s) {
-            return offset;
+impl<'a> ElfFile<'a> {
+    pub fn parse(bytes: &'a [u8]) -> Result<Self> {
+        let header = ElfHeader::decode(bytes)?;
+        if header.e_ident[..4] != [EI_MAG0, EI_MAG1, EI_MAG2, EI_MAG3] {
+            return Err(RiscletError::elf("invalid ELF magic number".into()));
         }
-
-        let offset = self.strings.len() as u32;
-        self.offsets.insert(s.to_string(), offset);
-        self.strings.extend_from_slice(s.as_bytes());
-        self.strings.push(0); // Null terminator
-        offset
-    }
-
-    /// Get the raw bytes of the string table
-    pub fn data(&self) -> &[u8] {
-        &self.strings
-    }
-
-    /// Get the length of the string table
-    pub fn len(&self) -> usize {
-        self.strings.len()
-    }
-
-    /// Check if the string table is empty (only null byte)
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.strings.len() <= 1
-    }
-
-    /// Parse a null-terminated string from the given offset
-    pub fn get_string(&self, offset: usize) -> Result<String> {
-        if offset >= self.strings.len() {
-            return Err(RiscletError::elf(format!(
-                "String offset {} out of bounds (table size: {})",
-                offset,
-                self.strings.len()
-            )));
-        }
-
-        let mut end = offset;
-        while end < self.strings.len() && self.strings[end] != 0 {
-            end += 1;
-        }
-
-        if end >= self.strings.len() {
+        if header.e_ident[4] != EI_CLASS || header.e_ident[5] != EI_DATA {
             return Err(RiscletError::elf(
-                "Unterminated string in string table".to_string(),
+                "ELF file must be 32-bit little-endian".into(),
             ));
         }
+        if header.e_ident[6] != EI_VERSION || header.e_version != EV_CURRENT {
+            return Err(RiscletError::elf("unsupported ELF version".into()));
+        }
 
-        Ok(String::from_utf8_lossy(&self.strings[offset..end]).into_owned())
+        // Each table is bounded once before records are decoded. Empty tables
+        // need no file range, and do not require an entry-size declaration.
+        if header.e_ehsize as usize != ElfHeader::SIZE {
+            return Err(RiscletError::elf("unexpected ELF header size".into()));
+        }
+        let program_headers = decode_table(
+            bytes,
+            header.e_phoff,
+            header.e_phnum,
+            header.e_phentsize,
+            ElfProgramHeader::SIZE,
+            "program headers",
+            ElfProgramHeader::decode,
+        )?;
+        let section_headers = decode_table(
+            bytes,
+            header.e_shoff,
+            header.e_shnum,
+            header.e_shentsize,
+            ElfSectionHeader::SIZE,
+            "section headers",
+            ElfSectionHeader::decode,
+        )?;
+        let file = Self { bytes, header, program_headers, section_headers };
+
+        // Validate payload ranges without allocating their contents. NOBITS
+        // and NULL sections have no file payload, regardless of their size.
+        for header in &file.program_headers {
+            file.program_data(header)?;
+        }
+        for index in 0..file.section_headers.len() {
+            file.section_data(index)?;
+        }
+        if file.header.e_shstrndx != SHN_UNDEF {
+            let index = file.header.e_shstrndx as usize;
+            file.string_table(index)?;
+            for section in &file.section_headers {
+                string_at(file.section_data(index)?, section.sh_name as usize)?;
+            }
+        }
+
+        // Symbol tables declare both their record size and their associated
+        // string table; neither relationship depends on section names.
+        for (index, section) in file.section_headers.iter().enumerate() {
+            if section.sh_type == SHT_SYMTAB {
+                file.string_table(section.sh_link as usize)?;
+                for symbol in file.symbols(index)? {
+                    file.symbol_name(index, &symbol)?;
+                }
+            }
+        }
+        Ok(file)
+    }
+
+    pub fn program_data(&self, header: &ElfProgramHeader) -> Result<&'a [u8]> {
+        file_range(
+            self.bytes,
+            header.p_offset,
+            header.p_filesz,
+            "program segment",
+        )
+    }
+
+    fn section(&self, index: usize) -> Result<&ElfSectionHeader> {
+        self.section_headers.get(index).ok_or_else(|| {
+            RiscletError::elf(format!("section index {index} out of bounds"))
+        })
+    }
+
+    pub fn section_data(&self, index: usize) -> Result<&'a [u8]> {
+        let section = self.section(index)?;
+        if matches!(section.sh_type, SHT_NULL | SHT_NOBITS) {
+            return Ok(&[]);
+        }
+        file_range(self.bytes, section.sh_offset, section.sh_size, "section")
+    }
+
+    fn string_table(&self, index: usize) -> Result<&'a [u8]> {
+        if self.section(index)?.sh_type != SHT_STRTAB {
+            return Err(RiscletError::elf(format!(
+                "section {index} is not a string table"
+            )));
+        }
+        self.section_data(index)
+    }
+
+    pub fn section_name(&self, index: usize) -> Result<&'a [u8]> {
+        let section = self.section(index)?;
+        if self.header.e_shstrndx == SHN_UNDEF {
+            return Ok(&[]);
+        }
+        string_at(
+            self.string_table(self.header.e_shstrndx as usize)?,
+            section.sh_name as usize,
+        )
+    }
+
+    pub fn symbols(&self, index: usize) -> Result<Vec<ElfSymbol>> {
+        let section = self.section(index)?;
+        if section.sh_type != SHT_SYMTAB
+            || section.sh_entsize as usize != ElfSymbol::SIZE
+        {
+            return Err(RiscletError::elf(format!(
+                "invalid symbol table section {index}"
+            )));
+        }
+        let bytes = self.section_data(index)?;
+        if !bytes.len().is_multiple_of(ElfSymbol::SIZE) {
+            return Err(RiscletError::elf(
+                "incomplete symbol table entry".into(),
+            ));
+        }
+        bytes
+            .as_chunks::<{ ElfSymbol::SIZE }>()
+            .0
+            .iter()
+            .map(|bytes| ElfSymbol::decode(bytes))
+            .collect()
+    }
+
+    pub fn symbol_name(
+        &self,
+        table: usize,
+        symbol: &ElfSymbol,
+    ) -> Result<&'a [u8]> {
+        let section = self.section(table)?;
+        if section.sh_type != SHT_SYMTAB {
+            return Err(RiscletError::elf(format!(
+                "section {table} is not a symbol table"
+            )));
+        }
+        string_at(
+            self.string_table(section.sh_link as usize)?,
+            symbol.st_name as usize,
+        )
     }
 }
 
-// ============================================================================
-// RISC-V Attributes Section
-// ============================================================================
-
-/// Generate .riscv.attributes section content
-///
-/// This section describes the RISC-V ISA features used by the binary.
-/// Format follows the ELF attributes specification with RISC-V extensions.
-///
-/// For RV32IMACZifencei (I, M, A, C extensions + Zifencei), we generate:
-/// "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0"
-pub fn generate_riscv_attributes() -> Vec<u8> {
-    // Generate attributes for RV32IMAC with compressed instructions and Zifencei
-    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0";
-
-    let mut attrs = Vec::new();
-
-    // Format version (always 'A' = 0x41)
-    attrs.push(b'A');
-
-    // Total length of attribute section (will be patched)
-    let length_pos = attrs.len();
-    attrs.extend_from_slice(&[0u8; 4]);
-
-    // Vendor name (always "riscv" for RISC-V)
-    attrs.extend_from_slice(b"riscv\0");
-
-    // File attributes tag (1)
-    attrs.push(1);
-
-    // Length of file attributes subsection (will be patched)
-    let file_attrs_length_pos = attrs.len();
-    attrs.extend_from_slice(&[0u8; 4]);
-
-    // Tag_RISCV_arch (5): RISC-V architecture string
-    attrs.push(5);
-    attrs.extend_from_slice(arch_string.as_bytes());
-    attrs.push(0); // Null terminator
-
-    // Patch file attributes length
-    let file_attrs_length = (attrs.len() - file_attrs_length_pos) as u32;
-    attrs[file_attrs_length_pos..file_attrs_length_pos + 4]
-        .copy_from_slice(&file_attrs_length.to_le_bytes());
-
-    // Patch total length
-    let total_length = (attrs.len() - length_pos) as u32;
-    attrs[length_pos..length_pos + 4]
-        .copy_from_slice(&total_length.to_le_bytes());
-
-    attrs
+// File ranges use subtraction so untrusted offsets cannot overflow before
+// bounds checking, including on hosts with a 32-bit usize.
+fn file_range<'a>(
+    bytes: &'a [u8],
+    offset: u32,
+    size: u32,
+    name: &str,
+) -> Result<&'a [u8]> {
+    let start = offset as usize;
+    let len = size as usize;
+    if start > bytes.len() || len > bytes.len() - start {
+        return Err(RiscletError::elf(format!(
+            "{name} out of bounds: offset {offset} size {size}"
+        )));
+    }
+    Ok(&bytes[start..start + len])
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
+fn decode_table<T>(
+    bytes: &[u8],
+    offset: u32,
+    count: u16,
+    entry_size: u16,
+    expected_size: usize,
+    name: &str,
+    decode: fn(&[u8]) -> Result<T>,
+) -> Result<Vec<T>> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    if entry_size as usize != expected_size {
+        return Err(RiscletError::elf(format!(
+            "unexpected entry size for {name}: {entry_size}"
+        )));
+    }
+    let data = file_range(
+        bytes,
+        offset,
+        u32::from(count) * u32::from(entry_size),
+        name,
+    )?;
+    data.chunks_exact(expected_size).map(decode).collect()
+}
 
-/// Compute the expected combined size of the ELF header and program headers.
-///
-/// # Arguments
-/// * `num_segments` - The number of program segments (e.g., 1 for text-only, 2 for text + data/bss).
-///
-/// # Returns
-/// The total size in bytes (ELF header + program headers).
-pub fn compute_header_size(num_segments: u32) -> u32 {
-    ELF_HEADER_SIZE + (num_segments * PROGRAM_HEADER_SIZE)
+/// Preserve byte offsets, suffix references, and non-UTF-8 names verbatim.
+fn string_at(bytes: &[u8], offset: usize) -> Result<&[u8]> {
+    let tail = bytes.get(offset..).ok_or_else(|| {
+        RiscletError::elf(format!("string offset {offset} out of bounds"))
+    })?;
+    let end = tail.iter().position(|&byte| byte == 0).ok_or_else(|| {
+        RiscletError::elf("unterminated string in string table".into())
+    })?;
+    Ok(&tail[..end])
 }

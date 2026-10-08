@@ -8,6 +8,7 @@ use crate::ast::{
 };
 use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_symbols, dump_values};
+use crate::elf::ElfFile;
 use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
 use crate::error::{Result, RiscletError};
@@ -130,12 +131,6 @@ pub fn assemble(
     // Build symbol table
     elf_builder.build_symbol_table(&source, symbol_links, &symbol_values)?;
 
-    // Checkpoint: dump ELF if requested
-    if should_dump_phase(config, Phase::Elf) {
-        dump_elf(config, &elf_builder);
-        return finish_dump();
-    }
-
     // Find entry point (_start symbol is required for executables)
     let entry_point = {
         if let Some(g) =
@@ -148,7 +143,13 @@ pub fn assemble(
         }
     }?;
 
-    elf_builder.build(entry_point).map(AssemblyOutput::Elf)
+    // Inspection uses the completed encoding, including finalized offsets.
+    let bytes = elf_builder.build(entry_point)?;
+    if should_dump_phase(config, Phase::Elf) {
+        dump_elf(config, &ElfFile::parse(&bytes)?)?;
+        return finish_dump();
+    }
+    Ok(AssemblyOutput::Elf(bytes))
 }
 
 fn finish_dump() -> Result<AssemblyOutput> {

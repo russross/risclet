@@ -1,411 +1,174 @@
-// ELF binary format loading for the RISC-V simulator
-//
-// This module loads ELF executables into memory for simulation.
-// All byte-level parsing is delegated to the elf module's decode methods.
+// ELF executable policy and conversion to simulator memory and symbols.
+// Byte decoding and file relationships are owned by the shared ELF view.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fs;
 
 use crate::elf::{
-    ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PT_LOAD, SHN_ABS,
-    SHT_STRTAB, SHT_SYMTAB, STT_FILE, SYMBOL_ENTRY_SIZE, StringTable,
+    EI_OSABI, EM_RISCV, ET_EXEC, ElfFile, PT_LOAD, SHF_ALLOC, SHF_EXECINSTR,
+    SHF_WRITE, SHN_ABS, SHT_NOBITS, SHT_PROGBITS, SHT_SYMTAB, STT_FILE,
 };
 use crate::error::{Result, RiscletError};
 use crate::{Machine, memory::Segment};
 
-/// Input source for loading an ELF file
+/// Input source for loading an ELF file.
 pub enum ElfInput<'a> {
-    /// Load from a file path
     File(&'a str),
-    /// Load from a byte slice
     Bytes(&'a [u8]),
 }
 
-/// Load an ELF file from either a filesystem path or a byte slice
-pub fn load_elf(input: ElfInput) -> Result<Machine> {
+pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
     let raw = match input {
-        ElfInput::File(filename) => std::fs::read(filename).map_err(|e| {
-            RiscletError::io(format!(
-                "failed to read file '{}': {}",
-                filename, e
-            ))
-        })?,
-        ElfInput::Bytes(bytes) => bytes.to_vec(),
+        ElfInput::File(filename) => {
+            Cow::Owned(fs::read(filename).map_err(|e| {
+                RiscletError::io(format!(
+                    "failed to read file '{filename}': {e}"
+                ))
+            })?)
+        }
+        ElfInput::Bytes(bytes) => Cow::Borrowed(bytes),
     };
+    let file = ElfFile::parse(&raw)?;
+    validate_executable(&file)?;
 
-    // Validate minimum size for ELF header
-    if raw.len() < 52 {
-        return Err(RiscletError::elf(
-            "ELF data is too short to contain a valid header".to_string(),
-        ));
-    }
-
-    // Validate ELF magic number
-    if raw[0..4] != *b"\x7fELF" {
-        return Err(RiscletError::elf(
-            "ELF data does not have valid ELF magic number (0x7f 'E' 'L' 'F')"
-                .to_string(),
-        ));
-    }
-
-    // Validate ELF class (32-bit), data (little-endian), version, and OS/ABI
-    if raw[4] != 1 {
-        return Err(RiscletError::elf(
-            "ELF file is not 32-bit (class must be 1)".to_string(),
-        ));
-    }
-    if raw[5] != 1 {
-        return Err(RiscletError::elf(
-            "ELF file is not little-endian (data must be 1)".to_string(),
-        ));
-    }
-    if raw[6] != 1 {
-        return Err(RiscletError::elf(
-            "ELF file version is not current (version must be 1)".to_string(),
-        ));
-    }
-    if raw[7] != 0 {
-        return Err(RiscletError::elf(
-            "ELF file OS/ABI is not System V (must be 0)".to_string(),
-        ));
-    }
-
-    // Decode ELF header
-    let header = ElfHeader::decode(&raw[0..52])?;
-
-    // Validate executable RISC-V file
-    if header.e_type != 2 {
-        return Err(RiscletError::elf(format!(
-            "ELF file is not executable (type={}, expected 2)",
-            header.e_type
-        )));
-    }
-    if header.e_machine != 0xf3 {
-        return Err(RiscletError::elf(format!(
-            "ELF file is not RISC-V (machine={:#x}, expected 0xf3)",
-            header.e_machine
-        )));
-    }
-    if header.e_version != 1 {
-        return Err(RiscletError::elf(format!(
-            "ELF file version is not 1 (got {})",
-            header.e_version
-        )));
-    }
-
-    // Validate header size and entry sizes
-    if header.e_ehsize != 52 {
-        return Err(RiscletError::elf(format!(
-            "unexpected ELF header size: {} (expected 52)",
-            header.e_ehsize
-        )));
-    }
-    if header.e_phentsize != 32 {
-        return Err(RiscletError::elf(format!(
-            "unexpected program header entry size: {} (expected 32)",
-            header.e_phentsize
-        )));
-    }
-    if header.e_shentsize != 40 {
-        return Err(RiscletError::elf(format!(
-            "unexpected section header entry size: {} (expected 40)",
-            header.e_shentsize
-        )));
-    }
-    if header.e_phnum < 1 {
-        return Err(RiscletError::elf(
-            "ELF file has no program headers".to_string(),
-        ));
-    }
-
-    // Load program segments (PT_LOAD only)
-    let mut chunks: Vec<(u32, Vec<u8>)> = Vec::new();
-    for i in 0..header.e_phnum as usize {
-        let offset =
-            header.e_phoff as usize + (i * header.e_phentsize as usize);
-        if offset + header.e_phentsize as usize > raw.len() {
+    // Sections retain the simulator's region boundaries and permissions.
+    // Their initialized bytes come from the first covering LOAD segment.
+    let mut segments = Vec::new();
+    for section in &file.section_headers {
+        if is_unsupported_section_type(section.sh_type) {
             return Err(RiscletError::elf(format!(
-                "program header {} out of bounds: offset {} size {}",
-                i, offset, header.e_phentsize
+                "ELF file contains unsupported section type: {:#x}",
+                section.sh_type
             )));
         }
-
-        let ph_data = &raw[offset..offset + header.e_phentsize as usize];
-        let ph = ElfProgramHeader::decode(ph_data)?;
-
-        // Only load PT_LOAD segments
-        if ph.p_type != PT_LOAD {
+        if !matches!(section.sh_type, SHT_PROGBITS | SHT_NOBITS)
+            || section.sh_flags & SHF_ALLOC == 0
+            || section.sh_size == 0
+        {
             continue;
         }
 
-        // Validate segment file content is within ELF
-        let seg_end = ph.p_offset as usize + ph.p_filesz as usize;
-        if seg_end > raw.len() {
-            return Err(RiscletError::elf(format!(
-                "program segment {} extends beyond ELF file (offset {} + size {} > {})",
-                i,
-                ph.p_offset,
-                ph.p_filesz,
-                raw.len()
-            )));
-        }
-
-        let segment_data = raw[ph.p_offset as usize..seg_end].to_vec();
-        chunks.push((ph.p_vaddr, segment_data));
-    }
-
-    // Load section header string table
-    let shstrtab = load_section_header_string_table(&raw, &header)?;
-
-    // Load section header entries and build segments
-    let mut segments = Vec::new();
-    let mut strtab: Option<Vec<u8>> = None;
-    let mut symtab: Option<Vec<u8>> = None;
-
-    for i in 0..header.e_shnum as usize {
-        let offset =
-            header.e_shoff as usize + (i * header.e_shentsize as usize);
-        if offset + header.e_shentsize as usize > raw.len() {
-            return Err(RiscletError::elf(format!(
-                "section header {} out of bounds: offset {} size {}",
-                i, offset, header.e_shentsize
-            )));
-        }
-
-        let sh_data = &raw[offset..offset + header.e_shentsize as usize];
-        let sh = ElfSectionHeader::decode(sh_data)?;
-
-        // Get section name
-        let section_name = shstrtab.get_string(sh.sh_name as usize).ok();
-
-        // Check for unsupported section types
-        if is_unsupported_section_type(sh.sh_type) {
-            return Err(RiscletError::elf(format!(
-                "ELF file contains unsupported section type: {:#x}",
-                sh.sh_type
-            )));
-        }
-
-        // Load allocatable sections (PROGBITS or NOBITS with SHF_ALLOC)
-        if (sh.sh_type == 1 || sh.sh_type == 8) && (sh.sh_flags & 0x2) != 0 {
-            // Find initialization data from program segments
-            let mut init = Vec::new();
-            for (p_vaddr, seg_data) in &chunks {
-                if *p_vaddr <= sh.sh_addr
-                    && sh.sh_addr < p_vaddr + seg_data.len() as u32
-                {
-                    let start_idx = (sh.sh_addr - p_vaddr) as usize;
-                    let end_idx =
-                        (start_idx + sh.sh_size as usize).min(seg_data.len());
-                    init = seg_data[start_idx..end_idx].to_vec();
-                    break;
-                }
-            }
-
-            segments.push(Segment::new(
-                sh.sh_addr,
-                sh.sh_addr + sh.sh_size,
-                (sh.sh_flags & 0x1) != 0, // writable
-                (sh.sh_flags & 0x4) != 0, // executable
-                init,
+        let end =
+            section.sh_addr.checked_add(section.sh_size).ok_or_else(|| {
+                RiscletError::elf("allocated section address overflows".into())
+            })?;
+        if section.sh_addr == 0 {
+            return Err(RiscletError::elf(
+                "allocated section starts at address zero".into(),
             ));
         }
-        // Load string table
-        else if matches!(section_name.as_deref(), Some(".strtab"))
-            && sh.sh_type == SHT_STRTAB
-        {
-            if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
-                return Err(RiscletError::elf(format!(
-                    ".strtab section extends beyond ELF file: offset {} + size {} > {}",
-                    sh.sh_offset,
-                    sh.sh_size,
-                    raw.len()
-                )));
+        let mut init = Vec::new();
+        for header in &file.program_headers {
+            if header.p_type != PT_LOAD || section.sh_addr < header.p_vaddr {
+                continue;
             }
-            strtab = Some(
-                raw[sh.sh_offset as usize
-                    ..(sh.sh_offset as usize + sh.sh_size as usize)]
-                    .to_vec(),
-            );
-        }
-        // Load symbol table
-        else if matches!(section_name.as_deref(), Some(".symtab"))
-            && sh.sh_type == SHT_SYMTAB
-        {
-            if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
-                return Err(RiscletError::elf(format!(
-                    ".symtab section extends beyond ELF file: offset {} + size {} > {}",
-                    sh.sh_offset,
-                    sh.sh_size,
-                    raw.len()
-                )));
+            let start = (section.sh_addr - header.p_vaddr) as usize;
+            let bytes = file.program_data(header)?;
+            if start < bytes.len() {
+                let len = (section.sh_size as usize).min(bytes.len() - start);
+                init.extend_from_slice(&bytes[start..start + len]);
+                break;
             }
-            symtab = Some(
-                raw[sh.sh_offset as usize
-                    ..(sh.sh_offset as usize + sh.sh_size as usize)]
-                    .to_vec(),
-            );
         }
+        segments.push(Segment::new(
+            section.sh_addr,
+            end,
+            section.sh_flags & SHF_WRITE != 0,
+            section.sh_flags & SHF_EXECINSTR != 0,
+            init,
+        ));
     }
 
-    let strtab = strtab.ok_or_else(|| {
-        RiscletError::elf(
-            "ELF file does not contain .strtab section".to_string(),
-        )
-    })?;
-    let symtab = symtab.ok_or_else(|| {
-        RiscletError::elf(
-            "ELF file does not contain .symtab section".to_string(),
-        )
-    })?;
-
-    // Parse symbol table
-    let (address_symbols, other_symbols, global_pointer) =
-        parse_symbol_table(&strtab, &symtab)?;
-
-    // Create machine
+    // A symbol table is identified by type, and its names by its link. Keep
+    // the simulator's requirement for symbols and its existing name filters.
+    let table = file
+        .section_headers
+        .iter()
+        .position(|section| section.sh_type == SHT_SYMTAB)
+        .ok_or_else(|| {
+            RiscletError::elf("ELF file does not contain a symbol table".into())
+        })?;
+    let symbols = load_symbols(&file, table)?;
     Ok(Machine::new(
         segments,
-        header.e_entry,
-        global_pointer,
-        address_symbols,
-        other_symbols,
+        file.header.e_entry,
+        symbols.global_pointer,
+        symbols.addresses,
+        symbols.other,
     ))
 }
 
-/// Load the section header string table
-fn load_section_header_string_table(
-    raw: &[u8],
-    header: &ElfHeader,
-) -> Result<StringTable> {
-    let shstrndx = header.e_shstrndx as usize;
-    if shstrndx == 0 {
-        // No section header string table
-        return Ok(StringTable::new());
+fn validate_executable(file: &ElfFile<'_>) -> Result<()> {
+    let header = &file.header;
+    if header.e_ident[7] != EI_OSABI {
+        return Err(RiscletError::elf(
+            "ELF file OS/ABI is not System V (must be 0)".into(),
+        ));
     }
-
-    let offset =
-        header.e_shoff as usize + (shstrndx * header.e_shentsize as usize);
-    if offset + header.e_shentsize as usize > raw.len() {
+    if header.e_type != ET_EXEC {
         return Err(RiscletError::elf(format!(
-            "section header string table entry out of bounds: offset {} size {}",
-            offset, header.e_shentsize
+            "ELF file is not executable (type={})",
+            header.e_type
         )));
     }
-
-    let sh_data = &raw[offset..offset + header.e_shentsize as usize];
-    let sh = ElfSectionHeader::decode(sh_data)?;
-
-    if sh.sh_offset as usize + sh.sh_size as usize > raw.len() {
+    if header.e_machine != EM_RISCV {
         return Err(RiscletError::elf(format!(
-            "section header string table out of bounds: offset {} + size {} > {}",
-            sh.sh_offset,
-            sh.sh_size,
-            raw.len()
+            "ELF file is not RISC-V (machine={:#x})",
+            header.e_machine
         )));
     }
-
-    let strtab_data = &raw
-        [sh.sh_offset as usize..(sh.sh_offset as usize + sh.sh_size as usize)];
-    let mut strtab = StringTable::new();
-
-    // Rebuild string table from raw data
-    let mut offset = 0;
-    while offset < strtab_data.len() {
-        let mut end = offset;
-        while end < strtab_data.len() && strtab_data[end] != 0 {
-            end += 1;
-        }
-
-        if offset < end {
-            let s =
-                String::from_utf8_lossy(&strtab_data[offset..end]).into_owned();
-            strtab.add(&s);
-        }
-
-        offset = end + 1;
+    if file.program_headers.is_empty() {
+        return Err(RiscletError::elf(
+            "ELF file has no program headers".into(),
+        ));
     }
-
-    Ok(strtab)
+    Ok(())
 }
 
-/// Check if a section type is unsupported
-fn is_unsupported_section_type(sh_type: u32) -> bool {
-    matches!(sh_type, 0x4 | 0x5 | 0x6 | 0x9 | 0xb | 0xe | 0xf | 0x10 | 0x11)
+// Relocations, dynamic linking, and the listed runtime metadata are outside
+// the simulator's executable model.
+fn is_unsupported_section_type(section_type: u32) -> bool {
+    matches!(
+        section_type,
+        0x4 | 0x5 | 0x6 | 0x9 | 0xb | 0xe | 0xf | 0x10 | 0x11
+    )
 }
 
-/// Type alias for symbol table data: (address_symbols, other_symbols, global_pointer)
-type SymbolTableData = (HashMap<u32, String>, HashMap<String, u32>, u32);
+struct LoadedSymbols {
+    addresses: HashMap<u32, String>,
+    other: HashMap<String, u32>,
+    global_pointer: u32,
+}
 
-/// Parse the symbol table and return symbol maps
-fn parse_symbol_table(strtab: &[u8], symtab: &[u8]) -> Result<SymbolTableData> {
-    let mut address_symbols: HashMap<u32, String> = HashMap::new();
-    let mut other_symbols: HashMap<String, u32> = HashMap::new();
-    let mut global_pointer: u32 = 0;
-
-    for i in (0..symtab.len()).step_by(SYMBOL_ENTRY_SIZE) {
-        if i + SYMBOL_ENTRY_SIZE > symtab.len() {
-            return Err(RiscletError::elf(format!(
-                "symbol table entry {} out of bounds: offset {} size {}",
-                i / SYMBOL_ENTRY_SIZE,
-                i,
-                SYMBOL_ENTRY_SIZE
-            )));
-        }
-
-        let sym_data = &symtab[i..i + SYMBOL_ENTRY_SIZE];
-        let sym = ElfSymbol::decode(sym_data)?;
-
-        // Extract symbol name from string table
-        let name = get_symbol_name(strtab, sym.st_name as usize)?;
-
-        // Skip empty names and FILE symbols
-        if name.is_empty() || sym.st_info == STT_FILE {
+fn load_symbols(file: &ElfFile<'_>, table: usize) -> Result<LoadedSymbols> {
+    let mut symbols = LoadedSymbols {
+        addresses: HashMap::new(),
+        other: HashMap::new(),
+        global_pointer: 0,
+    };
+    for symbol in file.symbols(table)? {
+        let name = String::from_utf8_lossy(file.symbol_name(table, &symbol)?)
+            .into_owned();
+        if name.is_empty() || symbol.symbol_type() == STT_FILE {
             continue;
         }
 
-        // Track global pointer
+        // The global pointer survives the internal-name filter because it
+        // supplies the simulator's initial gp value.
         if name == "__global_pointer$" {
-            global_pointer = sym.st_value;
-            address_symbols.insert(sym.st_value, name);
+            symbols.global_pointer = symbol.st_value;
+            symbols.addresses.insert(symbol.st_value, name);
             continue;
         }
-
-        // Skip internal symbols
         if name.starts_with('$') || name.starts_with("__") {
             continue;
         }
-
-        // Categorize symbol
-        if sym.st_shndx > 0 && sym.st_shndx != SHN_ABS {
-            address_symbols.insert(sym.st_value, name);
+        if symbol.st_shndx > 0 && symbol.st_shndx != SHN_ABS {
+            symbols.addresses.insert(symbol.st_value, name);
         } else {
-            other_symbols.insert(name, sym.st_value);
+            symbols.other.insert(name, symbol.st_value);
         }
     }
-
-    Ok((address_symbols, other_symbols, global_pointer))
-}
-
-/// Extract a null-terminated string from the string table
-fn get_symbol_name(strtab: &[u8], offset: usize) -> Result<String> {
-    if offset >= strtab.len() {
-        return Err(RiscletError::elf(format!(
-            "symbol name offset {} out of bounds (table size: {})",
-            offset,
-            strtab.len()
-        )));
-    }
-
-    let mut end = offset;
-    while end < strtab.len() && strtab[end] != 0 {
-        end += 1;
-    }
-
-    if end >= strtab.len() {
-        return Err(RiscletError::elf(
-            "unterminated symbol name in string table".to_string(),
-        ));
-    }
-
-    Ok(String::from_utf8_lossy(&strtab[offset..end]).into_owned())
+    Ok(symbols)
 }

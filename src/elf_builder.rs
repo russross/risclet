@@ -6,13 +6,17 @@
 // Reference: ELF-32 Object File Format, Version 1.5 Draft 2
 // https://refspecs.linuxfoundation.org/elf/elf.pdf
 
+use std::collections::HashMap;
+use std::path::Path;
+
 use crate::ast::{LineContent, LinePointer, Segment, Source};
 use crate::elf::{
-    ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PF_R, PF_W, PF_X,
-    PT_LOAD, PT_RISCV_ATTRIBUTES, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE, SHN_ABS,
-    SHT_NOBITS, SHT_PROGBITS, SHT_RISCV_ATTRIBUTES, SHT_STRTAB, SHT_SYMTAB,
-    STB_GLOBAL, STB_LOCAL, STT_NOTYPE, StringTable, generate_riscv_attributes,
-    make_st_info,
+    EF_RISCV_FLOAT_ABI_DOUBLE, EI_ABIVERSION, EI_CLASS, EI_DATA, EI_MAG0,
+    EI_MAG1, EI_MAG2, EI_MAG3, EI_OSABI, EI_VERSION, EM_RISCV, ET_EXEC,
+    EV_CURRENT, ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PF_R,
+    PF_W, PF_X, PT_LOAD, PT_RISCV_ATTRIBUTES, SHF_ALLOC, SHF_EXECINSTR,
+    SHF_WRITE, SHN_ABS, SHT_NOBITS, SHT_PROGBITS, SHT_RISCV_ATTRIBUTES,
+    SHT_STRTAB, SHT_SYMTAB, STB_GLOBAL, STB_LOCAL, STT_NOTYPE, make_st_info,
 };
 use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues};
@@ -23,16 +27,51 @@ use crate::symbols::{SymbolDefinition, SymbolLinks};
 // ELF Builder
 // ============================================================================
 
+/// Section order and header reservation for the assembler's executable format.
+/// Relaxation and emission share this policy so addresses use the same counts.
+pub struct ExecutableLayout {
+    text: u16,
+    data: Option<u16>,
+    bss: Option<u16>,
+    strtab: u16,
+    shstrtab: u16,
+}
+
+impl ExecutableLayout {
+    pub fn new(has_data: bool, has_bss: bool) -> Self {
+        let data = has_data.then_some(2);
+        let bss = has_bss.then_some(2 + u16::from(has_data));
+        let attributes = 2 + u16::from(has_data) + u16::from(has_bss);
+        Self {
+            text: 1,
+            data,
+            bss,
+            strtab: attributes + 2,
+            shstrtab: attributes + 3,
+        }
+    }
+
+    fn program_header_count(&self) -> usize {
+        2 + usize::from(self.data.is_some() || self.bss.is_some())
+    }
+
+    pub fn header_size(&self) -> u32 {
+        (ElfHeader::SIZE + self.program_header_count() * ElfProgramHeader::SIZE)
+            as u32
+    }
+}
+
 pub struct ElfBuilder<'a> {
-    pub header: ElfHeader,
-    pub program_headers: Vec<ElfProgramHeader>,
-    pub section_headers: Vec<ElfSectionHeader>,
-    pub section_names: StringTable,
-    pub symbol_table: Vec<ElfSymbol>,
-    pub symbol_names: StringTable,
-    pub text_data: Vec<u8>,
-    pub data_data: Vec<u8>,
-    pub riscv_attributes: Vec<u8>,
+    header: ElfHeader,
+    program_headers: Vec<ElfProgramHeader>,
+    section_headers: Vec<ElfSectionHeader>,
+    section_names: StringTable,
+    symbol_table: Vec<ElfSymbol>,
+    symbol_names: StringTable,
+    text_data: Vec<u8>,
+    data_data: Vec<u8>,
+    riscv_attributes: Vec<u8>,
+    executable_layout: ExecutableLayout,
     layout: &'a Layout,
 }
 
@@ -43,7 +82,7 @@ impl<'a> ElfBuilder<'a> {
         data_data: Vec<u8>,
     ) -> Self {
         Self {
-            header: ElfHeader::new(),
+            header: executable_header(),
             program_headers: Vec::new(),
             section_headers: Vec::new(),
             section_names: StringTable::new(),
@@ -52,12 +91,16 @@ impl<'a> ElfBuilder<'a> {
             text_data,
             data_data,
             riscv_attributes: generate_riscv_attributes(),
+            executable_layout: ExecutableLayout::new(
+                layout.data_size > 0,
+                layout.bss_size > 0,
+            ),
             layout,
         }
     }
 
     /// Add a symbol to the symbol table
-    pub fn add_symbol(&mut self, symbol: ElfSymbol) {
+    fn add_symbol(&mut self, symbol: ElfSymbol) {
         self.symbol_table.push(symbol);
     }
 
@@ -65,15 +108,15 @@ impl<'a> ElfBuilder<'a> {
     pub fn build(mut self, entry_point: u32) -> Result<Vec<u8>> {
         self.header.e_entry = entry_point;
 
-        let mut output = vec![0; 52];
+        let mut output = vec![0; ElfHeader::SIZE];
 
         // Pre-populate section name string table (needed before building section headers)
         // This ensures all section names are in the string table before we reference them
         self.section_names.add(".text");
-        if !self.data_data.is_empty() {
+        if self.executable_layout.data.is_some() {
             self.section_names.add(".data");
         }
-        if self.layout.bss_size > 0 {
+        if self.executable_layout.bss.is_some() {
             self.section_names.add(".bss");
         }
         self.section_names.add(".riscv.attributes");
@@ -81,10 +124,10 @@ impl<'a> ElfBuilder<'a> {
         self.section_names.add(".strtab");
         self.section_names.add(".shstrtab");
 
-        // Reserve space for program headers (will write later after we know offsets)
-        self.build_program_headers();
+        // Reserve the same header footprint used to compute source addresses.
         let phoff = output.len() as u32;
-        let ph_size = self.program_headers.len() as u32 * 32;
+        let ph_size = (self.executable_layout.program_header_count()
+            * ElfProgramHeader::SIZE) as u32;
         let actual_header_size = phoff + ph_size;
 
         // Validation check: ensure the estimated header size matches the actual size.
@@ -107,8 +150,8 @@ impl<'a> ElfBuilder<'a> {
 
         // .data section is page-aligned in the file to support mmap.
         // Pad the file with zeros to align the data offset.
-        let data_offset = if !self.data_data.is_empty()
-            || self.layout.bss_size > 0
+        let data_offset = if self.executable_layout.data.is_some()
+            || self.executable_layout.bss.is_some()
         {
             let current_len = output.len() as u32;
             let padding = (page_size - (current_len % page_size)) % page_size;
@@ -161,63 +204,46 @@ impl<'a> ElfBuilder<'a> {
             output.extend_from_slice(&sh.encode());
         }
 
-        // --- Finalize Program Headers ---
-        // Now that all offsets and sizes are known, update the program headers.
-        let headers_size = phoff + ph_size;
-        // self.layout.text_start is the address of the first instruction (e.g., _start),
-        // which is located after the file headers. The segment's base vaddr is
-        // therefore text_start - headers_size.
-        let base_vaddr = self.layout.text_start.saturating_sub(headers_size);
-
-        // Program Header 0: RISCV_ATTRIBUTES
-        if let Some(ph) = self.program_headers.get_mut(0) {
-            ph.p_offset = riscv_attrs_offset;
-        }
-
-        // Program Header 1: LOAD .text
-        if let Some(ph) = self.program_headers.get_mut(1) {
-            // This segment starts at the base virtual address and includes the
-            // ELF and program headers in its memory mapping.
-            ph.p_vaddr = base_vaddr;
-            ph.p_paddr = base_vaddr;
-            ph.p_offset = 0;
-            ph.p_filesz = text_offset + self.text_data.len() as u32;
-            ph.p_memsz = ph.p_filesz;
-        }
-
-        // Program Header 2: LOAD .data/.bss
-        if let Some(ph) = self.program_headers.get_mut(2) {
-            ph.p_offset = data_offset.unwrap_or(0);
-            // The vaddr for data is already correctly calculated in expressions.rs
-            // and set during the initial program header creation.
-        }
+        // Program headers are constructed only after their file offsets exist.
+        self.build_program_headers(
+            text_offset,
+            data_offset,
+            riscv_attrs_offset,
+        );
 
         // Update ELF header
         self.header.e_phoff = phoff;
         self.header.e_phnum = self.program_headers.len() as u16;
         self.header.e_shoff = shoff;
         self.header.e_shnum = self.section_headers.len() as u16;
-        self.header.e_shstrndx = (self.section_headers.len() - 1) as u16; // .shstrtab is last
+        self.header.e_shstrndx = self.executable_layout.shstrtab;
 
         // Write ELF header at the beginning
-        output[0..52].copy_from_slice(&self.header.encode());
+        output[..ElfHeader::SIZE].copy_from_slice(&self.header.encode());
 
         // Write program headers at their reserved location
-        let mut ph_bytes = Vec::new();
-        for ph in &self.program_headers {
-            ph_bytes.extend_from_slice(&ph.encode());
+        for (slot, header) in output[phoff as usize..(phoff + ph_size) as usize]
+            .as_chunks_mut::<{ ElfProgramHeader::SIZE }>()
+            .0
+            .iter_mut()
+            .zip(&self.program_headers)
+        {
+            slot.copy_from_slice(&header.encode());
         }
-        output[phoff as usize..(phoff as usize + ph_bytes.len())]
-            .copy_from_slice(&ph_bytes);
 
         Ok(output)
     }
 
-    fn build_program_headers(&mut self) {
+    fn build_program_headers(
+        &mut self,
+        text_offset: u32,
+        data_offset: Option<u32>,
+        attributes_offset: u32,
+    ) {
         // RISCV_ATTRIBUTES segment (non-allocating)
         self.program_headers.push(ElfProgramHeader {
             p_type: PT_RISCV_ATTRIBUTES,
-            p_offset: 0, // Will be calculated during build
+            p_offset: attributes_offset,
             p_vaddr: 0,
             p_paddr: 0,
             p_filesz: self.riscv_attributes.len() as u32,
@@ -226,13 +252,14 @@ impl<'a> ElfBuilder<'a> {
             p_align: 1,
         });
 
-        // LOAD segment for .text
-        let text_filesz = self.text_data.len() as u32;
+        // The text mapping includes the file headers before the first instruction.
+        let text_filesz = text_offset + self.text_data.len() as u32;
+        let base_vaddr = self.layout.text_start.saturating_sub(text_offset);
         self.program_headers.push(ElfProgramHeader {
             p_type: PT_LOAD,
-            p_offset: 0, // Will be set during build (0x1000 page aligned)
-            p_vaddr: self.layout.text_start,
-            p_paddr: self.layout.text_start,
+            p_offset: 0,
+            p_vaddr: base_vaddr,
+            p_paddr: base_vaddr,
             p_filesz: text_filesz,
             p_memsz: text_filesz,
             p_flags: PF_R | PF_X,
@@ -240,13 +267,13 @@ impl<'a> ElfBuilder<'a> {
         });
 
         // LOAD segment for .data + .bss (if present)
-        if !self.data_data.is_empty() || self.layout.bss_size > 0 {
+        if let Some(offset) = data_offset {
             let data_filesz = self.data_data.len() as u32;
             let data_memsz = data_filesz + self.layout.bss_size;
 
             self.program_headers.push(ElfProgramHeader {
                 p_type: PT_LOAD,
-                p_offset: 0, // Will be set during build
+                p_offset: offset,
                 p_vaddr: self.layout.data_start,
                 p_paddr: self.layout.data_start,
                 p_filesz: data_filesz,
@@ -266,11 +293,8 @@ impl<'a> ElfBuilder<'a> {
         strtab_offset: u32,
         shstrtab_offset: u32,
     ) -> Result<()> {
-        let mut section_index = 0u16;
-
         // Section 0: NULL
         self.section_headers.push(ElfSectionHeader::null());
-        section_index += 1;
 
         // Section 1: .text
         self.section_headers.push(ElfSectionHeader {
@@ -285,10 +309,9 @@ impl<'a> ElfBuilder<'a> {
             sh_addralign: 4,
             sh_entsize: 0,
         });
-        section_index += 1;
 
-        // Section 2: .data (if present)
-        if !self.data_data.is_empty() {
+        // The optional data section follows text.
+        if self.executable_layout.data.is_some() {
             self.section_headers.push(ElfSectionHeader {
                 sh_name: self.section_names.add(".data"),
                 sh_type: SHT_PROGBITS,
@@ -306,11 +329,10 @@ impl<'a> ElfBuilder<'a> {
                 sh_addralign: 1,
                 sh_entsize: 0,
             });
-            section_index += 1;
         }
 
-        // Section 3: .bss (if present)
-        if self.layout.bss_size > 0 {
+        // BSS follows the optional data section and occupies no file bytes.
+        if self.executable_layout.bss.is_some() {
             self.section_headers.push(ElfSectionHeader {
                 sh_name: self.section_names.add(".bss"),
                 sh_type: SHT_NOBITS,
@@ -324,7 +346,6 @@ impl<'a> ElfBuilder<'a> {
                 sh_addralign: 1,
                 sh_entsize: 0,
             });
-            section_index += 1;
         }
 
         // Section: .riscv.attributes
@@ -340,14 +361,12 @@ impl<'a> ElfBuilder<'a> {
             sh_addralign: 1,
             sh_entsize: 0,
         });
-        section_index += 1;
 
         // Section: .symtab
-        let strtab_section_index = section_index + 1; // .strtab comes next
         let first_global =
             self.symbol_table
                 .iter()
-                .position(|sym| (sym.st_info >> 4) == STB_GLOBAL)
+                .position(|sym| sym.binding() == STB_GLOBAL)
                 .unwrap_or(self.symbol_table.len()) as u32;
 
         self.section_headers.push(ElfSectionHeader {
@@ -356,11 +375,11 @@ impl<'a> ElfBuilder<'a> {
             sh_flags: 0,
             sh_addr: 0,
             sh_offset: symtab_offset,
-            sh_size: (self.symbol_table.len() * 16) as u32,
-            sh_link: strtab_section_index as u32,
+            sh_size: (self.symbol_table.len() * ElfSymbol::SIZE) as u32,
+            sh_link: u32::from(self.executable_layout.strtab),
             sh_info: first_global, // Index of first global symbol
             sh_addralign: 8,
-            sh_entsize: 16,
+            sh_entsize: ElfSymbol::SIZE as u32,
         });
 
         // Section: .strtab
@@ -410,9 +429,6 @@ impl<'a> ElfBuilder<'a> {
         symbol_links: &SymbolLinks,
         symbol_values: &SymbolValues,
     ) -> Result<()> {
-        // Infer has_data and has_bss from layout
-        let has_data = self.layout.data_size > 0;
-        let has_bss = self.layout.bss_size > 0;
         let text_start = self.layout.text_start;
         let data_start = self.layout.data_start;
         let bss_start = self.layout.bss_start;
@@ -421,20 +437,17 @@ impl<'a> ElfBuilder<'a> {
         self.add_symbol(ElfSymbol::null());
 
         // Section symbols
-        let text_section_index = 1u16;
+        let text_section_index = self.executable_layout.text;
         self.add_symbol(ElfSymbol::section(text_section_index));
 
-        let mut data_section_index = None;
-        if has_data {
-            data_section_index = Some(2u16);
-            self.add_symbol(ElfSymbol::section(2));
+        let data_section_index = self.executable_layout.data;
+        if let Some(index) = data_section_index {
+            self.add_symbol(ElfSymbol::section(index));
         }
 
-        let mut bss_section_index = None;
-        if has_bss {
-            let idx = if has_data { 3u16 } else { 2u16 };
-            bss_section_index = Some(idx);
-            self.add_symbol(ElfSymbol::section(idx));
+        let bss_section_index = self.executable_layout.bss;
+        if let Some(index) = bss_section_index {
+            self.add_symbol(ElfSymbol::section(index));
         }
 
         // For each source file, add FILE symbol and local labels
@@ -446,7 +459,7 @@ impl<'a> ElfBuilder<'a> {
             }
 
             // FILE symbol (basename of source file)
-            let file_name = std::path::Path::new(&source_file.file)
+            let file_name = Path::new(&source_file.file)
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(&source_file.file);
@@ -603,4 +616,127 @@ impl<'a> ElfBuilder<'a> {
 
         Ok(())
     }
+}
+
+/// Create a new ELF header with standard RISC-V 32-bit values
+fn executable_header() -> ElfHeader {
+    let mut e_ident = [0u8; 16];
+    e_ident[0] = EI_MAG0;
+    e_ident[1] = EI_MAG1;
+    e_ident[2] = EI_MAG2;
+    e_ident[3] = EI_MAG3;
+    e_ident[4] = EI_CLASS;
+    e_ident[5] = EI_DATA;
+    e_ident[6] = EI_VERSION;
+    e_ident[7] = EI_OSABI;
+    e_ident[8] = EI_ABIVERSION;
+
+    ElfHeader {
+        e_ident,
+        e_type: ET_EXEC,
+        e_machine: EM_RISCV,
+        e_version: EV_CURRENT,
+        e_entry: 0,
+        e_phoff: ElfHeader::SIZE as u32,
+        e_shoff: 0,
+        e_flags: EF_RISCV_FLOAT_ABI_DOUBLE,
+        e_ehsize: ElfHeader::SIZE as u16,
+        e_phentsize: ElfProgramHeader::SIZE as u16,
+        e_phnum: 0,
+        e_shentsize: ElfSectionHeader::SIZE as u16,
+        e_shnum: 0,
+        e_shstrndx: 0,
+    }
+}
+
+// ============================================================================
+// String Table Builder
+// ============================================================================
+
+/// String table builder that deduplicates strings
+struct StringTable {
+    strings: Vec<u8>,
+    offsets: HashMap<String, u32>,
+}
+
+impl StringTable {
+    /// Create a new string table starting with a null byte
+    fn new() -> Self {
+        Self { strings: vec![0], offsets: HashMap::new() }
+    }
+
+    /// Add a string and return its offset
+    fn add(&mut self, s: &str) -> u32 {
+        if let Some(&offset) = self.offsets.get(s) {
+            return offset;
+        }
+
+        let offset = self.strings.len() as u32;
+        self.offsets.insert(s.to_string(), offset);
+        self.strings.extend_from_slice(s.as_bytes());
+        self.strings.push(0); // Null terminator
+        offset
+    }
+
+    /// Get the raw bytes of the string table
+    fn data(&self) -> &[u8] {
+        &self.strings
+    }
+
+    /// Get the length of the string table
+    fn len(&self) -> usize {
+        self.strings.len()
+    }
+}
+
+// ============================================================================
+// RISC-V Attributes Section
+// ============================================================================
+
+/// Generate .riscv.attributes section content
+///
+/// This section describes the RISC-V ISA features used by the binary.
+/// Format follows the ELF attributes specification with RISC-V extensions.
+///
+/// For RV32IMACZifencei (I, M, A, C extensions + Zifencei), we generate:
+/// "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0"
+fn generate_riscv_attributes() -> Vec<u8> {
+    // Generate attributes for RV32IMAC with compressed instructions and Zifencei
+    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0";
+
+    let mut attrs = Vec::new();
+
+    // Format version (always 'A' = 0x41)
+    attrs.push(b'A');
+
+    // Total length of attribute section (will be patched)
+    let length_pos = attrs.len();
+    attrs.extend_from_slice(&[0u8; 4]);
+
+    // Vendor name (always "riscv" for RISC-V)
+    attrs.extend_from_slice(b"riscv\0");
+
+    // File attributes tag (1)
+    attrs.push(1);
+
+    // Length of file attributes subsection (will be patched)
+    let file_attrs_length_pos = attrs.len();
+    attrs.extend_from_slice(&[0u8; 4]);
+
+    // Tag_RISCV_arch (5): RISC-V architecture string
+    attrs.push(5);
+    attrs.extend_from_slice(arch_string.as_bytes());
+    attrs.push(0); // Null terminator
+
+    // Patch file attributes length
+    let file_attrs_length = (attrs.len() - file_attrs_length_pos) as u32;
+    attrs[file_attrs_length_pos..file_attrs_length_pos + 4]
+        .copy_from_slice(&file_attrs_length.to_le_bytes());
+
+    // Patch total length
+    let total_length = (attrs.len() - length_pos) as u32;
+    attrs[length_pos..length_pos + 4]
+        .copy_from_slice(&total_length.to_le_bytes());
+
+    attrs
 }

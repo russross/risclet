@@ -36,6 +36,8 @@ mod checkabi_tests;
 #[cfg(test)]
 mod encoder_tests;
 #[cfg(test)]
+mod elf_tests;
+#[cfg(test)]
 mod expressions_tests;
 #[cfg(test)]
 mod parser_tests;

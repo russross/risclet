@@ -7,7 +7,7 @@
 use crate::ast::{
     Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment, Source,
 };
-use crate::elf::compute_header_size;
+use crate::elf_builder::ExecutableLayout;
 use crate::symbols::{BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER};
 use std::collections::HashMap;
 
@@ -282,11 +282,10 @@ impl Layout {
         self.data_size = global_data_offset;
         self.bss_size = global_bss_offset;
 
-        // Update header size estimate
-        // Segments: .text, .riscv.attributes, and optionally .data/.bss
-        let has_data_or_bss = self.data_size > 0 || self.bss_size > 0;
-        let num_segments = if has_data_or_bss { 3 } else { 2 };
-        self.header_size = compute_header_size(num_segments);
+        // Executable construction owns the header count used during relaxation.
+        self.header_size =
+            ExecutableLayout::new(self.data_size > 0, self.bss_size > 0)
+                .header_size();
     }
 }
 

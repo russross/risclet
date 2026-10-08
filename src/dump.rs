@@ -8,7 +8,8 @@ use crate::ast::{
     Location, PseudoOp, Segment, Source, SourceFile,
 };
 use crate::config::Config;
-use crate::elf_builder::ElfBuilder;
+use crate::elf::{ElfFile, SHT_SYMTAB};
+use crate::error::Result as RiscletResult;
 use crate::layout::{Layout, LineLayout};
 use crate::symbols::{BUILTIN_FILE_NAME, SymbolLinks};
 
@@ -931,29 +932,30 @@ pub fn dump_code(
 // ELF Dump
 // ============================================================================
 
-pub fn dump_elf<'a>(config: &Config, builder: &ElfBuilder<'a>) {
+pub fn dump_elf(config: &Config, file: &ElfFile<'_>) -> RiscletResult<()> {
     let parts = config.dump.dump_elf.as_ref().unwrap();
 
     println!("========== ELF DUMP ==========\n");
 
     if parts.headers {
-        dump_elf_headers(builder);
+        dump_elf_headers(file);
     }
 
     if parts.sections {
-        dump_elf_sections(builder);
+        dump_elf_sections(file)?;
     }
 
     if parts.symbols {
-        dump_elf_symbols(builder);
+        dump_elf_symbols(file)?;
     }
+    Ok(())
 }
 
-fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
+fn dump_elf_headers(file: &ElfFile<'_>) {
     println!("ELF Header:");
     println!("{}", "-".repeat(79));
 
-    let h = &builder.header;
+    let h = &file.header;
 
     // Magic
     print!("  Magic:   ");
@@ -967,7 +969,7 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
     println!();
 
     // Class, data, version
-    println!("  Class:                           ELF64");
+    println!("  Class:                           ELF32");
     println!(
         "  Data:                            2's complement, little endian"
     );
@@ -1011,7 +1013,7 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
         "                 FileSiz            MemSiz             Flags  Align"
     );
 
-    for ph in &builder.program_headers {
+    for ph in &file.program_headers {
         let type_str = match ph.p_type {
             1 => "LOAD",
             0x70000003 => "RISCV_ATTRIBUTES",
@@ -1037,32 +1039,16 @@ fn dump_elf_headers<'a>(builder: &ElfBuilder<'a>) {
     println!();
 }
 
-fn dump_elf_sections<'a>(builder: &ElfBuilder<'a>) {
+fn dump_elf_sections(file: &ElfFile<'_>) -> RiscletResult<()> {
     println!("Section Headers:");
     println!("{}", "-".repeat(79));
     println!(
         "  [Nr] Name              Type            Address          Off    Size   Flg Lk"
     );
 
-    for (i, sh) in builder.section_headers.iter().enumerate() {
-        // Get section name from string table
-        let name = if sh.sh_name == 0 {
-            ""
-        } else {
-            // Extract name from section_names string table
-            let strtab = builder.section_names.data();
-            let start = sh.sh_name as usize;
-            if start < strtab.len() {
-                let end = strtab[start..]
-                    .iter()
-                    .position(|&b| b == 0)
-                    .map(|pos| start + pos)
-                    .unwrap_or(strtab.len());
-                std::str::from_utf8(&strtab[start..end]).unwrap_or("")
-            } else {
-                ""
-            }
-        };
+    for (i, sh) in file.section_headers.iter().enumerate() {
+        // Names use the same offset-preserving lookup as executable loading.
+        let name = String::from_utf8_lossy(file.section_name(i)?);
 
         let type_str = match sh.sh_type {
             0 => "NULL",
@@ -1098,61 +1084,52 @@ fn dump_elf_sections<'a>(builder: &ElfBuilder<'a>) {
     println!("Key to Flags:");
     println!("  W (write), A (alloc), X (execute)");
     println!();
+    Ok(())
 }
 
-fn dump_elf_symbols<'a>(builder: &ElfBuilder<'a>) {
+fn dump_elf_symbols(file: &ElfFile<'_>) -> RiscletResult<()> {
     println!("Symbol Table:");
     println!("{}", "-".repeat(79));
     println!("  Num:    Value          Size Type    Bind   Ndx Name");
 
-    for (i, sym) in builder.symbol_table.iter().enumerate() {
-        // Get symbol name from string table
-        let name = if sym.st_name == 0 {
-            ""
-        } else {
-            let strtab = builder.symbol_names.data();
-            let start = sym.st_name as usize;
-            if start < strtab.len() {
-                let end = strtab[start..]
-                    .iter()
-                    .position(|&b| b == 0)
-                    .map(|pos| start + pos)
-                    .unwrap_or(strtab.len());
-                std::str::from_utf8(&strtab[start..end]).unwrap_or("")
-            } else {
-                ""
-            }
-        };
+    for (table, section) in file.section_headers.iter().enumerate() {
+        if section.sh_type != SHT_SYMTAB {
+            continue;
+        }
+        for (i, sym) in file.symbols(table)?.iter().enumerate() {
+            // Each symbol table resolves names through its linked string table.
+            let name = String::from_utf8_lossy(file.symbol_name(table, sym)?);
+            let bind = sym.binding();
+            let typ = sym.symbol_type();
 
-        let bind = sym.st_info >> 4;
-        let typ = sym.st_info & 0xf;
+            let bind_str = match bind {
+                0 => "LOCAL",
+                1 => "GLOBAL",
+                _ => "UNKNOWN",
+            };
 
-        let bind_str = match bind {
-            0 => "LOCAL",
-            1 => "GLOBAL",
-            _ => "UNKNOWN",
-        };
+            let type_str = match typ {
+                0 => "NOTYPE",
+                3 => "SECTION",
+                4 => "FILE",
+                _ => "UNKNOWN",
+            };
 
-        let type_str = match typ {
-            0 => "NOTYPE",
-            3 => "SECTION",
-            4 => "FILE",
-            _ => "UNKNOWN",
-        };
+            let ndx_str = match sym.st_shndx {
+                0 => "UND".to_string(),
+                0xfff1 => "ABS".to_string(),
+                n => format!("{}", n),
+            };
 
-        let ndx_str = match sym.st_shndx {
-            0 => "UND".to_string(),
-            0xfff1 => "ABS".to_string(),
-            n => format!("{}", n),
-        };
-
-        println!(
-            "  {:4}:  {:016x} {:5} {:7} {:6} {:>3} {}",
-            i, sym.st_value, sym.st_size, type_str, bind_str, ndx_str, name
-        );
+            println!(
+                "  {:4}:  {:016x} {:5} {:7} {:6} {:>3} {}",
+                i, sym.st_value, sym.st_size, type_str, bind_str, ndx_str, name
+            );
+        }
     }
 
     println!();
+    Ok(())
 }
 
 // ============================================================================
