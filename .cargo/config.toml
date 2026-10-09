@@ -1,2 +1,6 @@
+[build]
+# Select the host explicitly so target flags exclude build scripts and procedural macros.
+target = "host-tuple"
+
 [target.'cfg(all(target_os = "linux", target_env = "musl"))']
 rustflags = ["-C", "target-feature=+crt-static"]
