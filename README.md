@@ -1,60 +1,43 @@
 risclet
 =======
 
-This is a lightweight RISC-V assembler, disassembler, simulator, debugger, and linter for students learning assembly language. By design it has few controls and limited functionality, with simplicity and approachability as overriding goals. It is designed to be the only tool a student needs to install in a course covering assembly language basics.
+This is a lightweight RISC-V assembler, disassembler, simulator, debugger, and linter for students learning assembly language. It has few controls and deliberately limited functionality, with simplicity and approachability as overriding goals. It is designed to be the only tool a student needs to install for the assembly language portion of a course.
 
 Try it out: [live demo](https://russross.github.io/risclet/)
+
+![risclet debugger showing disassembly, registers, program output, and memory](screenshot.png)
 
 
 Running risclet
 ---------------
 
-The simplest usage is just:
+To assemble and run a program:
 
     risclet
 
-This assembles (and links) `*.s` files in the current directory in memory, or loads `a.out` if no assembly files are present, then runs the program and exits. Optional arguments select specific assembly files or an executable.
+This assembles and links all `*.s` files in the current directory in memory, or loads `a.out` if no assembly files are present, then runs the program and exits. Optional arguments select specific assembly files or an executable.
 
 In addition:
 
 *   `risclet run`: same as plain `risclet`
 *   `risclet trace`: run the program, displaying each disassembled instruction and its side effects as it goes
 *   `risclet assemble`: assemble source and write an executable (`a.out` by default)
-*   `risclet disassemble`: disassemble and dump the program
+*   `risclet disassemble`: print the program's disassembly
 *   `risclet debug`: run the program to completion, then enter a TUI to step back and forth through execution and examine its effects
 
-There are various other options and controls as well. Notably `--strict` for `run`, `trace`, and `debug` checks for common ABI errors and common mistakes beginning programmers are likely to make and treats them as errors.
+Add `--strict` to `run`, `trace`, or `debug` to check for calling-convention violations and common beginner mistakes, treating them as errors. Use `risclet <command> --help` for other options.
 
-Each command defaults to reading all `*.s` files in the current directory, assembling and linking them, and then proceeding. If there are no `*.s` files it falls back to looking for `a.out` instead. Obvious exceptions apply, but this means, for example, that `diassemble` will default to assembling and linking the entire program and then disassembling it.
+All commands use the same input defaults, except `assemble` requires source files. For example, `risclet disassemble` assembles and links `*.s` files in the current directory before disassembling the result.
 
 
 The debugger
 ------------
 
-Use `risclet debug` to launch the interactive debugger, which does the following:
+`risclet debug` runs the program first, including all input/output, and records each instruction's effects. It then opens a terminal interface for stepping and jumping forward and backward through the recorded execution. An 80×24 or larger terminal is recommended.
 
-*   Disassembles the program
-*   Simulates the complete execution of the program including all input/output
-*   Traces and records the effects of each instruction
-*   Launches a TUI (80×24 or larger terminal recommended) that allows simple stepping and jumping forward and backward through the program, while displaying:
-    *   The disassembled source
-    *   The register file
-    *   Any program output/input (stdout and stdin only)
-    *   The stack segment
-    *   The data segment
-    *   The text segment
-*   The TUI also:
-    *   Shows the net effect the next instruction to run will have
-    *   For taken branches, draws a line to the branch target
-    *   Uses subtle colors to give structure to memory displays:
-        *   Each frame in the stack segment
-        *   Each labeled chunk in the data segment
-        *   Each function in the text segment
-    *   Uses highlights to identify current/recent access:
-        *   Most recent memory access in stack/data segment
-        *   Bytes of the current instruction in the text segment
+The debugger displays disassembly, registers, input/output, and the stack, data, and text segments. It previews the next instruction's effects and draws taken branches. Colors distinguish stack frames, labeled data, and functions; highlights mark recent memory accesses and the current instruction.
 
-The controls are minimal and can be displayed by hitting `?`:
+Press `?` to display the controls:
 
 *   Scroll the cursor through the source using Up, Down, PgUp, and PgDown
 *   Step forward/backward using Right, Left
@@ -62,31 +45,24 @@ The controls are minimal and can be displayed by hitting `?`:
 *   Jump forward/backward to current cursor position using Enter, Backspace
 *   Various toggles to control what is displayed
 
-risclet is intended for students learning the basics of assembly language, and is especially for anyone who has been intimidated by the complexity of tools like `gdb`.
-
 
 Features
 --------
 
 *   Support for RV32 integer instructions and the M, A, and C extensions (rv32imac)
-*   Checks for proper register use according to the ABI, and lints to enforce simple function structure and stack usage
+*   Optional checks for ABI register use, function structure, and stack usage
 *   Minimal controls, no breakpoints or watch expressions
-*   Lightweight navigation that makes it quick and easy to move to different execution points in the program
-*   Emulates a tiny set of system calls:
-    *   write to stdout
-    *   read from stdin
-    *   exit
-*   Runs the entire program first, then launches the TUI, so lightly-interactive programs are easy to work with
-*   Portable with only a single crate dependency (crossterm for the TUI)
-*   Releases on github with single-file, statically linked, self-contained binaries for common systems
+*   System calls for reading stdin, writing stdout, and exiting
+*   Portable Rust implementation with one direct crate dependency (crossterm for the TUI)
+*   Single-file binaries for Linux and macOS in [GitHub releases](https://github.com/russross/risclet/releases); Linux binaries are statically linked
 
 
 More details
 ------------
 
-Specifics about the language supported are [available here](SYNTAX.md).
+[Assembly language reference](SYNTAX.md)
 
-A description of [how the assembler works is available here](ASSEMBLER.md).
+[How the assembler works](ASSEMBLER.md)
 
 
 Editor syntax highlighting
@@ -103,6 +79,6 @@ Syntax definitions follow the language implemented by the assembler:
 Contributors
 ------------
 
-This tool is made for students learning the basics of assembly language and is designed for small programs written by hand. Minimal features and especially simple controls are explicit goals. With that in mind, I will be reluctant to accept pull requests and feature requests if they work against those goals. Bug reports and fixes are welcome.
+This tool is designed for small programs written by hand. Minimal features and simple controls are explicit goals. I am reluctant to accept features that work against those goals. Bug reports and fixes are welcome.
 
-*   Russ Ross (github.com/russross)
+*   [Russ Ross](https://github.com/russross)
