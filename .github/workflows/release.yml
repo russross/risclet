@@ -25,6 +25,10 @@ defaults:
 env:
   # Set the binary name of your crate here
   BINARY_NAME: "risclet"
+  # target smaller release binaries without changing local builds
+  CARGO_PROFILE_RELEASE_LTO: "true"
+  CARGO_PROFILE_RELEASE_STRIP: "symbols"
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
 
 jobs:
   prepare_release:
