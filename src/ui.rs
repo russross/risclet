@@ -187,6 +187,74 @@ fn call_entries(
     entries
 }
 
+// Visitation is indexed by decoded instruction, including compressed instructions.
+// Only marking and membership are needed while discovering unused code regions.
+struct VisitedInstructions {
+    words: Vec<u32>,
+}
+
+impl VisitedInstructions {
+    fn new(length: usize) -> Self {
+        Self { words: vec![0; length.div_ceil(32)] }
+    }
+
+    fn mark(&mut self, index: usize) {
+        self.words[index / 32] |= 1u32 << (index % 32);
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        self.words[index / 32] & (1u32 << (index % 32)) != 0
+    }
+}
+
+fn function_entries(
+    machine: &Machine,
+    instructions: &[Rc<Instruction>],
+    addresses: &HashMap<u32, usize>,
+    sequence: &[Effects],
+) -> Vec<u32> {
+    let mut entries =
+        call_entries(machine.entry_point(), instructions, sequence);
+    let mut visited = VisitedInstructions::new(instructions.len());
+    for effects in sequence {
+        visited.mark(addresses[&effects.instruction.address]);
+    }
+
+    // Generated numeric labels do not delimit named intervals. Only symbols
+    // located at decoded executable instructions can introduce a region.
+    let mut named: Vec<usize> = machine
+        .address_symbols
+        .iter()
+        .filter(|(_, name)| !name.bytes().all(|byte| byte.is_ascii_digit()))
+        .filter_map(|(address, _)| addresses.get(address).copied())
+        .filter(|&index| {
+            machine.executable_segment(instructions[index].address).is_some()
+        })
+        .collect();
+    named.sort_unstable();
+
+    // An entirely unvisited named interval is a candidate unused function.
+    // Segment boundaries terminate intervals even when the next name is elsewhere.
+    for (position, &start) in named.iter().enumerate() {
+        let end =
+            named.get(position + 1).copied().unwrap_or(instructions.len());
+        let segment =
+            machine.executable_segment(instructions[start].address).unwrap();
+        let has_visited = (start..end)
+            .take_while(|&index| {
+                segment.in_range(instructions[index].address, 1)
+            })
+            .any(|index| visited.contains(index));
+        if !has_visited {
+            entries.push(instructions[start].address);
+        }
+    }
+
+    entries.sort_unstable();
+    entries.dedup();
+    entries
+}
+
 // Assign colors from the oldest frame so calls do not recolor their callers.
 // Reverse the descending stack boundaries for address-based color lookup.
 fn stack_regions(
@@ -214,7 +282,6 @@ pub struct Tui {
     instructions: Vec<Rc<Instruction>>,
     addresses: HashMap<u32, usize>,
     pseudo_addresses: HashMap<usize, usize>,
-    call_entries: Vec<u32>,
     sequence: Vec<Effects>,
     sequence_index: usize,
     cursor_index: usize,
@@ -321,9 +388,10 @@ impl Tui {
             data_colors.push((0, normal_color));
         }
 
-        // Text colors and branch lines share boundaries identified by calls.
+        // Text colors combine call entries with entirely unvisited named regions.
         let entry_point = machine.entry_point();
-        let call_entries = call_entries(entry_point, &instructions, &sequence);
+        let call_entries =
+            function_entries(&machine, &instructions, &addresses, &sequence);
         let text_colors =
             function_colors(&call_entries, &pastels, normal_color);
 
@@ -337,7 +405,6 @@ impl Tui {
             instructions,
             addresses,
             pseudo_addresses,
-            call_entries,
             sequence,
             sequence_index: 0,
             cursor_index: initial_cursor_index,
@@ -822,8 +889,8 @@ impl Tui {
 
         pane.label(&label);
 
-        // Only taken branches and direct jumps within one call region get lines.
-        // Named internal labels do not split the region; its entry is included.
+        // Taken branches and jumps without a link register get lines.
+        // The conventional return is excluded from this local-flow heuristic.
         let arrow_range = if matches!(
             effects.instruction.op,
             Op::Beq { .. }
@@ -833,12 +900,14 @@ impl Tui {
                 | Op::Bltu { .. }
                 | Op::Bgeu { .. }
                 | Op::Jal { rd: ZERO, .. }
+                | Op::Jalr { rd: ZERO, .. }
+        ) && !matches!(
+            effects.instruction.op,
+            Op::Jalr { rd: ZERO, rs1: RA, offset: 0 }
         ) {
             let (old, new) = effects.pc;
             if new != old
                 && self.addresses.contains_key(&new)
-                && self.call_entries.partition_point(|&entry| entry <= pc)
-                    == self.call_entries.partition_point(|&entry| entry <= new)
                 && (pc_i + 1 >= self.instructions.len()
                     || new != self.instructions[pc_i + 1].address)
             {

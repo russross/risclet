@@ -389,6 +389,13 @@ impl Machine {
         self.memory.layout.text_start
     }
 
+    // Code-region discovery keeps named intervals inside one executable segment.
+    pub fn executable_segment(&self, address: u32) -> Option<&Segment> {
+        self.memory.segments.iter().find(|segment| {
+            segment.is_executable() && segment.in_range(address, 1)
+        })
+    }
+
     pub fn text_end(&self) -> u32 {
         self.memory.layout.text_end
     }

@@ -8,7 +8,7 @@ use crossterm::style::{Color, Colors};
 use super::MemoryPane::{Data, Stack, Text};
 use super::{
     MemoryVisibility, Screen, Tui, calc_range, call_entries, function_colors,
-    memory_color, memory_layout, stack_regions,
+    function_entries, memory_color, memory_layout, stack_regions,
 };
 use crate::config::{Config, Mode};
 use crate::execution::{Instruction, Machine};
@@ -124,16 +124,23 @@ fn set_operation(tui: &mut Tui, index: usize, op: Op, target: u32) {
 }
 
 #[test]
-fn branch_lines_use_call_regions_in_both_listing_modes() {
+fn branch_lines_mark_one_way_control_flow_in_both_listing_modes() {
     for verbose in [false, true] {
         for (index, op, target, expected) in [
             (0, Op::Beq { rs1: ZERO, rs2: ZERO, offset: 6 }, 0x1006, true),
             (2, Op::Jal { rd: ZERO, offset: -6 }, 0x1000, true),
             (0, Op::Jal { rd: RA, offset: 6 }, 0x1006, false),
-            (0, Op::Jal { rd: ZERO, offset: 10 }, 0x100a, false),
-            (3, Op::Bne { rs1: RA, rs2: ZERO, offset: -10 }, 0x1000, false),
+            (0, Op::Jal { rd: ZERO, offset: 10 }, 0x100a, true),
+            (3, Op::Bne { rs1: RA, rs2: ZERO, offset: -10 }, 0x1000, true),
             (0, Op::Beq { rs1: ZERO, rs2: ZERO, offset: 6 }, 0x1002, false),
             (0, Op::Jalr { rd: ZERO, rs1: RA, offset: 0 }, 0x1006, false),
+            (0, Op::Jalr { rd: ZERO, rs1: SP, offset: 0 }, 0x100a, true),
+            (0, Op::Jalr { rd: ZERO, rs1: RA, offset: 4 }, 0x1006, true),
+            (0, Op::Jalr { rd: RA, rs1: SP, offset: 0 }, 0x1006, false),
+            (0, Op::Jalr { rd: SP, rs1: RA, offset: 0 }, 0x1006, false),
+            (0, Op::Jalr { rd: ZERO, rs1: SP, offset: 0 }, 0x1000, false),
+            (0, Op::Jalr { rd: ZERO, rs1: SP, offset: 0 }, 0x1002, false),
+            (0, Op::Jalr { rd: ZERO, rs1: SP, offset: 0 }, 0x2000, false),
         ] {
             let mut tui = debugger(false);
             tui.config.verbose_instructions = verbose;
@@ -178,10 +185,79 @@ fn call_entries_combine_static_and_observed_destinations() {
         0x1006,
     );
     set_operation(&mut tui, 5, Op::Jal { rd: RA, offset: 1 }, 0x1011);
-    set_operation(&mut tui, 2, Op::Jalr { rd: ZERO, rs1: SP, offset: 0 }, 0x100c);
+    set_operation(
+        &mut tui,
+        2,
+        Op::Jalr { rd: ZERO, rs1: SP, offset: 0 },
+        0x100c,
+    );
     assert_eq!(
         call_entries(0x1000, &tui.instructions, &tui.sequence),
         vec![0x1000]
+    );
+}
+
+#[test]
+fn unused_named_regions_respect_visitation_and_text_segments() {
+    // Two segments span multiple visitation words, with a gap between them.
+    let instructions: Vec<_> = (0..70)
+        .map(|index| {
+            let address = if index < 35 {
+                0x1000 + index * 2
+            } else {
+                0x2000 + (index - 35) * 2
+            };
+            let op = Op::new(1);
+            Rc::new(Instruction {
+                address,
+                encoding: 1,
+                length: 2,
+                pseudo_index: index as usize,
+                verbose_fields: op.to_fields(),
+                pseudo_fields: op.to_pseudo_fields(),
+                op,
+            })
+        })
+        .collect();
+    let addresses = instructions
+        .iter()
+        .enumerate()
+        .map(|(index, instruction)| (instruction.address, index))
+        .collect();
+    let symbols = [
+        (0, "main"),
+        (10, "internal"),
+        (31, "library"),
+        (33, "1"),
+        (35, "second_segment"),
+        (40, "visited"),
+        (60, "unused_last"),
+    ]
+    .map(|(index, name)| (instructions[index].address, name.to_owned()));
+    let mut machine = Machine::builder()
+        .with_segments(vec![
+            Segment::new(0x1000, 0x1046, false, true, vec![0; 70]),
+            Segment::new(0x2000, 0x2046, false, true, vec![0; 70]),
+        ])
+        .with_address_symbols(HashMap::from(symbols))
+        .build();
+
+    // Numeric labels, non-instruction symbols, and non-code names add no entries.
+    machine.address_symbols.insert(0x1001, "misaligned".to_owned());
+    machine.address_symbols.insert(0x3000, "data".to_owned());
+    let sequence: Vec<_> = [0, 10, 30, 40, 40]
+        .into_iter()
+        .map(|index| Effects::new(&instructions[index]))
+        .collect();
+    assert_eq!(
+        function_entries(&machine, &instructions, &addresses, &sequence),
+        [0, 31, 35, 60].map(|index| instructions[index].address)
+    );
+
+    // Without execution, every named code interval qualifies as unused.
+    assert_eq!(
+        function_entries(&machine, &instructions, &addresses, &[]),
+        [0, 10, 31, 35, 40, 60].map(|index| instructions[index].address)
     );
 }
 
