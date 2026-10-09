@@ -19,6 +19,10 @@ use crate::execution::{Instruction, Machine};
 use crate::riscv::{Op, R, RA, SP, ZERO, fields_to_string};
 use crate::trace::Effects;
 
+#[path = "ui_viewport.rs"]
+mod viewport;
+use viewport::MemoryViewport;
+
 macro_rules! serr {
     ($expr:expr) => {
         $expr.map_err(|e| format!("{}", e))
@@ -285,6 +289,8 @@ pub struct Tui {
     sequence: Vec<Effects>,
     sequence_index: usize,
     cursor_index: usize,
+    memory_viewports: [Option<MemoryViewport>; 3],
+    screen_size: Option<(u16, u16)>,
 
     normal_color: Colors,
     inactive_stack_color: Colors,
@@ -408,6 +414,8 @@ impl Tui {
             sequence,
             sequence_index: 0,
             cursor_index: initial_cursor_index,
+            memory_viewports: [None; 3],
+            screen_size: None,
 
             normal_color,
             inactive_stack_color,
@@ -695,6 +703,11 @@ impl Tui {
     // Screen construction has no terminal I/O, so resize behavior and colors
     // can be checked using the same cells that are sent to the terminal.
     fn render_screen(&mut self, size_x: u16, size_y: u16) -> (Screen, u16) {
+        // A resized screen can change placement even when a pane keeps its height.
+        if self.screen_size != Some((size_x, size_y)) {
+            self.memory_viewports = [None; 3];
+            self.screen_size = Some((size_x, size_y));
+        }
         // Resolve memory focus once for pane selection, centering, and color.
         self.machine
             .set_most_recent_memory(&self.sequence, self.sequence_index);
@@ -1037,6 +1050,7 @@ impl Tui {
     }
 
     fn render_memory(&mut self, pane: &mut Pane, segment: MemoryPane) {
+        let start = self.memory_viewport(segment, pane.height);
         let stack_colors;
         let (colors, bounds, focus) = match segment {
             MemoryPane::Stack => {
@@ -1079,11 +1093,6 @@ impl Tui {
 
         // All memory panes use eight-byte rows, including a partial final row.
         // Signed viewport positions leave blank space around short segments.
-        let (start, _) = calc_range(
-            (bounds.end - bounds.start).div_ceil(8) as usize,
-            (focus.0.saturating_sub(bounds.start) / 8) as usize,
-            pane.height,
-        );
         let mem_start = i64::from(bounds.start);
         let mem_end = i64::from(bounds.end);
         let highlight = i64::from(focus.0)..i64::from(focus.0) + focus.1 as i64;

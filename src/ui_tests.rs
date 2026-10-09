@@ -14,7 +14,9 @@ use crate::config::{Config, Mode};
 use crate::execution::{Instruction, Machine};
 use crate::memory::Segment;
 use crate::riscv::{Op, RA, SP, ZERO};
-use crate::trace::{Effects, MemoryValue, MemoryWrite, RegisterWrite};
+use crate::trace::{
+    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterWrite,
+};
 
 const ALL: MemoryVisibility =
     MemoryVisibility { stack: true, data: true, text: true };
@@ -642,14 +644,14 @@ fn released_stack_keeps_recent_access_in_dim_gray() {
 }
 
 #[test]
-fn stack_centers_one_instruction_earlier_and_keeps_its_fallback() {
+fn stack_positions_one_instruction_earlier_and_keeps_its_fallback() {
     let mut tui = debugger(true);
     let address = tui.machine.stack_end() - 128;
     tui.sequence[0].mem_read = Some(MemoryValue { address, value: vec![0; 4] });
     let (preview, _) = tui.render_screen(80, 24);
     let row = label_row(&preview, &format!("{address:06x}:")).unwrap();
     let stack_label = label_row(&preview, "Stack").unwrap();
-    assert_eq!(row, stack_label + 4);
+    assert_eq!(row, stack_label + 7);
 
     // After the load, an instruction without memory effects keeps the same
     // viewport and full highlight that were already shown in the preview.
@@ -666,6 +668,265 @@ fn viewport_centers_context_and_shifts_at_segment_edges() {
     assert_eq!(calc_range(100, 99, 7), (93, 100));
     assert_eq!(calc_range(3, 0, 7), (-3, 4));
     assert_eq!(calc_range(3, 2, 7), (-1, 6));
+}
+
+// Long synthetic traces exercise placement independently of instruction decoding.
+// Addresses are rows relative to the stack segment, just like viewport results.
+fn stack_trace(rows: &[Option<u32>], index: usize) -> Tui {
+    let mut tui = debugger(true);
+    let base = tui.machine.stack_start();
+    tui.sequence = rows
+        .iter()
+        .map(|row| {
+            let mut effect = Effects::new(&tui.instructions[0]);
+            effect.pc = (0x1000, 0x1000);
+            effect.mem_read = row.map(|row| MemoryValue {
+                address: base + row * 8,
+                value: vec![0; 4],
+            });
+            effect
+        })
+        .collect();
+    tui.sequence_index = index;
+    tui.machine.set_most_recent_memory(&tui.sequence, index);
+    tui
+}
+
+#[test]
+fn array_scan_keeps_visible_values_stationary_in_both_directions() {
+    let rows: Vec<_> = (100..110).map(Some).collect();
+    let mut tui = stack_trace(&rows, 0);
+    assert_eq!(tui.memory_viewport(Stack, 7), 100);
+    for _ in 0..6 {
+        key(&mut tui, KeyCode::Right);
+        tui.machine.set_most_recent_memory(&tui.sequence, tui.sequence_index);
+        assert_eq!(tui.memory_viewport(Stack, 7), 100);
+    }
+    key(&mut tui, KeyCode::Right);
+    tui.machine.set_most_recent_memory(&tui.sequence, tui.sequence_index);
+    assert_eq!(tui.memory_viewport(Stack, 7), 103);
+    key(&mut tui, KeyCode::Left);
+    tui.machine.set_most_recent_memory(&tui.sequence, tui.sequence_index);
+    assert_eq!(tui.memory_viewport(Stack, 7), 103);
+}
+
+#[test]
+fn dovetail_considers_two_future_instructions_before_one_past_instruction() {
+    let mut tui = stack_trace(
+        &[None, Some(98), Some(100), Some(101), Some(102), Some(103)],
+        2,
+    );
+    assert_eq!(tui.memory_viewport(Stack, 5), 98);
+}
+
+#[test]
+fn overflowing_future_still_allows_recent_past_values() {
+    let mut tui = stack_trace(
+        &[Some(97), Some(98), Some(99), Some(100), Some(130), Some(96)],
+        3,
+    );
+    assert_eq!(tui.memory_viewport(Stack, 5), 97);
+}
+
+#[test]
+fn copy_accesses_outrank_surrounding_regions_and_include_current_write() {
+    let mut tui = stack_trace(&[Some(100), Some(101)], 0);
+    let address = tui.machine.stack_start() + 104 * 8;
+    tui.sequence[0].mem_write = Some(MemoryWrite {
+        address,
+        old_value: vec![0; 4],
+        new_value: vec![1; 4],
+    });
+    assert_eq!(tui.memory_viewport(Stack, 5), 100);
+}
+
+#[test]
+fn partial_terminal_value_uses_space_without_displacing_complete_values() {
+    let mut tui = stack_trace(&[Some(100), Some(103)], 0);
+    tui.sequence[1].mem_read.as_mut().unwrap().value = vec![0; 32];
+    assert_eq!(tui.memory_viewport(Stack, 5), 100);
+}
+
+#[test]
+fn unaligned_highlight_that_fills_pane_anchors_its_start() {
+    let mut tui = stack_trace(&[Some(100)], 0);
+    let value = tui.sequence[0].mem_read.as_mut().unwrap();
+    value.address += 7;
+    value.value = vec![0; 10];
+    tui.machine.set_most_recent_memory(&tui.sequence, 0);
+    assert_eq!(tui.memory_viewport(Stack, 3), 100);
+    assert_eq!(tui.memory_viewport(Stack, 2), 100);
+    assert_eq!(tui.memory_viewport(Stack, 2), 100);
+}
+
+#[test]
+fn short_segments_lock_alignment_across_accesses() {
+    let mut tui = debugger(true);
+    for address in [0x2000, 0x2010, 0x2008] {
+        tui.sequence[0].mem_read =
+            Some(MemoryValue { address, value: vec![0] });
+        tui.machine.set_most_recent_memory(&tui.sequence, 0);
+        assert_eq!(tui.memory_viewport(Data, 8), -2);
+        assert_eq!(tui.memory_viewport(Text, 8), 0);
+    }
+    let stack_rows =
+        ((tui.machine.stack_end() - tui.machine.stack_start()) / 8) as u16;
+    assert_eq!(tui.memory_viewport(Stack, stack_rows + 3), -3);
+}
+
+#[test]
+fn startup_looks_ahead_once_and_counts_instructions_without_accesses() {
+    let mut rows = vec![None; 1002];
+    rows[1000] = Some(100);
+    let mut tui = stack_trace(&rows, 0);
+    assert_eq!(tui.memory_viewport(Stack, 7), 100);
+    assert_eq!(tui.memory_viewport(Stack, 7), 100);
+
+    rows[1000] = None;
+    rows[1001] = Some(100);
+    let mut tui = stack_trace(&rows, 0);
+    let count = (tui.machine.stack_end() - tui.machine.stack_start()) / 8;
+    assert_eq!(tui.memory_viewport(Stack, 7), i64::from(count) - 7);
+    assert_eq!(tui.memory_viewport(Data, 2), 0);
+}
+
+#[test]
+fn future_frame_boundaries_expand_the_region_around_its_access() {
+    let mut tui = stack_trace(&[None, Some(100)], 0);
+    let base = tui.machine.stack_start();
+    let top = base + 104 * 8;
+    tui.machine.set(SP, top as i32);
+    tui.sequence[0].frame_change = Some(FrameChange::Enter(top));
+    tui.sequence[0].reg_write = Some(RegisterWrite {
+        register: SP,
+        old_value: top as i32,
+        new_value: (base + 99 * 8) as i32,
+    });
+    assert_eq!(tui.memory_viewport(Stack, 7), 99);
+    assert!(tui.machine.stack_frames().is_empty());
+    assert_eq!(tui.machine.get(SP), top as i32);
+}
+
+#[test]
+fn past_access_uses_the_frame_that_existed_before_return() {
+    let mut tui = stack_trace(&[Some(100), None], 1);
+    let base = tui.machine.stack_start();
+    let top = base + 104 * 8;
+    tui.machine.set(SP, top as i32);
+    tui.sequence[0].frame_change = Some(FrameChange::Leave(top));
+    tui.sequence[0].reg_write = Some(RegisterWrite {
+        register: SP,
+        old_value: (base + 99 * 8) as i32,
+        new_value: top as i32,
+    });
+    assert_eq!(tui.memory_viewport(Stack, 7), 99);
+    assert!(tui.machine.stack_frames().is_empty());
+}
+
+#[test]
+fn pane_height_changes_replan_even_when_highlight_stays_visible() {
+    let mut tui = stack_trace(&[Some(100), Some(104), Some(108)], 0);
+    assert_eq!(tui.memory_viewport(Stack, 5), 100);
+    assert_eq!(tui.memory_viewport(Stack, 10), 100);
+    assert_eq!(tui.memory_viewport(Stack, 3), 100);
+}
+
+#[test]
+fn backward_scan_stops_at_five_hundred_instructions() {
+    let mut rows = vec![None; 601];
+    rows[600] = Some(100);
+    rows[100] = Some(96);
+    rows[99] = Some(95);
+    let mut tui = stack_trace(&rows, 600);
+    assert_eq!(tui.memory_viewport(Stack, 5), 96);
+
+    rows[100] = None;
+    let mut tui = stack_trace(&rows, 600);
+    assert_eq!(tui.memory_viewport(Stack, 5), 100);
+}
+
+// Larger static segments leave room to distinguish value and region priorities.
+fn static_region_debugger() -> Tui {
+    let mut tui = debugger(true);
+    tui.machine = Machine::new(
+        vec![
+            Segment::new(0x1000, 0x1400, false, true, vec![0; 1024]),
+            Segment::new(0x2000, 0x2400, true, false, vec![0; 1024]),
+        ],
+        0x1000,
+        0,
+        HashMap::new(),
+        HashMap::new(),
+    );
+    let color = tui.normal_color;
+    tui.data_colors = vec![(0x2000 + 20 * 8, color), (0x2000 + 24 * 8, color)];
+    tui.text_colors = vec![(0x1000 + 20 * 8, color), (0x1000 + 24 * 8, color)];
+    tui.sequence.truncate(1);
+    tui
+}
+
+#[test]
+fn data_centers_complete_region_with_odd_spare_row_above() {
+    let mut tui = static_region_debugger();
+    tui.sequence[0].mem_read =
+        Some(MemoryValue { address: 0x2000 + 21 * 8, value: vec![0; 4] });
+    tui.machine.set_most_recent_memory(&tui.sequence, 0);
+    assert_eq!(tui.memory_viewport(Data, 7), 19);
+
+    // Expanding the window recomputes region placement rather than value centering.
+    assert_eq!(tui.memory_viewport(Data, 8), 18);
+}
+
+#[test]
+fn text_centers_function_and_clamps_at_segment_start() {
+    let mut tui = static_region_debugger();
+    let mut instruction = Effects::new(&tui.instructions[0]);
+    let original = &tui.instructions[0];
+    instruction.instruction = Rc::new(Instruction {
+        address: 0x1000 + 21 * 8,
+        encoding: original.encoding,
+        length: original.length,
+        pseudo_index: original.pseudo_index,
+        verbose_fields: original.op.to_fields(),
+        pseudo_fields: original.op.to_pseudo_fields(),
+        op: original.op.clone(),
+    });
+    tui.sequence = vec![instruction];
+    assert_eq!(tui.memory_viewport(Text, 8), 18);
+
+    tui.sequence[0].instruction = tui.instructions[0].clone();
+    tui.text_colors =
+        vec![(0x1000, tui.normal_color), (0x1010, tui.normal_color)];
+    assert_eq!(tui.memory_viewport(Text, 8), 0);
+}
+
+#[test]
+fn earlier_regions_take_priority_when_both_cannot_fit() {
+    let mut tui = static_region_debugger();
+    let color = tui.normal_color;
+    tui.data_colors =
+        [0, 20, 24, 30].map(|row| (0x2000 + row * 8, color)).to_vec();
+    tui.sequence[0].mem_read =
+        Some(MemoryValue { address: 0x2000 + 23 * 8, value: vec![0; 4] });
+    let mut next = Effects::new(&tui.instructions[1]);
+    next.mem_read =
+        Some(MemoryValue { address: 0x2000 + 24 * 8, value: vec![0; 4] });
+    tui.sequence.push(next);
+    tui.machine.set_most_recent_memory(&tui.sequence, 0);
+    assert_eq!(tui.memory_viewport(Data, 7), 20);
+}
+
+#[test]
+fn screen_resize_replans_even_if_memory_pane_height_is_unchanged() {
+    let mut tui = stack_trace(&[Some(100), Some(104)], 0);
+    tui.render_screen(80, 24);
+    assert_eq!(tui.memory_viewport(Stack, 7), 100);
+    tui.sequence[0].mem_read = None;
+    key(&mut tui, KeyCode::Right);
+    tui.render_screen(80, 24);
+    assert_eq!(tui.memory_viewport(Stack, 7), 100);
+    tui.render_screen(81, 24);
+    assert_eq!(tui.memory_viewport(Stack, 7), 104);
 }
 
 #[test]
