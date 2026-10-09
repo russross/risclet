@@ -7,14 +7,14 @@ use crossterm::style::{Color, Colors};
 
 use super::MemoryPane::{Data, Stack, Text};
 use super::{
-    MemoryVisibility, Screen, Tui, calc_range, function_colors, memory_color,
-    memory_layout, stack_regions,
+    MemoryVisibility, Screen, Tui, calc_range, call_entries, function_colors,
+    memory_color, memory_layout, stack_regions,
 };
 use crate::config::{Config, Mode};
 use crate::execution::{Instruction, Machine};
 use crate::memory::Segment;
-use crate::riscv::{Op, SP};
-use crate::trace::{Effects, MemoryValue, MemoryWrite};
+use crate::riscv::{Op, RA, SP, ZERO};
+use crate::trace::{Effects, MemoryValue, MemoryWrite, RegisterWrite};
 
 const ALL: MemoryVisibility =
     MemoryVisibility { stack: true, data: true, text: true };
@@ -26,7 +26,11 @@ fn debugger(data: bool) -> Tui {
     let mut bytes = Vec::new();
     for (index, length) in [2, 4, 4, 2, 4, 2].into_iter().enumerate() {
         let encoding: u32 = if length == 2 { 1 } else { 0x13 };
-        let op = Op::new(encoding as i32);
+        let op = if index == 5 {
+            Op::Jal { rd: RA, offset: -6 }
+        } else {
+            Op::new(encoding as i32)
+        };
         instructions.push(Rc::new(Instruction {
             address: 0x1000 + bytes.len() as u32,
             encoding,
@@ -55,7 +59,7 @@ fn debugger(data: bool) -> Tui {
         ));
     }
 
-    // Named text symbols change colors; numeric and non-text symbols do not.
+    // Calls identify functions; labels can name internal blocks or data.
     let symbols = HashMap::from([
         (0x1000, "main".to_owned()),
         (0x1002, "1".to_owned()),
@@ -98,6 +102,86 @@ fn debugger(data: bool) -> Tui {
 fn key(tui: &mut Tui, code: KeyCode) {
     assert!(
         !tui.handle_key(KeyEvent::new(code, KeyModifiers::NONE), 12).unwrap()
+    );
+}
+
+// Replace a displayed operation and its trace preview together.
+fn set_operation(tui: &mut Tui, index: usize, op: Op, target: u32) {
+    let old = &tui.instructions[index];
+    let instruction = Rc::new(Instruction {
+        address: old.address,
+        encoding: old.encoding,
+        length: old.length,
+        pseudo_index: old.pseudo_index,
+        verbose_fields: op.to_fields(),
+        pseudo_fields: op.to_pseudo_fields(),
+        op,
+    });
+    let mut effects = Effects::new(&instruction);
+    effects.pc = (instruction.address, target);
+    tui.instructions[index] = instruction;
+    tui.sequence[index] = effects;
+}
+
+#[test]
+fn branch_lines_use_call_regions_in_both_listing_modes() {
+    for verbose in [false, true] {
+        for (index, op, target, expected) in [
+            (0, Op::Beq { rs1: ZERO, rs2: ZERO, offset: 6 }, 0x1006, true),
+            (2, Op::Jal { rd: ZERO, offset: -6 }, 0x1000, true),
+            (0, Op::Jal { rd: RA, offset: 6 }, 0x1006, false),
+            (0, Op::Jal { rd: ZERO, offset: 10 }, 0x100a, false),
+            (3, Op::Bne { rs1: RA, rs2: ZERO, offset: -10 }, 0x1000, false),
+            (0, Op::Beq { rs1: ZERO, rs2: ZERO, offset: 6 }, 0x1002, false),
+            (0, Op::Jalr { rd: ZERO, rs1: RA, offset: 0 }, 0x1006, false),
+        ] {
+            let mut tui = debugger(false);
+            tui.config.verbose_instructions = verbose;
+            tui.machine.address_symbols.insert(0x1002, "loop".to_owned());
+            set_operation(&mut tui, index, op, target);
+            tui.sequence_index = index;
+            let (screen, _) = tui.render_screen(79, 24);
+            let has_line =
+                (0..screen.len()).any(|row| line(&screen, row).contains("┌──"));
+            assert_eq!(
+                has_line, expected,
+                "verbose={verbose}, target={target:x}"
+            );
+            assert_eq!(
+                memory_color(&tui.text_colors, 0x1002, 0..0),
+                tui.pastels[0]
+            );
+        }
+    }
+}
+
+#[test]
+fn call_entries_combine_static_and_observed_destinations() {
+    let mut tui = debugger(false);
+    set_operation(&mut tui, 0, Op::Auipc { rd: RA, imm: 0 }, 0x1002);
+    set_operation(&mut tui, 1, Op::Jalr { rd: RA, rs1: RA, offset: 6 }, 0x1006);
+    tui.sequence[1].reg_write =
+        Some(RegisterWrite { register: RA, old_value: 0, new_value: 0x1006 });
+    set_operation(&mut tui, 2, Op::Jalr { rd: RA, rs1: SP, offset: 0 }, 0x100c);
+    tui.sequence[2].reg_write =
+        Some(RegisterWrite { register: RA, old_value: 0, new_value: 0x100a });
+    assert_eq!(
+        call_entries(0x1000, &tui.instructions, &tui.sequence),
+        vec![0x1000, 0x1006, 0x100a, 0x100c]
+    );
+
+    // Tail jumps and invalid call destinations do not introduce entries.
+    set_operation(
+        &mut tui,
+        1,
+        Op::Jalr { rd: ZERO, rs1: RA, offset: 6 },
+        0x1006,
+    );
+    set_operation(&mut tui, 5, Op::Jal { rd: RA, offset: 1 }, 0x1011);
+    set_operation(&mut tui, 2, Op::Jalr { rd: ZERO, rs1: SP, offset: 0 }, 0x100c);
+    assert_eq!(
+        call_entries(0x1000, &tui.instructions, &tui.sequence),
+        vec![0x1000]
     );
 }
 
@@ -340,27 +424,14 @@ fn stack_colors_preserve_callers_and_inactive_space() {
 }
 
 #[test]
-fn unnamed_text_stays_neutral_and_function_colors_wrap() {
+fn text_before_entries_stays_neutral_and_function_colors_wrap() {
     let tui = debugger(true);
-    let no_names = HashMap::from([(0x1002, "1".to_owned())]);
-    let colors = function_colors(
-        &no_names,
-        &tui.instructions,
-        &tui.pastels,
-        tui.normal_color,
-    );
+    let colors = function_colors(&[], &tui.pastels, tui.normal_color);
     assert_eq!(memory_color(&colors, 0x1006, 0..0), tui.normal_color);
 
-    // An unlabeled prefix remains neutral; only instruction labels count.
-    let names = HashMap::from([
-        (0x1002, "first".to_owned()),
-        (0x1006, "second".to_owned()),
-        (0x100a, "third".to_owned()),
-        (0x100b, "not_an_instruction".to_owned()),
-    ]);
+    // Entries cycle through the palette while any preceding text stays neutral.
     let colors = function_colors(
-        &names,
-        &tui.instructions,
+        &[0x1002, 0x1006, 0x100a],
         &tui.pastels[..2],
         tui.normal_color,
     );

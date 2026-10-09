@@ -124,22 +124,67 @@ fn memory_color(
 }
 
 fn function_colors(
-    symbols: &HashMap<u32, String>,
-    instructions: &[Rc<Instruction>],
+    entries: &[u32],
     palette: &[Colors],
     normal: Colors,
 ) -> Vec<(u32, Colors)> {
     let mut regions = vec![(0, normal)];
-    for instruction in instructions {
-        if symbols
-            .get(&instruction.address)
-            .is_some_and(|label| label.parse::<usize>().is_err())
-        {
-            let color = palette[(regions.len() - 1) % palette.len()];
-            regions.push((instruction.address, color));
-        }
+    for &address in entries {
+        let color = palette[(regions.len() - 1) % palette.len()];
+        regions.push((address, color));
     }
     regions
+}
+
+// Calls identify code entries independently of names used for internal blocks.
+// Static destinations include unexecuted calls; the trace adds indirect calls.
+fn call_entries(
+    entry_point: u32,
+    instructions: &[Rc<Instruction>],
+    sequence: &[Effects],
+) -> Vec<u32> {
+    let mut entries = vec![entry_point];
+    for instruction in instructions {
+        if let Op::Jal { rd, offset } = instruction.op
+            && rd != ZERO
+        {
+            entries.push(instruction.address.wrapping_add(offset as u32));
+        }
+    }
+
+    // Adjacent AUIPC/JALR pairs provide a static destination for far calls.
+    for pair in instructions.windows(2) {
+        if let (Op::Auipc { rd, imm }, Op::Jalr { rd: link, rs1, offset }) =
+            (&pair[0].op, &pair[1].op)
+            && *rd != ZERO
+            && *link != ZERO
+            && rd == rs1
+            && pair[0].address.checked_add(pair[0].length)
+                == Some(pair[1].address)
+        {
+            entries.push(
+                pair[0].address.wrapping_add(imm.wrapping_add(*offset) as u32)
+                    & !1,
+            );
+        }
+    }
+
+    for effects in sequence {
+        if matches!(effects.instruction.op,
+            Op::Jal { rd, .. } | Op::Jalr { rd, .. } if rd != ZERO)
+            && effects.reg_write.is_some()
+        {
+            entries.push(effects.pc.1);
+        }
+    }
+
+    // Only instruction addresses can delimit a displayed function region.
+    entries.retain(|address| {
+        instructions.binary_search_by_key(address, |inst| inst.address).is_ok()
+    });
+    entries.sort_unstable();
+    entries.dedup();
+    entries
 }
 
 // Assign colors from the oldest frame so calls do not recolor their callers.
@@ -169,6 +214,7 @@ pub struct Tui {
     instructions: Vec<Rc<Instruction>>,
     addresses: HashMap<u32, usize>,
     pseudo_addresses: HashMap<usize, usize>,
+    call_entries: Vec<u32>,
     sequence: Vec<Effects>,
     sequence_index: usize,
     cursor_index: usize,
@@ -275,17 +321,13 @@ impl Tui {
             data_colors.push((0, normal_color));
         }
 
-        // Named instruction labels delimit functions, as they do for Home/End.
-        // Numeric branch labels do not introduce new color regions.
-        let text_colors = function_colors(
-            &machine.address_symbols,
-            &instructions,
-            &pastels,
-            normal_color,
-        );
+        // Text colors and branch lines share boundaries identified by calls.
+        let entry_point = machine.entry_point();
+        let call_entries = call_entries(entry_point, &instructions, &sequence);
+        let text_colors =
+            function_colors(&call_entries, &pastels, normal_color);
 
         // Start cursor at entry point, not first line of text segment
-        let entry_point = machine.entry_point();
         let initial_cursor_index =
             addresses.get(&entry_point).copied().unwrap_or(0);
 
@@ -295,6 +337,7 @@ impl Tui {
             instructions,
             addresses,
             pseudo_addresses,
+            call_entries,
             sequence,
             sequence_index: 0,
             cursor_index: initial_cursor_index,
@@ -779,11 +822,23 @@ impl Tui {
 
         pane.label(&label);
 
-        // are we drawing a branch arrow?
-        let arrow_range = if effects.instruction.op.branch_target(pc).is_some()
-        {
+        // Only taken branches and direct jumps within one call region get lines.
+        // Named internal labels do not split the region; its entry is included.
+        let arrow_range = if matches!(
+            effects.instruction.op,
+            Op::Beq { .. }
+                | Op::Bne { .. }
+                | Op::Blt { .. }
+                | Op::Bge { .. }
+                | Op::Bltu { .. }
+                | Op::Bgeu { .. }
+                | Op::Jal { rd: ZERO, .. }
+        ) {
             let (old, new) = effects.pc;
             if new != old
+                && self.addresses.contains_key(&new)
+                && self.call_entries.partition_point(|&entry| entry <= pc)
+                    == self.call_entries.partition_point(|&entry| entry <= new)
                 && (pc_i + 1 >= self.instructions.len()
                     || new != self.instructions[pc_i + 1].address)
             {
