@@ -17,7 +17,7 @@ use crossterm::{
 use crate::config::Config;
 use crate::execution::{Instruction, Machine};
 use crate::riscv::{Op, R, RA, SP, ZERO, fields_to_string};
-use crate::trace::Effects;
+use crate::trace::{Effects, IoEvent};
 
 #[path = "ui_viewport.rs"]
 mod viewport;
@@ -752,24 +752,19 @@ impl Tui {
             memory_panes.push((memory_layout.last().unwrap().0, remaining));
         }
 
-        let output_lines =
-            if self.show_output && !self.machine.stdout().is_empty() {
-                // count the output lines (a single trailing newline is ignored)
-                self.machine
-                    .stdout()
-                    .iter()
-                    .rev()
-                    .skip(1)
-                    .fold(1, |a, &elt| if elt == b'\n' { a + 1 } else { a })
-            } else {
-                0
-            };
+        let output_content =
+            if self.show_output { self.output_lines() } else { Vec::new() };
+        let output_lines = if self.show_output {
+            u16::try_from(output_content.len()).unwrap_or(u16::MAX)
+        } else {
+            0
+        };
 
         // a 24-line terminal gets source, registers, and output, shorter does not
         let (registers, output, mut out) = if source.height >= 22
             && self.show_registers
             && self.show_output
-            && !self.machine.stdout().is_empty()
+            && !output_content.is_empty()
         {
             // output gets at least 4 lines and registers gets exactly 4
             // they sit at their minimums up to a 24-line terminal, then
@@ -843,7 +838,7 @@ impl Tui {
         }
         if let Some(mut output) = output {
             output.out = out;
-            self.render_output(&mut output);
+            self.render_output(&mut output, &output_content);
             out = take(&mut output.out);
         }
 
@@ -1013,8 +1008,8 @@ impl Tui {
         }
 
         // draw the side-effects label
-        let mut side_effects =
-            self.sequence[self.sequence_index].report(self.config.hex_mode);
+        let mut side_effects = self.sequence[self.sequence_index]
+            .report(self.config.hex_mode, &self.machine.io);
         side_effects.truncate(2);
         if side_effects[0].is_empty() {
             side_effects.remove(0);
@@ -1174,14 +1169,65 @@ impl Tui {
         }
     }
 
-    fn render_output(&mut self, pane: &mut Pane) {
+    fn render_output(&self, pane: &mut Pane, lines: &[Vec<(char, bool)>]) {
         pane.label("Output");
-
-        for line in
-            get_last_n_lines(self.machine.stdout(), pane.height as usize)
-        {
-            writeln!(pane, "{}", line).unwrap();
+        let start = lines.len().saturating_sub(pane.height as usize);
+        for line in &lines[start..] {
+            for &(ch, input) in line {
+                pane.color = if input {
+                    Colors {
+                        foreground: Some(Color::AnsiValue(39)),
+                        ..self.normal_color
+                    }
+                } else {
+                    self.normal_color
+                };
+                write!(pane, "{ch}").unwrap();
+            }
+            writeln!(pane).unwrap();
         }
+        pane.color = self.normal_color;
+    }
+
+    // Assemble only the visible replay events; stream ownership stays in the record.
+    // Decode across event boundaries so split UTF-8 writes remain valid text.
+    fn output_lines(&self) -> Vec<Vec<(char, bool)>> {
+        let mut bytes = Vec::new();
+        let mut inputs = Vec::new();
+        for event in &self.machine.output_events {
+            let (data, input) = match event {
+                IoEvent::Input(range) => {
+                    (&self.machine.io.stdin[range.clone()], true)
+                }
+                IoEvent::Output(range) => {
+                    (&self.machine.io.stdout[range.clone()], false)
+                }
+            };
+            bytes.extend_from_slice(data);
+            inputs.extend(std::iter::repeat_n(input, data.len()));
+        }
+
+        // Replacement characters carry the origin of the invalid byte sequence.
+        let mut lines = vec![Vec::new()];
+        let mut offset = 0;
+        for chunk in bytes.utf8_chunks() {
+            for ch in chunk.valid().chars() {
+                if ch == '\n' {
+                    lines.push(Vec::new());
+                } else {
+                    lines.last_mut().unwrap().push((ch, inputs[offset]));
+                }
+                offset += ch.len_utf8();
+            }
+            if !chunk.invalid().is_empty() {
+                lines.last_mut().unwrap().push(('\u{fffd}', inputs[offset]));
+                offset += chunk.invalid().len();
+            }
+        }
+        if lines.last().is_some_and(Vec::is_empty) {
+            lines.pop();
+        }
+        lines
     }
 
     #[rustfmt::skip]
@@ -1426,26 +1472,6 @@ impl fmt::Write for Pane {
         }
         Ok(())
     }
-}
-
-fn get_last_n_lines(data: &[u8], n: usize) -> Vec<String> {
-    // split on newlines
-    let chunks: Vec<_> = data.split(|&b| b == b'\n').collect();
-
-    // take last n chunks, skipping the last one if it's empty
-    let chunks = if chunks.last().is_some_and(|chunk| chunk.is_empty()) {
-        &chunks[..chunks.len() - 1]
-    } else {
-        &chunks[..]
-    };
-
-    let start_idx = chunks.len().saturating_sub(n);
-
-    // convert chunks to strings
-    chunks[start_idx..]
-        .iter()
-        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
-        .collect()
 }
 
 fn calc_range(length: usize, cursor: usize, window_size: u16) -> (i64, i64) {

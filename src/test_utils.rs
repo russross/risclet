@@ -1,20 +1,26 @@
 #[cfg(test)]
 mod tests {
+    use crate::config::{Config, Mode};
     use crate::error::RiscletError;
-    use crate::execution::{Instruction, Machine, MachineBuilder};
+    use crate::execution::{Instruction, Machine, MachineBuilder, trace};
     use crate::riscv::{Op, ZERO};
     use crate::trace::{Effects, FrameChange, SyscallInfo};
+    use std::collections::HashMap;
     use std::rc::Rc;
 
     fn instruction(machine: &Machine, op: Op) -> Rc<Instruction> {
+        instruction_at(machine.pc(), op)
+    }
+
+    fn instruction_at(address: u32, op: Op) -> Rc<Instruction> {
         Rc::new(Instruction {
-            address: machine.pc(),
+            address,
+            verbose_fields: op.to_fields(),
+            pseudo_fields: op.to_pseudo_fields(),
             op,
             length: 4,
             encoding: 0,
             pseudo_index: 0,
-            verbose_fields: Vec::new(),
-            pseudo_fields: Vec::new(),
         })
     }
 
@@ -54,34 +60,129 @@ mod tests {
         let mut machine = Machine::for_testing();
         let inst = instruction(&machine, Op::Ecall);
         let mut effects = Effects::new(&inst);
-        assert!(effects.stdin().is_none());
-        assert!(effects.stdout().is_none());
+        assert!(effects.stdin(&machine.io).is_none());
+        assert!(effects.stdout(&machine.io).is_none());
         assert!(effects.syscall().is_none());
         assert!(!effects.is_terminal());
 
         // I/O payloads and a later failure coexist without losing replay data.
         let extra = effects.extra_mut();
-        extra.stdin = Some(b"in".to_vec());
-        extra.stdout = Some(b"out".to_vec());
+        machine.io.stdout.extend_from_slice(b"out");
         extra.syscall = Some(SyscallInfo::Write {
             fd: 1,
             buf_addr: 0x1000,
             count: 3,
-            data: b"out".to_vec(),
+            data: 0..3,
         });
         effects.error(RiscletError::io("output failed".to_string()));
         let cloned = effects.clone();
-        effects.extra_mut().stdout.as_mut().unwrap().clear();
-        assert_eq!(cloned.stdout(), Some(b"out".as_slice()));
+        machine.io.stdout.extend_from_slice(b"more");
+        assert_eq!(cloned.stdout(&machine.io), Some(b"out".as_slice()));
         assert!(cloned.is_terminal());
         assert_eq!(cloned.other_message().unwrap().message(), "output failed");
-        assert_eq!(cloned.report(false)[0], "write(1, 0x1000, 3)");
+        assert_eq!(cloned.report(false, &machine.io)[0], "write(1, 0x1000, 3)");
 
-        // Output and echoed input retain their existing order in debugger replay.
+        // Rewinding hides the event while retaining its backing bytes.
         machine.apply(&cloned, true);
-        assert_eq!(machine.stdout(), b"outin");
+        assert_eq!(machine.output_events.len(), 1);
         machine.apply(&cloned, false);
-        assert!(machine.stdout().is_empty());
+        assert!(machine.output_events.is_empty());
+        assert_eq!(cloned.stdout(&machine.io), Some(b"out".as_slice()));
+    }
+
+    // The same syscall can be executed repeatedly without retaining non-debug I/O.
+    #[test]
+    fn io_retention_follows_execution_mode() {
+        for mode in [Mode::Run, Mode::Trace, Mode::Debug] {
+            for syscall in [63, 64] {
+                let mut machine =
+                    Machine::for_testing().with_stdin(b"ab".to_vec());
+                let address = machine.stack_start();
+                machine.store(address, b"xy").unwrap();
+                machine.set(10, if syscall == 63 { 0 } else { 1 });
+                machine.set(11, address as i32);
+                machine.set(12, 1);
+                machine.set(17, syscall);
+                let inst = instruction(&machine, Op::Ecall);
+                let instructions = vec![
+                    inst.clone(),
+                    instruction_at(
+                        inst.address + 4,
+                        Op::Addi {
+                            rd: 10,
+                            rs1: ZERO,
+                            imm: if syscall == 63 { 0 } else { 1 },
+                        },
+                    ),
+                    instruction_at(inst.address + 8, Op::Ecall),
+                ];
+                let addresses = HashMap::from([
+                    (inst.address, 0),
+                    (inst.address + 4, 1),
+                    (inst.address + 8, 2),
+                ]);
+                let mut config = Config::for_mode(mode.clone());
+                config.max_steps = 3;
+                config.strict = false;
+                let effects =
+                    trace(&mut machine, &instructions, &addresses, &config);
+                if mode == Mode::Debug {
+                    let data = if syscall == 63 {
+                        &machine.io.stdin
+                    } else {
+                        &machine.io.stdout
+                    };
+                    assert_eq!(data, if syscall == 63 { b"ab" } else { b"xx" });
+                    machine.reset();
+                    for effect in &effects {
+                        machine.apply(effect, true);
+                    }
+                    assert_eq!(machine.output_events.len(), 2);
+                    for effect in effects.iter().rev() {
+                        machine.apply(effect, false);
+                    }
+                    assert!(machine.output_events.is_empty());
+                    assert_eq!(
+                        machine.io.stdin.len() + machine.io.stdout.len(),
+                        2
+                    );
+                } else {
+                    assert!(machine.io.stdin.is_empty());
+                    assert!(machine.io.stdout.is_empty());
+                    assert!(machine.output_events.is_empty());
+                }
+            }
+        }
+    }
+
+    // A short read records only consumed bytes; EOF remains a successful empty event.
+    #[test]
+    fn input_ranges_preserve_short_reads_and_eof() {
+        let mut machine = Machine::for_testing().with_stdin(b"ab".to_vec());
+        let address = machine.stack_start();
+        machine.set(11, address as i32);
+        machine.set(12, 4);
+        machine.set(17, 63);
+        let mut effects = Vec::new();
+        for expected in [b"ab".as_slice(), b"".as_slice()] {
+            machine.set(10, 0);
+            let inst = instruction(&machine, Op::Ecall);
+            let effect = machine.execute_and_collect_effects(&inst);
+            assert!(!effect.is_terminal());
+            assert_eq!(effect.stdin(&machine.io), Some(expected));
+            effects.push(effect);
+        }
+        assert_eq!(machine.io.stdin, b"ab");
+        machine.reset();
+        for effect in &effects {
+            machine.apply(effect, true);
+        }
+        assert_eq!(machine.output_events.len(), 2);
+        for effect in effects.iter().rev() {
+            machine.apply(effect, false);
+        }
+        assert!(machine.output_events.is_empty());
+        assert_eq!(effects[0].stdin(&machine.io), Some(b"ab".as_slice()));
     }
 
     #[test]
@@ -139,8 +240,8 @@ mod tests {
         assert_eq!(write.register, 5);
         assert_eq!(write.old_value, -17);
         assert_eq!(write.new_value, -11);
-        assert_eq!(effects.report(false), vec!["t0 <- -11"]);
-        assert_eq!(effects.report(true), vec!["t0 <- 0xfffffff5"]);
+        assert_eq!(effects.report(false, &machine.io), vec!["t0 <- -11"]);
+        assert_eq!(effects.report(true, &machine.io), vec!["t0 <- 0xfffffff5"]);
 
         // Replaying in either direction restores the value and instruction position.
         machine.apply(&effects, false);
@@ -299,7 +400,7 @@ mod tests {
         );
 
         // Get the report (as displayed in the debugger status line)
-        let report = effects.report(false);
+        let report = effects.report(false, &machine.io);
 
         // Verify that the report contains exactly one "exit(1)" line
         let exit_messages: Vec<_> =

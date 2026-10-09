@@ -15,7 +15,7 @@ use crate::execution::{Instruction, Machine};
 use crate::memory::Segment;
 use crate::riscv::{Op, RA, SP, ZERO};
 use crate::trace::{
-    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterWrite,
+    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterWrite, SyscallInfo,
 };
 
 const ALL: MemoryVisibility =
@@ -393,7 +393,9 @@ fn absent_data_and_narrow_screens_use_available_space() {
 #[test]
 fn registers_and_output_keep_their_existing_growth_rules() {
     let mut tui = debugger(true);
-    tui.sequence[0].extra_mut().stdout = Some(b"hello\n".to_vec());
+    tui.machine.io.stdout = b"hello\n".to_vec();
+    tui.sequence[0].extra_mut().syscall =
+        Some(SyscallInfo::Write { fd: 1, buf_addr: 0, count: 6, data: 0..6 });
     tui.machine.apply(&tui.sequence[0], true);
     for (height, source, registers, output) in [
         (18, 16, None, None),
@@ -409,7 +411,13 @@ fn registers_and_output_keep_their_existing_growth_rules() {
         assert_eq!(label_row(&screen, " Output "), output);
     }
     tui.machine.reset();
-    tui.sequence[0].extra_mut().stdout = Some(b"line\n".repeat(30));
+    tui.machine.io.stdout = b"line\n".repeat(30);
+    tui.sequence[0].extra_mut().syscall = Some(SyscallInfo::Write {
+        fd: 1,
+        buf_addr: 0,
+        count: 150,
+        data: 0..150,
+    });
     tui.machine.apply(&tui.sequence[0], true);
     assert_eq!(tui.render_screen(80, 25).1, 12);
     tui.show_registers = false;
@@ -418,6 +426,52 @@ fn registers_and_output_keep_their_existing_growth_rules() {
     assert_eq!(label_row(&screen, " Output "), Some(13));
     tui.show_output = false;
     assert_eq!(tui.render_screen(80, 24).1, 22);
+}
+
+// Stream ranges preserve interleaving and colors across rewind and UTF-8 boundaries.
+#[test]
+fn output_colors_input_and_preserves_event_order() {
+    let mut tui = debugger(true);
+    tui.machine.io.stdout = b"prompt: \xc3\xa9\nend".to_vec();
+    tui.machine.io.stdin = b"answer\n".to_vec();
+    let mut effects = Vec::new();
+    for syscall in [
+        SyscallInfo::Write { fd: 1, buf_addr: 0, count: 8, data: 0..8 },
+        SyscallInfo::Read { fd: 0, buf_addr: 0, count: 7, data: 0..7 },
+        SyscallInfo::Write { fd: 1, buf_addr: 0, count: 1, data: 8..9 },
+        SyscallInfo::Write { fd: 1, buf_addr: 0, count: 5, data: 9..14 },
+    ] {
+        let mut effect = tui.sequence[0].clone();
+        effect.extra_mut().syscall = Some(syscall);
+        tui.machine.apply(&effect, true);
+        effects.push(effect);
+    }
+    let lines = tui.output_lines();
+    let text: Vec<String> = lines
+        .iter()
+        .map(|line| line.iter().map(|&(ch, _)| ch).collect())
+        .collect();
+    assert_eq!(text, ["prompt: answer", "é", "end"]);
+    assert!(lines[0][8..].iter().all(|&(_, input)| input));
+    assert!(lines[1].iter().all(|&(_, input)| !input));
+
+    // Verify the terminal screen uses color 39 only for input characters.
+    let (screen, _) = tui.render_screen(80, 30);
+    let row = label_row(&screen, " Output ").unwrap() + 1;
+    let line = &screen[row];
+    let start = line.iter().position(|&(ch, _)| ch == 'p').unwrap();
+    assert_eq!(line[start + 8].1.foreground, Some(Color::AnsiValue(39)));
+    assert_eq!(line[start].1, tui.normal_color);
+    assert_eq!(line[start + 14].1, tui.normal_color);
+
+    for effect in effects.iter().rev() {
+        tui.machine.apply(effect, false);
+    }
+    assert!(tui.output_lines().is_empty());
+    for effect in &effects {
+        tui.machine.apply(effect, true);
+    }
+    assert_eq!(tui.output_lines(), lines);
 }
 
 fn assert_text_bytes(tui: &mut Tui, expected: Range<u32>) {

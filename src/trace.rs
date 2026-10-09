@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::rc::Rc;
 
 use crate::Instruction;
@@ -32,15 +33,26 @@ pub struct RegisterWrite {
 #[derive(Clone)]
 pub enum SyscallInfo {
     Exit(i32),
-    Write { fd: i32, buf_addr: u32, count: i32, data: Vec<u8> },
-    Read { fd: i32, buf_addr: u32, count: i32, data: Vec<u8> },
+    Write { fd: i32, buf_addr: u32, count: i32, data: Range<usize> },
+    Read { fd: i32, buf_addr: u32, count: i32, data: Range<usize> },
+}
+
+// Stream bytes outlive replay state; events retain their execution order.
+#[derive(Default)]
+pub struct IoRecord {
+    pub stdin: Vec<u8>,
+    pub stdout: Vec<u8>,
+}
+
+#[derive(Clone)]
+pub enum IoEvent {
+    Input(Range<usize>),
+    Output(Range<usize>),
 }
 
 // Syscall payloads and errors are allocated only for instructions that need them.
 #[derive(Clone, Default)]
 pub struct ExtraEffects {
-    pub stdin: Option<Vec<u8>>,
-    pub stdout: Option<Vec<u8>>,
     pub syscall: Option<SyscallInfo>,
     pub other_message: Option<RiscletError>,
 }
@@ -94,19 +106,25 @@ impl Effects {
     }
 
     // Borrowed payloads support reporting and replay without allocating a record.
-    pub fn stdin(&self) -> Option<&[u8]> {
-        self.extra.as_ref()?.stdin.as_deref()
+    pub fn stdin<'a>(&self, io: &'a IoRecord) -> Option<&'a [u8]> {
+        match self.syscall()? {
+            SyscallInfo::Read { data, .. } => Some(&io.stdin[data.clone()]),
+            _ => None,
+        }
     }
 
-    pub fn stdout(&self) -> Option<&[u8]> {
-        self.extra.as_ref()?.stdout.as_deref()
+    pub fn stdout<'a>(&self, io: &'a IoRecord) -> Option<&'a [u8]> {
+        match self.syscall()? {
+            SyscallInfo::Write { data, .. } => Some(&io.stdout[data.clone()]),
+            _ => None,
+        }
     }
 
     pub fn syscall(&self) -> Option<&SyscallInfo> {
         self.extra.as_ref()?.syscall.as_ref()
     }
 
-    pub fn report(&self, hex_mode: bool) -> Vec<String> {
+    pub fn report(&self, hex_mode: bool, io: &IoRecord) -> Vec<String> {
         let mut lines = Vec::new();
 
         // Handle syscalls specially - they replace normal output formatting
@@ -116,6 +134,7 @@ impl Effects {
                     lines.push(format!("exit({})", status));
                 }
                 SyscallInfo::Write { buf_addr, count, data, .. } => {
+                    let data = &io.stdout[data.clone()];
                     if hex_mode {
                         lines.push(format!(
                             "write(1, 0x{:x}, 0x{:x})",
@@ -139,6 +158,7 @@ impl Effects {
                     lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
                 }
                 SyscallInfo::Read { buf_addr, count, data, .. } => {
+                    let data = &io.stdin[data.clone()];
                     if hex_mode {
                         lines.push(format!(
                             "read(0, 0x{:x}, 0x{:x})",

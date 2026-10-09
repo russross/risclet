@@ -232,8 +232,6 @@ impl RegisterFile {
 pub struct CpuState {
     registers: RegisterFile,
     pc: u32,
-    stdout: Vec<u8>,
-    stdin: Vec<u8>,
     stack_frames: Vec<u32>,
 }
 
@@ -242,8 +240,6 @@ impl CpuState {
         Self {
             registers: RegisterFile::new(),
             pc: pc_start,
-            stdout: Vec::new(),
-            stdin: Vec::new(),
             stack_frames: Vec::new(),
         }
     }
@@ -252,8 +248,6 @@ impl CpuState {
         self.registers.reset();
         self.registers.set(2, stack_end as i32);
         self.pc = pc_start;
-        self.stdout.clear();
-        self.stdin.clear();
         self.stack_frames.clear();
     }
 
@@ -271,22 +265,6 @@ impl CpuState {
 
     pub fn set_pc(&mut self, value: u32) {
         self.pc = value;
-    }
-
-    pub fn stdout(&self) -> &[u8] {
-        &self.stdout
-    }
-
-    pub fn stdout_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.stdout
-    }
-
-    pub fn stdin(&self) -> &[u8] {
-        &self.stdin
-    }
-
-    pub fn stdin_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.stdin
     }
 
     pub fn stack_frames(&self) -> &[u32] {

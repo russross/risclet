@@ -13,11 +13,13 @@ use crate::riscv::{
     Field, Op, ZERO, fields_to_string, format_instruction_address,
 };
 use crate::trace::{
-    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterValue,
-    RegisterWrite,
+    Effects, FrameChange, IoEvent, IoRecord, MemoryValue, MemoryWrite,
+    RegisterValue, RegisterWrite, SyscallInfo,
 };
 
 pub struct Machine {
+    pub io: IoRecord,
+    pub output_events: Vec<IoEvent>,
     state: CpuState,
     memory: MemoryManager,
     pc_start: u32,
@@ -70,6 +72,8 @@ impl Machine {
             Self::default_recent_memory(memory.layout);
 
         Self {
+            io: IoRecord::default(),
+            output_events: Vec::new(),
             state,
             memory,
             pc_start,
@@ -100,6 +104,7 @@ impl Machine {
     }
 
     pub fn reset(&mut self) {
+        self.output_events.clear();
         self.memory.reset();
         self.state.reset(self.pc_start, self.memory.layout.stack_end);
         let (most_recent_memory, most_recent_data, most_recent_stack) =
@@ -356,21 +361,21 @@ impl Machine {
                 .expect("Memory should be valid during replay");
         }
 
-        if let Some(output) = effect.stdout() {
-            if is_forward {
-                self.stdout_mut().extend(output);
-            } else {
-                let new_len = self.stdout().len() - output.len();
-                self.stdout_mut().truncate(new_len);
+        // Replay changes visible events without modifying recorded stream bytes.
+        let event = match effect.syscall() {
+            Some(SyscallInfo::Read { data, .. }) => {
+                Some(IoEvent::Input(data.clone()))
             }
-        }
-
-        if let Some(input) = effect.stdin() {
+            Some(SyscallInfo::Write { data, .. }) => {
+                Some(IoEvent::Output(data.clone()))
+            }
+            _ => None,
+        };
+        if let Some(event) = event {
             if is_forward {
-                self.stdout_mut().extend(input);
+                self.output_events.push(event);
             } else {
-                let new_len = self.stdout().len() - input.len();
-                self.stdout_mut().truncate(new_len);
+                self.output_events.pop();
             }
         }
 
@@ -424,22 +429,6 @@ impl Machine {
         self.state.pc()
     }
 
-    pub fn stdout(&self) -> &[u8] {
-        self.state.stdout()
-    }
-
-    pub fn stdout_mut(&mut self) -> &mut Vec<u8> {
-        self.state.stdout_mut()
-    }
-
-    pub fn stdin(&self) -> &[u8] {
-        self.state.stdin()
-    }
-
-    pub fn stdin_mut(&mut self) -> &mut Vec<u8> {
-        self.state.stdin_mut()
-    }
-
     pub fn stack_frames(&self) -> &[u32] {
         self.state.stack_frames()
     }
@@ -491,7 +480,7 @@ impl Machine {
         // Just record the data; printing is handled by the trace function
         // (which respects the execution mode: run/debug echo immediately,
         // trace mode prints only from effects report)
-        self.state.stdout_mut().extend_from_slice(data);
+        self.io.stdout.extend_from_slice(data);
         Ok(())
     }
 
@@ -689,8 +678,9 @@ fn print_instruction_trace(
     _instruction: &Rc<Instruction>,
     disassembly: &str,
     hex_mode: bool,
+    io: &IoRecord,
 ) {
-    let effect_lines = effects.report(hex_mode);
+    let effect_lines = effects.report(hex_mode, io);
 
     if !effect_lines.is_empty() && !effect_lines[0].is_empty() {
         println!("{}{}", disassembly, effect_lines[0]);
@@ -723,6 +713,7 @@ fn flush_pending_pseudo_effects(
     config: &Config,
     global_pointer: u32,
     address_symbols: &HashMap<u32, String>,
+    io: &IoRecord,
 ) {
     if pending_pseudo_effects.is_empty() {
         return;
@@ -744,6 +735,7 @@ fn flush_pending_pseudo_effects(
         first_inst,
         &disassembly,
         config.hex_mode,
+        io,
     );
     // A merged pseudo-operation still exposes every executed machine instruction.
     if config.show_encoding {
@@ -795,6 +787,9 @@ pub fn trace(
         m.stack_start(),
         m.stack_end(),
     );
+    // Each execution starts a new recording; reset later preserves it for replay.
+    m.io = IoRecord::default();
+    m.output_events.clear();
     let mut sequence: Vec<Effects> = Vec::new();
     let mut i = 0;
     let mut prev_pseudo_index: Option<usize> = None;
@@ -829,6 +824,7 @@ pub fn trace(
                     config,
                     m.global_pointer,
                     &m.address_symbols,
+                    &m.io,
                 );
             }
 
@@ -848,7 +844,7 @@ pub fn trace(
         // Echo stdout for run and debug modes (trace mode handles printing itself)
         if !effects.is_terminal()
             && matches!(config.mode, Mode::Run | Mode::Debug)
-            && let Some(output) = effects.stdout()
+            && let Some(output) = effects.stdout(&m.io)
         {
             let mut handle = io::stdout().lock();
             if let Err(e) = handle.write(output) {
@@ -862,7 +858,7 @@ pub fn trace(
         // Echo stdin for debug mode only
         if !effects.is_terminal()
             && echo_in
-            && let Some(input) = effects.stdin()
+            && let Some(input) = effects.stdin(&m.io)
         {
             let mut handle = io::stdout().lock();
             if let Err(e) = handle.write(input) {
@@ -893,7 +889,7 @@ pub fn trace(
                 // For ecall, we already printed the instruction with syscall signature before execution,
                 // so only print the follow-up effect lines (not the first line with syscall signature)
                 if is_ecall {
-                    let effect_lines = effects.report(config.hex_mode);
+                    let effect_lines = effects.report(config.hex_mode, &m.io);
                     for line in &effect_lines[1..] {
                         println!("    {}", line);
                     }
@@ -912,6 +908,7 @@ pub fn trace(
                         instruction,
                         &disassembly,
                         config.hex_mode,
+                        &m.io,
                     );
                 }
             } else {
@@ -919,7 +916,7 @@ pub fn trace(
                 // (pending effects were flushed and ecall line was printed)
                 // So we only need to print the follow-up effect lines for ecall
                 if is_ecall {
-                    let effect_lines = effects.report(config.hex_mode);
+                    let effect_lines = effects.report(config.hex_mode, &m.io);
                     for line in &effect_lines[1..] {
                         println!("    {}", line);
                     }
@@ -937,6 +934,7 @@ pub fn trace(
                             config,
                             m.global_pointer,
                             &m.address_symbols,
+                            &m.io,
                         );
                         prev_pseudo_index = Some(current_pseudo_index);
                     }
@@ -946,6 +944,17 @@ pub fn trace(
             }
         }
 
+        // Non-replay modes release syscall bytes after their immediate consumers.
+        if config.mode != Mode::Debug {
+            m.io.stdin.clear();
+            m.io.stdout.clear();
+            if matches!(
+                effects.syscall(),
+                Some(SyscallInfo::Read { .. } | SyscallInfo::Write { .. })
+            ) {
+                effects.extra_mut().syscall = None;
+            }
+        }
         let terminate = effects.is_terminal();
         sequence.push(effects);
         if terminate {
@@ -978,6 +987,7 @@ pub fn trace(
             config,
             m.global_pointer,
             &m.address_symbols,
+            &m.io,
         );
     }
 
