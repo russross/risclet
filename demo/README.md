@@ -137,7 +137,7 @@ size warnings remain enabled.
 Deployment
 ----------
 
-Release runs Rust tests, Clippy, and all binary builds before creating the version
+Release runs Rust tests and all binary builds before creating the version
 tag. Until tagging succeeds, a corrected commit can retry the same Cargo version.
 After tagging, retry publication using the original run; source changes require
 a new version. The binaries and their checksums are uploaded before publication.
