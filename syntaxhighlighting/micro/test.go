@@ -20,7 +20,7 @@ type fixture struct {
 }
 
 func run() error {
-	data, err := os.ReadFile("micro/risclet.yaml")
+	data, err := os.ReadFile("micro/riscv.yaml")
 	if err != nil {
 		return err
 	}

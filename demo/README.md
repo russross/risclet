@@ -17,7 +17,7 @@ UI tests does not rebuild the production bundle. Interrupted builds resume from
 completed prerequisites. Input inventories detect deleted source files as well
 as modified ones. `make -j` can run independent steps concurrently.
 
-The editor imports `../syntaxhighlighting/codemirror/risclet.ts` directly from
+The editor imports `../syntaxhighlighting/codemirror/riscv.ts` directly from
 the shared syntax directory. The UI input inventory includes that file, so
 editing it rebuilds the bundle. There is no demo-local copy of the grammar;
 browser highlighting tests import the same shared source.

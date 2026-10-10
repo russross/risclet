@@ -1,5 +1,5 @@
 # The closed vocabulary follows src/tokenizer.rs and src/parser.rs.
-filetype: risclet
+filetype: riscv
 
 detect:
   filename: "\\.s$"

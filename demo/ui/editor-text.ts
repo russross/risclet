@@ -2,7 +2,7 @@ import { cpp } from "@codemirror/lang-cpp";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { LanguageSupport, StreamLanguage } from "@codemirror/language";
-import { risclet } from "../../syntaxhighlighting/codemirror/risclet";
+import { riscv } from "../../syntaxhighlighting/codemirror/riscv";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
@@ -36,7 +36,7 @@ export function languageFor(filename: string): LanguageSupport | null {
             return cpp();
         case "s":
         case "S":
-            return risclet();
+            return riscv();
         case "md":
             return markdown();
         case "py":

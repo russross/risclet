@@ -7,7 +7,7 @@ check_dir=$(mktemp -d)
 trap 'rm -rf -- "$check_dir"' EXIT
 cp "$project_dir/micro/test.go" "$check_dir/main.go"
 cat > "$check_dir/go.mod" <<'MODULE'
-module risclet-micro-check
+module riscv-micro-check
 
 go 1.16
 

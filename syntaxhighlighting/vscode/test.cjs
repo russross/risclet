@@ -16,11 +16,11 @@ async function main() {
       createOnigString: source => new oniguruma.OnigString(source),
     }),
     loadGrammar: async () => textmate.parseRawGrammar(
-      fs.readFileSync(path.join(__dirname, 'syntaxes/risclet.tmLanguage.json'), 'utf8'),
-      'risclet.json',
+      fs.readFileSync(path.join(__dirname, 'syntaxes/riscv.tmLanguage.json'), 'utf8'),
+      'riscv.json',
     ),
   });
-  const grammar = await registry.loadGrammar('source.risclet');
+  const grammar = await registry.loadGrammar('source.riscv');
   assert.ok(grammar);
   const cases = JSON.parse(fs.readFileSync(path.join(__dirname, '../tests/highlighting.json'), 'utf8'));
 
@@ -31,7 +31,7 @@ async function main() {
     state = result.ruleStack;
     for (const [column, , scope] of checks) {
       const token = result.tokens.find(token => token.startIndex <= column && token.endIndex > column);
-      assert.ok(token?.scopes.includes(`${scope}.risclet`), `${line}:${column}: expected ${scope}, got ${token?.scopes}`);
+      assert.ok(token?.scopes.includes(`${scope}.riscv`), `${line}:${column}: expected ${scope}, got ${token?.scopes}`);
     }
   }
   registry.dispose();

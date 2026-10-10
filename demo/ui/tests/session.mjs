@@ -3,7 +3,7 @@ import { VmSession } from "../vm-session.ts";
 import { TerminalView } from "../terminal.ts";
 import { renderFileTree } from "../workspace-view.ts";
 import { language } from "@codemirror/language";
-import { riscletLanguage } from "../../../syntaxhighlighting/codemirror/risclet.ts";
+import { riscvLanguage } from "../../../syntaxhighlighting/codemirror/riscv.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -58,7 +58,7 @@ async function editorTests() {
     editorCellWidth = context.measureText("0123456789").width / 10;
     fs.subscribe(change => session.handleChange(change));
     session.open(fs, "a.s");
-    check(session.view.state.facet(language) === riscletLanguage, "assembly files use the teaching dialect by default");
+    check(session.view.state.facet(language) === riscvLanguage, "assembly files use RISC-V highlighting by default");
     const edit = text => session.view.dispatch({ changes: { from: 0, to: session.view.state.doc.length, insert: text } });
     edit("buffered");
     check(decoder.decode(fs.readFile("a.s")) === "original\n", "edits remain buffered");

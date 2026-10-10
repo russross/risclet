@@ -47,7 +47,7 @@ const labelColon = /^[ \t\r]*:/;
 const referenceSuffix = /^[ \t\r]*[fb](?![\p{Alphabetic}\p{N}_.$])/u;
 const escapes = new Set(["n", "t", "r", "\\", "'", '"', "0"]);
 
-interface RiscletState {
+interface RiscvState {
   position: "labelOrStatement" | "statement" | "operands";
   afterInteger: boolean;
   fence: boolean;
@@ -55,7 +55,7 @@ interface RiscletState {
 
 // Source is assembled one physical line at a time. Strings, labels and
 // statement context therefore never continue onto the next line.
-function resetLine(state: RiscletState): void {
+function resetLine(state: RiscvState): void {
   state.position = "labelOrStatement";
   state.afterInteger = false;
   state.fence = false;
@@ -111,7 +111,7 @@ function integerLiteral(stream: StringStream): string | null {
 
 // A single initial label may precede the statement. Numeric label references
 // are an integer followed by the identifier f or b, even with whitespace.
-function integerStyle(stream: StringStream, state: RiscletState): string {
+function integerStyle(stream: StringStream, state: RiscvState): string {
   if (state.position === "labelOrStatement" && stream.match(labelColon, false)) {
     state.position = "statement";
     return "labelName";
@@ -123,8 +123,8 @@ function integerStyle(stream: StringStream, state: RiscletState): string {
   return stream.match(referenceSuffix, false) ? "labelName" : "number";
 }
 
-export const riscletStreamParser: StreamParser<RiscletState> = {
-  name: "risclet",
+export const riscvStreamParser: StreamParser<RiscvState> = {
+  name: "riscv",
   startState: () => ({ position: "labelOrStatement", afterInteger: false, fence: false }),
   blankLine: resetLine,
   token(stream, state) {
@@ -200,8 +200,8 @@ export const riscletStreamParser: StreamParser<RiscletState> = {
 
 // Consumers can use the language directly or the conventional language-support
 // factory alongside their existing CodeMirror theme and highlighting extension.
-export const riscletLanguage = StreamLanguage.define(riscletStreamParser);
+export const riscvLanguage = StreamLanguage.define(riscvStreamParser);
 
-export function risclet(): LanguageSupport {
-  return new LanguageSupport(riscletLanguage);
+export function riscv(): LanguageSupport {
+  return new LanguageSupport(riscvLanguage);
 }

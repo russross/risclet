@@ -1,9 +1,9 @@
 {
-  "name": "Risclet",
-  "scopeName": "source.risclet",
+  "name": "RISC-V",
+  "scopeName": "source.riscv",
   "patterns": [
     {
-      "name": "comment.line.number-sign.risclet",
+      "name": "comment.line.number-sign.riscv",
       "match": "#.*$"
     },
     {
@@ -11,82 +11,82 @@
       "end": "$",
       "beginCaptures": {
         "2": {
-          "name": "entity.name.label.risclet"
+          "name": "entity.name.label.riscv"
         },
         "3": {
-          "name": "keyword.control.instruction.risclet"
+          "name": "keyword.control.instruction.riscv"
         }
       },
       "patterns": [
         {
-          "name": "constant.language.fence.risclet",
+          "name": "constant.language.fence.riscv",
           "match": "[iorw]+(?![[:alnum:]_.$])"
         },
         {
-          "name": "comment.line.number-sign.risclet",
+          "name": "comment.line.number-sign.riscv",
           "match": "#.*$"
         },
         {
-          "name": "string.quoted.double.risclet",
+          "name": "string.quoted.double.riscv",
           "begin": "\"",
           "end": "\"|$",
           "patterns": [
             {
-              "name": "constant.character.escape.risclet",
+              "name": "constant.character.escape.riscv",
               "match": "\\\\[ntr\\\\'\"0]"
             },
             {
-              "name": "invalid.illegal.escape.risclet",
+              "name": "invalid.illegal.escape.riscv",
               "match": "\\\\."
             }
           ]
         },
         {
-          "name": "constant.character.risclet",
+          "name": "constant.character.riscv",
           "match": "'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')'"
         },
         {
-          "name": "invalid.illegal.character.risclet",
+          "name": "invalid.illegal.character.riscv",
           "match": "'[^\\r\\n]*"
         },
         {
-          "name": "entity.name.label.risclet",
+          "name": "entity.name.label.riscv",
           "match": "(?<![[:alnum:]_.$])(?:0[xX][0-9a-fA-F]+[ \\t]+|(?:0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)[ \\t]*)[fb](?![[:alnum:]_.$])"
         },
         {
-          "name": "invalid.illegal.numeric.risclet",
+          "name": "invalid.illegal.numeric.riscv",
           "match": "0(?:[xX](?![0-9a-fA-F])|[bB](?![01])|[oO](?![0-7]))"
         },
         {
-          "name": "constant.numeric.risclet",
+          "name": "constant.numeric.riscv",
           "match": "(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)"
         },
         {
-          "name": "variable.language.register.risclet",
+          "name": "variable.language.register.riscv",
           "match": "(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])(?![[:alnum:]_.$])"
         },
         {
-          "name": "invalid.illegal.directive.risclet",
+          "name": "invalid.illegal.directive.riscv",
           "match": "\\.(?!L)[[:alnum:]][[:alnum:]_.$]*"
         },
         {
-          "name": "variable.other.symbol.risclet",
+          "name": "variable.other.symbol.riscv",
           "match": "(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*"
         },
         {
-          "name": "keyword.operator.risclet",
+          "name": "keyword.operator.riscv",
           "match": "<<|>>|[+*/%&|^~\\-]"
         },
         {
-          "name": "constant.language.current-address.risclet",
+          "name": "constant.language.current-address.riscv",
           "match": "\\."
         },
         {
-          "name": "punctuation.separator.risclet",
+          "name": "punctuation.separator.riscv",
           "match": "[,():]"
         },
         {
-          "name": "invalid.illegal.risclet",
+          "name": "invalid.illegal.riscv",
           "match": "[^ \\t\\r\\n]"
         }
       ]
@@ -96,78 +96,78 @@
       "end": "$",
       "beginCaptures": {
         "2": {
-          "name": "entity.name.label.risclet"
+          "name": "entity.name.label.riscv"
         },
         "3": {
-          "name": "keyword.control.instruction.risclet"
+          "name": "keyword.control.instruction.riscv"
         }
       },
       "patterns": [
         {
-          "name": "comment.line.number-sign.risclet",
+          "name": "comment.line.number-sign.riscv",
           "match": "#.*$"
         },
         {
-          "name": "string.quoted.double.risclet",
+          "name": "string.quoted.double.riscv",
           "begin": "\"",
           "end": "\"|$",
           "patterns": [
             {
-              "name": "constant.character.escape.risclet",
+              "name": "constant.character.escape.riscv",
               "match": "\\\\[ntr\\\\'\"0]"
             },
             {
-              "name": "invalid.illegal.escape.risclet",
+              "name": "invalid.illegal.escape.riscv",
               "match": "\\\\."
             }
           ]
         },
         {
-          "name": "constant.character.risclet",
+          "name": "constant.character.riscv",
           "match": "'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')'"
         },
         {
-          "name": "invalid.illegal.character.risclet",
+          "name": "invalid.illegal.character.riscv",
           "match": "'[^\\r\\n]*"
         },
         {
-          "name": "entity.name.label.risclet",
+          "name": "entity.name.label.riscv",
           "match": "(?<![[:alnum:]_.$])(?:0[xX][0-9a-fA-F]+[ \\t]+|(?:0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)[ \\t]*)[fb](?![[:alnum:]_.$])"
         },
         {
-          "name": "invalid.illegal.numeric.risclet",
+          "name": "invalid.illegal.numeric.riscv",
           "match": "0(?:[xX](?![0-9a-fA-F])|[bB](?![01])|[oO](?![0-7]))"
         },
         {
-          "name": "constant.numeric.risclet",
+          "name": "constant.numeric.riscv",
           "match": "(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)"
         },
         {
-          "name": "variable.language.register.risclet",
+          "name": "variable.language.register.riscv",
           "match": "(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])(?![[:alnum:]_.$])"
         },
         {
-          "name": "invalid.illegal.directive.risclet",
+          "name": "invalid.illegal.directive.riscv",
           "match": "\\.(?!L)[[:alnum:]][[:alnum:]_.$]*"
         },
         {
-          "name": "variable.other.symbol.risclet",
+          "name": "variable.other.symbol.riscv",
           "match": "(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*"
         },
         {
-          "name": "keyword.operator.risclet",
+          "name": "keyword.operator.riscv",
           "match": "<<|>>|[+*/%&|^~\\-]"
         },
         {
-          "name": "constant.language.current-address.risclet",
+          "name": "constant.language.current-address.riscv",
           "match": "\\."
         },
         {
-          "name": "punctuation.separator.risclet",
+          "name": "punctuation.separator.riscv",
           "match": "[,():]"
         },
         {
-          "name": "invalid.illegal.risclet",
+          "name": "invalid.illegal.riscv",
           "match": "[^ \\t\\r\\n]"
         }
       ]
@@ -177,155 +177,155 @@
       "end": "$",
       "beginCaptures": {
         "2": {
-          "name": "entity.name.label.risclet"
+          "name": "entity.name.label.riscv"
         },
         "3": {
-          "name": "keyword.control.directive.risclet"
+          "name": "keyword.control.directive.riscv"
         }
       },
       "patterns": [
         {
-          "name": "comment.line.number-sign.risclet",
+          "name": "comment.line.number-sign.riscv",
           "match": "#.*$"
         },
         {
-          "name": "string.quoted.double.risclet",
+          "name": "string.quoted.double.riscv",
           "begin": "\"",
           "end": "\"|$",
           "patterns": [
             {
-              "name": "constant.character.escape.risclet",
+              "name": "constant.character.escape.riscv",
               "match": "\\\\[ntr\\\\'\"0]"
             },
             {
-              "name": "invalid.illegal.escape.risclet",
+              "name": "invalid.illegal.escape.riscv",
               "match": "\\\\."
             }
           ]
         },
         {
-          "name": "constant.character.risclet",
+          "name": "constant.character.riscv",
           "match": "'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')'"
         },
         {
-          "name": "invalid.illegal.character.risclet",
+          "name": "invalid.illegal.character.riscv",
           "match": "'[^\\r\\n]*"
         },
         {
-          "name": "entity.name.label.risclet",
+          "name": "entity.name.label.riscv",
           "match": "(?<![[:alnum:]_.$])(?:0[xX][0-9a-fA-F]+[ \\t]+|(?:0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)[ \\t]*)[fb](?![[:alnum:]_.$])"
         },
         {
-          "name": "invalid.illegal.numeric.risclet",
+          "name": "invalid.illegal.numeric.riscv",
           "match": "0(?:[xX](?![0-9a-fA-F])|[bB](?![01])|[oO](?![0-7]))"
         },
         {
-          "name": "constant.numeric.risclet",
+          "name": "constant.numeric.riscv",
           "match": "(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)"
         },
         {
-          "name": "variable.language.register.risclet",
+          "name": "variable.language.register.riscv",
           "match": "(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])(?![[:alnum:]_.$])"
         },
         {
-          "name": "invalid.illegal.directive.risclet",
+          "name": "invalid.illegal.directive.riscv",
           "match": "\\.(?!L)[[:alnum:]][[:alnum:]_.$]*"
         },
         {
-          "name": "variable.other.symbol.risclet",
+          "name": "variable.other.symbol.riscv",
           "match": "(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*"
         },
         {
-          "name": "keyword.operator.risclet",
+          "name": "keyword.operator.riscv",
           "match": "<<|>>|[+*/%&|^~\\-]"
         },
         {
-          "name": "constant.language.current-address.risclet",
+          "name": "constant.language.current-address.riscv",
           "match": "\\."
         },
         {
-          "name": "punctuation.separator.risclet",
+          "name": "punctuation.separator.riscv",
           "match": "[,():]"
         },
         {
-          "name": "invalid.illegal.risclet",
+          "name": "invalid.illegal.riscv",
           "match": "[^ \\t\\r\\n]"
         }
       ]
     },
     {
-      "name": "entity.name.label.risclet",
+      "name": "entity.name.label.riscv",
       "match": "^[ \\t]*(?:(?!(?:(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7]))(?![[:alnum:]_.$]))(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')(?=[ \\t]*:)"
     },
     {
-      "name": "invalid.illegal.statement.risclet",
+      "name": "invalid.illegal.statement.riscv",
       "match": "^[ \\t]*(?:(?:(?!(?:(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7]))(?![[:alnum:]_.$]))(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*|(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)|'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')')[ \\t]*:[ \\t]*)?(?:(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*|\\.[[:alnum:]_.$]+)"
     },
     {
-      "name": "comment.line.number-sign.risclet",
+      "name": "comment.line.number-sign.riscv",
       "match": "#.*$"
     },
     {
-      "name": "string.quoted.double.risclet",
+      "name": "string.quoted.double.riscv",
       "begin": "\"",
       "end": "\"|$",
       "patterns": [
         {
-          "name": "constant.character.escape.risclet",
+          "name": "constant.character.escape.riscv",
           "match": "\\\\[ntr\\\\'\"0]"
         },
         {
-          "name": "invalid.illegal.escape.risclet",
+          "name": "invalid.illegal.escape.riscv",
           "match": "\\\\."
         }
       ]
     },
     {
-      "name": "constant.character.risclet",
+      "name": "constant.character.riscv",
       "match": "'(?:[^'\\\\\\r\\n]|\\\\[ntr\\\\'\"0]|')'"
     },
     {
-      "name": "invalid.illegal.character.risclet",
+      "name": "invalid.illegal.character.riscv",
       "match": "'[^\\r\\n]*"
     },
     {
-      "name": "entity.name.label.risclet",
+      "name": "entity.name.label.riscv",
       "match": "(?<![[:alnum:]_.$])(?:0[xX][0-9a-fA-F]+[ \\t]+|(?:0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)[ \\t]*)[fb](?![[:alnum:]_.$])"
     },
     {
-      "name": "invalid.illegal.numeric.risclet",
+      "name": "invalid.illegal.numeric.riscv",
       "match": "0(?:[xX](?![0-9a-fA-F])|[bB](?![01])|[oO](?![0-7]))"
     },
     {
-      "name": "constant.numeric.risclet",
+      "name": "constant.numeric.riscv",
       "match": "(?:0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+|0[0-7]*|[1-9][0-9]*)"
     },
     {
-      "name": "variable.language.register.risclet",
+      "name": "variable.language.register.riscv",
       "match": "(?:x(?:[0-9]|[12][0-9]|3[01])|zero|ra|sp|gp|tp|fp|t[0-6]|s(?:[0-9]|1[01])|a[0-7])(?![[:alnum:]_.$])"
     },
     {
-      "name": "invalid.illegal.directive.risclet",
+      "name": "invalid.illegal.directive.riscv",
       "match": "\\.(?!L)[[:alnum:]][[:alnum:]_.$]*"
     },
     {
-      "name": "variable.other.symbol.risclet",
+      "name": "variable.other.symbol.riscv",
       "match": "(?:[A-Za-z_$]|\\.L)[[:alnum:]_.$]*"
     },
     {
-      "name": "keyword.operator.risclet",
+      "name": "keyword.operator.riscv",
       "match": "<<|>>|[+*/%&|^~\\-]"
     },
     {
-      "name": "constant.language.current-address.risclet",
+      "name": "constant.language.current-address.riscv",
       "match": "\\."
     },
     {
-      "name": "punctuation.separator.risclet",
+      "name": "punctuation.separator.riscv",
       "match": "[,():]"
     },
     {
-      "name": "invalid.illegal.risclet",
+      "name": "invalid.illegal.riscv",
       "match": "[^ \\t\\r\\n]"
     }
   ]

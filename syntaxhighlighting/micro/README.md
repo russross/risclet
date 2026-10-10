@@ -1,57 +1,50 @@
-Micro syntax highlighting
-=========================
+RISC-V highlighting in micro
+===========================
 
-Install the definition from the repository root:
+This definition adds RISC-V assembly highlighting to micro. Its filetype name is `riscv`. You do not need the Risclet executable to use it. For the assembly language reference, see [SYNTAX.md](../../SYNTAX.md).
 
-```sh
-mkdir -p ~/.config/micro/syntax
-cp syntaxhighlighting/micro/risclet.yaml ~/.config/micro/syntax/risclet.yaml
-```
 
-Reopen the source file. The definition detects `.s` filenames. If
-another assembly definition wins detection, press Ctrl-e and enter
-`set filetype risclet`. For a custom micro configuration directory, put the file
-in its `syntax/` subdirectory instead.
-
-Dialect
+Install
 -------
 
-The source of truth is `src/tokenizer.rs` and `src/parser.rs`, reached through
-the assembler's per-line parsing. The definition recognizes the same closed
-instruction and directive sets as [CodeMirror](../codemirror/README.md):
+The commands below are for a Linux or macOS terminal, outside micro.
 
-*   Implemented base instructions, pseudo instructions, compressed instructions,
-    and word-width atomics with `.aq`, `.rl`, or `.aqrl` ordering.
-*   Case-sensitive registers, named and integer labels, numeric label references,
-    symbols, current address `.`, and expression operators.
-*   Decimal, hexadecimal, binary, explicit octal and leading-zero octal numbers;
-    character and string literals with the assembler's supported escapes.
-*   `#` comments and literal regions that end on the current physical line.
+1. Open a terminal in your downloaded or cloned `risclet` repository. Run `pwd` to see your location and `ls syntaxhighlighting/micro/riscv.yaml` to check that you are in the right directory.
+2. Copy the definition into your micro configuration:
 
-Mnemonics are highlighted at statement positions and remain ordinary symbols in
-operands. Unsupported statement names and malformed escapes receive error groups.
-No GAS directives, relocation functions, or C-style comments are added.
+    ```sh
+    mkdir -p ~/.config/micro/syntax
+    cp syntaxhighlighting/micro/riscv.yaml ~/.config/micro/syntax/riscv.yaml
+    ```
 
-This is a regex highlighter, not an assembler validator. It does not check integer
-overflow, operand counts, expression validity, compressed-register restrictions,
-or symbol resolution. An unterminated string retains string coloring until the
-end of its line. Micro's region engine also restarts anchored pattern matching
-after each literal, so malformed source or expressions containing adjacent
-literals and mnemonic-shaped symbols may receive approximate context coloring.
+    `~` means your home directory. `mkdir -p` creates missing directories; `cp` copies the file. No `sudo` is needed. Repeating the copy updates the installed definition, replacing that destination file.
+3. Quit and restart micro, then open an assembly file: `micro program.s` (replace `program.s` with your filename). The definition recognizes lowercase `.s` filenames.
+4. If micro selects another assembly language, press Ctrl-e, type `set filetype riscv`, and press Enter. The status line should show `riscv`.
 
-Verification
-------------
+The default configuration directory is `~/.config/micro`. If you set `MICRO_CONFIG_HOME`, `XDG_CONFIG_HOME`, or start micro with `-config-dir`, copy the definition into the `syntax/` directory under the configuration directory actually in use. See micro's [configuration documentation](https://github.com/micro-editor/micro/blob/master/runtime/help/options.md).
 
-Run from any directory with Go installed:
 
-```sh
-syntaxhighlighting/micro/test.sh
+Keep `.s` files associated with RISC-V
+-------------------------------------
+
+Other assembly definitions can also match `.s`. To choose RISC-V consistently, edit `~/.config/micro/settings.json` (or the equivalent file in your custom configuration directory) and add this filename-specific setting:
+
+```json
+{
+    "*.s": {
+        "filetype": "riscv"
+    }
+}
 ```
 
-The script builds a check against micro 2.0.14's actual YAML parser and highlighting
-engine in a temporary directory. It downloads test dependencies without adding
-runtime dependencies or Go module files to this project. Tests cover the shared
-editor fixtures and micro-specific cases, including compact register lists,
-Unicode symbols, literal comments, character labels, and recovery after an
-unterminated string. The definition was also loaded in micro 2.0.14 to check
-filetype detection and displayed highlighting.
+If the file already contains settings, add the `"*.s"` entry inside the existing outer braces; separate entries with commas. Do not replace your other settings. Save and restart micro. This applies to every lowercase `.s` file; if you also write x86 assembly, use a narrower filename pattern for your RISC-V files or select the filetype manually instead. Micro documents filename-specific settings in its [options guide](https://github.com/micro-editor/micro/blob/master/runtime/help/options.md).
+
+
+Common problems
+---------------
+
+*   **`set filetype riscv` gives no highlighting.** Check that the file is named `riscv.yaml`, not `riscv.yaml.txt`, and is in the active configuration directory's `syntax/` subdirectory. Restart micro after copying it. Press Ctrl-e and enter `set syntax true` if syntax highlighting is disabled.
+*   **Another definition keeps winning.** Check the `"*.s"` entry and other filename-specific settings in `settings.json`. Look for duplicate RISC-V definitions in your configuration's `syntax/` and plugin directories. A definition with the same filetype name can conflict even when you select `riscv` explicitly. Disable the conflicting user-installed definition rather than changing micro's bundled files.
+*   **Colors are faint or different on another computer.** Micro's colorscheme and your terminal determine the colors. Press Ctrl-e and enter `help colors` for micro's color settings. Syntax colors do not check whether a program assembles correctly.
+
+To update, repeat the copy command and restart micro. To uninstall, remove the installed `riscv.yaml` and any settings that select `riscv`, then restart micro.

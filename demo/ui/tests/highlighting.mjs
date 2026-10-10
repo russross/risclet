@@ -1,5 +1,5 @@
 import { StringStream } from "@codemirror/language";
-import { riscletStreamParser } from "../../../syntaxhighlighting/codemirror/risclet.ts";
+import { riscvStreamParser } from "../../../syntaxhighlighting/codemirror/riscv.ts";
 
 // Exercise directive recognition alongside actual strings and fill operands.
 // Similar-looking unknown names must remain invalid rather than match prefixes.
@@ -35,11 +35,11 @@ export async function run() {
         ['j 0x1 f', ['keyword', 'labelName', 'labelName']],
     ]) {
         const stream = new StringStream(line, 4, 2);
-        const state = riscletStreamParser.startState(2);
+        const state = riscvStreamParser.startState(2);
         const actual = [];
         while (!stream.eol()) {
             stream.start = stream.pos;
-            const style = riscletStreamParser.token(stream, state);
+            const style = riscvStreamParser.token(stream, state);
             if (style !== null) actual.push(style);
         }
         if (JSON.stringify(actual) !== JSON.stringify(expected)) {

@@ -1,5 +1,0 @@
-" Select the risclet dialect for assembly source files.
-augroup risclet_filetype
-  autocmd!
-  autocmd BufRead,BufNewFile *.s setfiletype risclet
-augroup END

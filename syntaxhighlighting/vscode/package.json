@@ -1,7 +1,7 @@
 {
-  "name": "risclet",
-  "displayName": "Risclet Assembly",
-  "description": "Syntax highlighting for the assembly dialect implemented by risclet.",
+  "name": "riscv",
+  "displayName": "RISC-V Assembly",
+  "description": "RISC-V syntax highlighting for assembly supported by Risclet.",
   "version": "0.1.0",
   "publisher": "russross",
   "license": "AGPL-3.0-only",
@@ -14,10 +14,10 @@
   "contributes": {
     "languages": [
       {
-        "id": "risclet",
+        "id": "riscv",
         "aliases": [
-          "Risclet",
-          "risclet"
+          "RISC-V",
+          "riscv"
         ],
         "extensions": [
           ".s"
@@ -27,9 +27,9 @@
     ],
     "grammars": [
       {
-        "language": "risclet",
-        "scopeName": "source.risclet",
-        "path": "./syntaxes/risclet.tmLanguage.json"
+        "language": "riscv",
+        "scopeName": "source.riscv",
+        "path": "./syntaxes/riscv.tmLanguage.json"
       }
     ]
   }
