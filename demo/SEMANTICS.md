@@ -58,7 +58,7 @@ Build inputs to served page
 ---------------------------
 
 1. `Makefile` selects the published Riscbox version from `version`, the published Risclet version from the root Cargo manifest or `RISCLET_VERSION`, and a pinned Alpine minirootfs. Download scripts verify digests before replacing cached files. Public runtime declarations and runtime bytes are extracted from the same Riscbox release.
-2. `build-image.sh` combines the minirootfs, selected Risclet binary, and guest configuration into a 16 MiB ext4 image under fakeroot. Building the disk does not boot a VM or install guest packages. The release's splitter produces HTTP disk blocks separately from UI compilation and example packing.
+2. `build-image.sh` combines the minirootfs, selected Risclet binary, and guest configuration into a 16 MiB ext4 image under fakeroot. The filesystem is created with `has_journal` disabled, so it contains no journal and performs no journaling. Building the disk does not boot a VM or install guest packages. The release's splitter produces HTTP disk blocks separately from UI compilation and example packing.
 3. `scripts/bundle.py` validates the example manifest and packages every declared file, including binary bytes, into a compressed JSON bundle. UI compilation imports the shared CodeMirror grammar from `../syntaxhighlighting/codemirror/riscv.ts`; it does not maintain a separate assembly grammar.
 4. `scripts/site.py` creates the runtime configuration and publishes the entry page. Configuration paths resolve relative to the configuration URL. The page references content-named application, style, configuration, and example assets; runtime URLs include the selected release version. An existing immutable asset URL must not acquire incompatible bytes.
 

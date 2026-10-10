@@ -36,9 +36,9 @@ fakeroot sh -eu -c '
     chown 1000:1000 home/risclet
     printf "/dev/vda / ext4 rw,noatime 0 0\n" > etc/fstab
 
-    # Populate a fixed-size writable disk without mounting or booting it.
+    # Populate a fixed-size writable disk without a journal, mounting, or booting it.
     truncate -s 16M "$5"
-    mkfs.ext4 -q -F -m 0 -d . "$5"
+    mkfs.ext4 -q -F -m 0 -O ^has_journal -d . "$5"
 ' sh "$archive" "$stage" "$(pwd)/guest" "$binary" "$(pwd)/build/rootfs.ext4.part"
 mv build/rootfs.ext4.part build/rootfs.ext4
 echo 'Prepared 16 MiB Alpine ext4 image with the published Risclet binary.'
