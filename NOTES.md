@@ -66,13 +66,23 @@ Dump requests are successful inspection operations. The latest requested phase d
 
 Only `assemble_and_save` writes the completed ELF, then sets mode `0755`. Assembly failure occurs before opening the destination. Once saving starts, the implementation uses direct create/write operations rather than atomic replacement; a filesystem write failure can leave a partial output file.
 
+Emitted executables use ELF32 with the soft-float ABI flag for ILP32 and the RVC flag for compressed instructions. Symbol records and section headers begin on four-byte file boundaries. Text section and LOAD alignment declarations accommodate the configured text base; data LOAD segments remain page-aligned. BSS has a conceptual file offset immediately after initialized data. The `.riscv.attributes` vendor subsection length includes its length field and vendor name; the nested file subsection length includes its tag and length field. Both lengths cover their complete payloads, including the architecture string terminator.
+
+Layout computation checks section-size accumulation and address arithmetic before encoding: headers, text, page alignment, data, BSS, and the built-in global pointer must fit ELF32. An overflowing layout returns an error through relaxation instead of panicking or wrapping into a different address range.
+
 
 Executable to machine
 ---------------------
 
 `src/elf.rs` parses the shared ELF representation; `src/elf_loader.rs` applies executable policy and constructs `Machine`. Input must be a supported ELF32 little-endian System V RISC-V executable with program headers and a symbol table. The loader rejects unsupported relocation and dynamic-linking section types. Section names are not the authority for finding the symbol table or its linked string table.
 
-Allocated, nonempty `PROGBITS` and `NOBITS` sections define simulator memory regions. Their section flags determine write and execute permissions. Initialization bytes come from load-segment data at the section address; the remaining region is zero-filled. Regions cannot begin at zero or have an overflowing end address. This section-based loading model requires section metadata even though a native OS loader may rely primarily on program headers.
+The parser bounds table and payload ranges before reading them, checks LOAD file/memory sizes and address overflow, and checks LOAD and section alignment. Linked string tables begin and end with null bytes; names retain byte offsets, suffix references, and non-UTF-8 bytes. Symbol tables require a null initial symbol, a consistent local/global boundary, and valid section references. Absolute and undefined indexes are supported; other reserved symbol indexes and extended ELF table numbering are rejected explicitly.
+
+Executable loading requires the floating-point ABI bits to be zero (soft-float), permits the RVC flag, and requires an even entry address within executable PROGBITS. Dynamic/interpreter/TLS program headers and TLS sections are unsupported. Allocated sections must be PROGBITS or NOBITS, nonoverlapping, and fully covered by a LOAD memory range with compatible permissions. Initialized sections must match the LOAD file offset and fit wholly inside its file payload. NOBITS always starts zero-filled, regardless of coincident file bytes. Undefined symbols do not become simulator symbols.
+
+The simulator places its 8192-byte stack above the default location when sections extend into or beyond it, rounding to an 8192-byte boundary without wrapping. The ELF loader rejects a layout if the resulting stack overlaps an allocated section. ABI version, other processor flags, and architecture attribute contents are not compatibility gates; unsupported machine instructions are diagnosed by decoding. RISC-V attributes are emitted for external tools but are not interpreted on input. Symbol-less binaries, extended numbering, dynamic linking, and TLS are outside the supported executable model.
+
+Allocated, nonempty `PROGBITS` and `NOBITS` sections define simulator memory regions. Their section flags determine write and execute permissions. Initialized bytes come from the covering load segment; NOBITS reserves zero-filled storage. Regions cannot begin at zero or have an overflowing end address. This section-based loading model requires section metadata even though a native OS loader may rely primarily on program headers.
 
 `Machine` owns CPU state, memory, symbol maps, instruction effects, I/O recording, and atomic reservation state. Reset restores each region from its initial bytes, zero-fills reserved space, clears registers, sets `sp` to the top of an 8192-byte stack, and selects the ELF entry PC. Register `x0` always reads zero and ignores writes. The loaded global-pointer symbol is metadata for interpretation and display; reset does not initialize the `gp` register from it.
 

@@ -74,7 +74,8 @@ impl MemoryLayout {
                     .end
                     .saturating_add(STACK_SIZE * 2)
                     .saturating_sub(1))
-                    & (STACK_SIZE - 1);
+                    & !(STACK_SIZE - 1);
+                stack_start = stack_start.min(u32::MAX - STACK_SIZE * 2 + 1);
             }
         }
 

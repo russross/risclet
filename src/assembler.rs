@@ -214,7 +214,7 @@ pub fn relaxation_loop(
 
         // Step 1: Calculate a complete layout from the current size estimates
         let mut layout =
-            Layout::from_sizes(source, &line_sizes, config.text_start);
+            Layout::from_sizes(source, &line_sizes, config.text_start)?;
 
         if config.verbose {
             eprintln!(

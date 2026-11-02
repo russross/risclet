@@ -8,6 +8,7 @@ use crate::ast::{
     Directive, Instruction, LineContent, LinePointer, PseudoOp, Segment, Source,
 };
 use crate::elf_builder::ExecutableLayout;
+use crate::error::{Result, RiscletError};
 use crate::symbols::{BUILTIN_FILE_NAME, SPECIAL_GLOBAL_POINTER};
 use std::collections::HashMap;
 
@@ -114,16 +115,32 @@ impl Layout {
     /// - **text_start**: Adjusted to account for ELF header before text segment
     /// - **data_start**: Aligned to 4K boundary after text segment
     /// - **bss_start**: Immediately after data segment
-    pub fn set_segment_addresses(&mut self, nominal_text_start: u32) {
+    pub fn set_segment_addresses(
+        &mut self,
+        nominal_text_start: u32,
+    ) -> Result<()> {
+        let overflow = || {
+            RiscletError::elf(
+                "assembled address layout exceeds ELF32 address space".into(),
+            )
+        };
         // Adjust text_start to account for ELF header
-        self.text_start = nominal_text_start + self.header_size;
+        self.text_start = nominal_text_start
+            .checked_add(self.header_size)
+            .ok_or_else(overflow)?;
 
         // Align data_start to 4K boundary after text segment
-        let text_end = self.text_start + self.text_size;
-        self.data_start = (text_end + 4095) & !(4096 - 1);
+        let text_end =
+            self.text_start.checked_add(self.text_size).ok_or_else(overflow)?;
+        self.data_start =
+            text_end.checked_add(4095).ok_or_else(overflow)? & !(4096 - 1);
 
         // BSS starts immediately after data
-        self.bss_start = self.data_start + self.data_size;
+        self.bss_start =
+            self.data_start.checked_add(self.data_size).ok_or_else(overflow)?;
+        self.bss_start.checked_add(self.bss_size).ok_or_else(overflow)?;
+        self.data_start.checked_add(2048).ok_or_else(overflow)?;
+        Ok(())
     }
 
     /// Compute the concrete address of a line in the final binary
@@ -146,7 +163,7 @@ impl Layout {
         source: &Source,
         line_sizes: &LineSizes,
         nominal_text_start: u32,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut layout = Layout::new_empty();
 
         for (file_index, file) in source.files.iter().enumerate() {
@@ -163,10 +180,10 @@ impl Layout {
             }
         }
 
-        layout.update_addresses(source);
-        layout.set_segment_addresses(nominal_text_start);
+        layout.update_addresses(source)?;
+        layout.set_segment_addresses(nominal_text_start)?;
 
-        layout
+        Ok(layout)
     }
 
     /// Compute offsets for all lines based on the Layout structure.
@@ -175,14 +192,14 @@ impl Layout {
     /// and writes back the computed offsets.
     ///
     /// The segment for each line is computed on-the-fly by tracking directives.
-    pub fn update_addresses(&mut self, source: &Source) {
+    pub fn update_addresses(&mut self, source: &Source) -> Result<()> {
         let mut global_text_offset: u32 = 0;
         let mut global_data_offset: u32 = 0;
         let mut global_bss_offset: u32 = 0;
 
         // Check if there's a builtin symbols file (last file)
         if source.files.is_empty() {
-            return;
+            return Ok(());
         }
         let has_builtin = source
             .files
@@ -263,11 +280,19 @@ impl Layout {
                 );
 
                 // Advance offset in the appropriate segment
-                match current_segment {
-                    Segment::Text => text_offset += size,
-                    Segment::Data => data_offset += size,
-                    Segment::Bss => bss_offset += size,
-                }
+                let segment_offset = match current_segment {
+                    Segment::Text => &mut text_offset,
+                    Segment::Data => &mut data_offset,
+                    Segment::Bss => &mut bss_offset,
+                };
+                *segment_offset =
+                    segment_offset.checked_add(size).ok_or_else(|| {
+                        RiscletError::from_source_pointer(
+                            "section size exceeds ELF32 limits".into(),
+                            source,
+                            pointer,
+                        )
+                    })?;
             }
 
             // Update global offsets to continue in the next file
@@ -285,6 +310,7 @@ impl Layout {
         self.header_size =
             ExecutableLayout::new(self.data_size > 0, self.bss_size > 0)
                 .header_size();
+        Ok(())
     }
 }
 

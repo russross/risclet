@@ -33,7 +33,9 @@ pub const EM_RISCV: u16 = 0xF3; // RISC-V
 pub const EV_CURRENT: u32 = 1;
 
 // ELF Header Flags (for RISC-V)
-pub const EF_RISCV_FLOAT_ABI_DOUBLE: u32 = 0x4; // Double-precision FP ABI
+pub const EF_RISCV_FLOAT_ABI_SOFT: u32 = 0x0; // Integer calling convention (ILP32)
+pub const EF_RISCV_FLOAT_ABI: u32 = 0x6;
+pub const EF_RISCV_RVC: u32 = 0x1;
 
 // Section Types
 pub const SHT_NULL: u32 = 0;
@@ -450,6 +452,14 @@ impl<'a> ElfFile<'a> {
         if header.e_ehsize as usize != ElfHeader::SIZE {
             return Err(RiscletError::elf("unexpected ELF header size".into()));
         }
+        if header.e_phnum == u16::MAX
+            || header.e_shstrndx >= 0xff00
+            || (header.e_shnum == 0 && header.e_shoff != 0)
+        {
+            return Err(RiscletError::elf(
+                "extended ELF table numbering is not supported".into(),
+            ));
+        }
         let program_headers = decode_table(
             bytes,
             header.e_phoff,
@@ -469,14 +479,53 @@ impl<'a> ElfFile<'a> {
             ElfSectionHeader::decode,
         )?;
         let file = Self { bytes, header, program_headers, section_headers };
+        if file
+            .section_headers
+            .first()
+            .is_some_and(|section| section.sh_type != SHT_NULL)
+        {
+            return Err(RiscletError::elf("section zero must be NULL".into()));
+        }
 
         // Validate payload ranges without allocating their contents. NOBITS
         // and NULL sections have no file payload, regardless of their size.
         for header in &file.program_headers {
             file.program_data(header)?;
+            if header.p_type == PT_LOAD {
+                if header.p_filesz > header.p_memsz
+                    || header.p_vaddr.checked_add(header.p_memsz).is_none()
+                {
+                    return Err(RiscletError::elf(
+                        "invalid LOAD segment sizes or address range".into(),
+                    ));
+                }
+                if header.p_align > 1
+                    && (!header.p_align.is_power_of_two()
+                        || header.p_vaddr % header.p_align
+                            != header.p_offset % header.p_align)
+                {
+                    return Err(RiscletError::elf(
+                        "invalid LOAD segment alignment".into(),
+                    ));
+                }
+            }
         }
         for index in 0..file.section_headers.len() {
             file.section_data(index)?;
+            let section = &file.section_headers[index];
+            if section.sh_type != SHT_NULL
+                && section.sh_addralign > 1
+                && (!section.sh_addralign.is_power_of_two()
+                    || !section.sh_addr.is_multiple_of(section.sh_addralign)
+                    || (section.sh_type != SHT_NOBITS
+                        && !section
+                            .sh_offset
+                            .is_multiple_of(section.sh_addralign)))
+            {
+                return Err(RiscletError::elf(
+                    "invalid section alignment".into(),
+                ));
+            }
         }
         if file.header.e_shstrndx != SHN_UNDEF {
             let index = file.header.e_shstrndx as usize;
@@ -491,8 +540,37 @@ impl<'a> ElfFile<'a> {
         for (index, section) in file.section_headers.iter().enumerate() {
             if section.sh_type == SHT_SYMTAB {
                 file.string_table(section.sh_link as usize)?;
-                for symbol in file.symbols(index)? {
+                let symbols = file.symbols(index)?;
+                if section.sh_info as usize > symbols.len() {
+                    return Err(RiscletError::elf(
+                        "symbol table local boundary is out of bounds".into(),
+                    ));
+                }
+                if symbols.first().is_none_or(|symbol| {
+                    symbol.encode() != [0; ElfSymbol::SIZE]
+                }) {
+                    return Err(RiscletError::elf(
+                        "symbol zero must be null".into(),
+                    ));
+                }
+                for (position, symbol) in symbols.into_iter().enumerate() {
+                    if (symbol.binding() == STB_LOCAL)
+                        != (position < section.sh_info as usize)
+                    {
+                        return Err(RiscletError::elf("symbol table local boundary disagrees with bindings".into()));
+                    }
                     file.symbol_name(index, &symbol)?;
+                    if symbol.st_shndx != SHN_ABS
+                        && symbol.st_shndx != SHN_UNDEF
+                        && (symbol.st_shndx >= 0xff00
+                            || symbol.st_shndx as usize
+                                >= file.section_headers.len())
+                    {
+                        return Err(RiscletError::elf(
+                            "unsupported or invalid symbol section index"
+                                .into(),
+                        ));
+                    }
                 }
             }
         }
@@ -528,7 +606,13 @@ impl<'a> ElfFile<'a> {
                 "section {index} is not a string table"
             )));
         }
-        self.section_data(index)
+        let bytes = self.section_data(index)?;
+        if !bytes.is_empty() && (bytes[0] != 0 || bytes.last() != Some(&0)) {
+            return Err(RiscletError::elf(
+                "string table must begin and end with a null byte".into(),
+            ));
+        }
+        Ok(bytes)
     }
 
     pub fn section_name(&self, index: usize) -> Result<&'a [u8]> {

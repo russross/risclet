@@ -102,7 +102,9 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 fn external_elf() -> Vec<u8> {
     let mut bytes = vec![0; 496];
     bytes[..52].copy_from_slice(&HEADER);
-    for (i, value) in [1, 84, 0x1000, 0x1000, 4, 4, 5, 4096].iter().enumerate()
+    put_u32(&mut bytes, 36, 0);
+    for (i, value) in
+        [1, 84, 0x1000, 0x1000, 4, 0x1004, 7, 1].iter().enumerate()
     {
         put_u32(&mut bytes, 52 + i * 4, *value);
     }
@@ -205,6 +207,7 @@ fn names_remain_bytes_and_machine_address_errors_are_clean() {
     for address in [0, u32::MAX - 1] {
         let mut bytes = external_elf();
         put_u32(&mut bytes, 256 + 40 + 12, address);
+        put_u32(&mut bytes, 256 + 40 + 32, 1);
         assert!(ElfFile::parse(&bytes).is_ok());
         assert!(load_elf(ElfInput::Bytes(&bytes)).is_err());
     }
@@ -217,6 +220,176 @@ fn assembled(source: &str) -> Vec<u8> {
         AssemblyOutput::Elf(bytes) => bytes,
         AssemblyOutput::Dumped => panic!("unexpected dump"),
     }
+}
+
+#[test]
+fn loader_requires_soft_float_without_rejecting_rvc() {
+    for flags in [0, 1] {
+        let mut bytes = external_elf();
+        put_u32(&mut bytes, 36, flags);
+        assert!(load_elf(ElfInput::Bytes(&bytes)).is_ok());
+    }
+    for flags in [2, 3, 4, 5, 6, 7] {
+        let mut bytes = external_elf();
+        put_u32(&mut bytes, 36, flags);
+        let error = load_elf(ElfInput::Bytes(&bytes)).err().unwrap();
+        assert!(error.to_string().contains("soft-float"));
+    }
+}
+
+#[test]
+fn malformed_loads_alignment_and_symbols_are_rejected() {
+    // Every mutation retains bounded file data while violating a relationship.
+    for (offset, value) in [
+        (72, 3),            // LOAD memory smaller than its file data.
+        (60, u32::MAX - 1), // LOAD address wraps.
+        (80, 3),            // Non-power-of-two alignment.
+        (80, 4096),         // Address and file offset are incongruent.
+        (256 + 40 + 32, 3), // Invalid section alignment.
+        (256 + 80 + 28, 4), // Symbol local boundary exceeds table.
+        (256 + 80 + 28, 2), // Global symbol inside local prefix.
+        (192, 1),           // Non-null initial symbol.
+        (160, 1),           // String table does not start with a null.
+        (256 + 4, 1),       // Non-null initial section.
+    ] {
+        let mut bytes = external_elf();
+        put_u32(&mut bytes, offset, value);
+        assert!(
+            ElfFile::parse(&bytes).is_err(),
+            "offset {offset}, value {value}"
+        );
+    }
+    let mut bytes = external_elf();
+    bytes[222..224].copy_from_slice(&6u16.to_le_bytes());
+    assert!(ElfFile::parse(&bytes).is_err());
+}
+
+#[test]
+fn loader_rejects_inconsistent_memory_images() {
+    for (offset, value) in [
+        (24, 0x1001),             // Odd entry.
+        (24, 0x2000),             // Entry in BSS.
+        (52, 0),                  // Missing LOAD mapping.
+        (68, 2), // Initialized section extends beyond file-backed memory.
+        (76, 6), // Executable section in non-executable LOAD.
+        (256 + 40 + 16, 88), // Section and segment disagree on file bytes.
+        (256 + 200 + 12, 0x1000), // BSS overlaps code.
+        (256 + 200 + 8, 0x403), // Unsupported TLS.
+    ] {
+        let mut bytes = external_elf();
+        put_u32(&mut bytes, offset, value);
+        assert!(
+            load_elf(ElfInput::Bytes(&bytes)).is_err(),
+            "offset {offset}, value {value}"
+        );
+    }
+}
+
+#[test]
+fn bss_never_inherits_file_bytes_and_stack_stays_above_high_sections() {
+    let mut bytes = external_elf();
+    // Place BSS in the file-backed part of LOAD; its memory still starts zero.
+    put_u32(&mut bytes, 68, 160);
+    put_u32(&mut bytes, 256 + 200 + 12, 0x1004);
+    let mut machine = load_elf(ElfInput::Bytes(&bytes)).unwrap();
+    machine.reset();
+    assert_eq!(machine.load(0x1004, 4).unwrap(), [0; 4]);
+
+    // Relocate the image above the default stack; the stack must move with it.
+    for (offset, value) in [
+        (24, 0x200000),
+        (60, 0x200000),
+        (256 + 40 + 12, 0x200000),
+        (256 + 200 + 12, 0x201000),
+    ] {
+        put_u32(&mut bytes, offset, value);
+    }
+    let machine = load_elf(ElfInput::Bytes(&bytes)).unwrap();
+    assert!(machine.stack_start() >= 0x201004);
+    assert_eq!(machine.stack_end() % 16, 0);
+}
+
+#[test]
+fn emitted_tables_obey_their_declared_alignment() {
+    // Odd data sizes exercise padding before metadata without altering data.
+    for size in [0, 1, 2, 3, 7] {
+        let bytes = assembled(&format!(
+            ".global _start\n_start: c.nop\n.data\n.space {size}\n.bss\n.space 3\n"
+        ));
+        let file = ElfFile::parse(&bytes).unwrap();
+        assert_eq!(file.header.e_shoff % 4, 0);
+        for section in &file.section_headers {
+            if section.sh_type != 8 && section.sh_addralign > 1 {
+                assert_eq!(section.sh_offset % section.sh_addralign, 0);
+            }
+        }
+        assert!(load_elf(ElfInput::Bytes(&bytes)).is_ok());
+    }
+}
+
+#[test]
+fn custom_text_base_preserves_segment_alignment() {
+    let mut config = Config::for_mode(Mode::Assemble);
+    config.text_start = 0x10002;
+    let AssemblyOutput::Elf(bytes) = assemble(
+        &mut config,
+        vec![("test.s".into(), ".global _start\n_start: c.nop\n".into())],
+    )
+    .unwrap() else {
+        panic!("unexpected dump")
+    };
+    assert!(ElfFile::parse(&bytes).is_ok());
+    assert!(load_elf(ElfInput::Bytes(&bytes)).is_ok());
+}
+
+#[test]
+fn assembler_rejects_address_overflow_cleanly() {
+    for address in [u32::MAX, u32::MAX - 100, 0xffff_f000] {
+        let mut config = Config::for_mode(Mode::Assemble);
+        config.text_start = address;
+        let error = assemble(
+            &mut config,
+            vec![("test.s".into(), ".global _start\n_start: nop\n".into())],
+        )
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("ELF32 address space"));
+    }
+}
+
+#[test]
+fn arbitrary_single_byte_corruption_reports_errors_without_panicking() {
+    let original = external_elf();
+    // Exercise headers, linked tables, and payloads through the public loader.
+    // Valid mutations may load; malformed ones must return an ordinary error.
+    for offset in 0..original.len() {
+        for value in [0, 0x7f, 0xff] {
+            let mut bytes = original.clone();
+            bytes[offset] = value;
+            let _ = load_elf(ElfInput::Bytes(&bytes));
+        }
+    }
+}
+
+#[test]
+fn assembler_emits_ilp32_and_complete_riscv_attributes() {
+    let bytes = assembled(".global _start\n_start: nop\n");
+    let file = ElfFile::parse(&bytes).unwrap();
+    // ELF32 and clear floating-point ABI bits identify the ILP32 ABI.
+    assert_eq!(file.header.e_ident[4], 1);
+    assert_eq!(file.header.e_flags & 0x6, 0);
+    assert_eq!(file.header.e_flags & 1, 1);
+
+    // Independent wire bytes include both subsection headers in their lengths.
+    let section = file
+        .section_headers
+        .iter()
+        .position(|s| s.sh_type == 0x7000_0003)
+        .unwrap();
+    assert_eq!(
+        file.section_data(section).unwrap(),
+        b"A\x34\0\0\0riscv\0\x01\x2a\0\0\0\x05rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0\0"
+    );
 }
 
 #[test]

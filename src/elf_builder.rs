@@ -11,12 +11,13 @@ use std::path::Path;
 
 use crate::ast::{LineContent, LinePointer, Segment, Source};
 use crate::elf::{
-    EF_RISCV_FLOAT_ABI_DOUBLE, EI_ABIVERSION, EI_CLASS, EI_DATA, EI_MAG0,
-    EI_MAG1, EI_MAG2, EI_MAG3, EI_OSABI, EI_VERSION, EM_RISCV, ET_EXEC,
-    EV_CURRENT, ElfHeader, ElfProgramHeader, ElfSectionHeader, ElfSymbol, PF_R,
-    PF_W, PF_X, PT_LOAD, PT_RISCV_ATTRIBUTES, SHF_ALLOC, SHF_EXECINSTR,
-    SHF_WRITE, SHN_ABS, SHT_NOBITS, SHT_PROGBITS, SHT_RISCV_ATTRIBUTES,
-    SHT_STRTAB, SHT_SYMTAB, STB_GLOBAL, STB_LOCAL, STT_NOTYPE, make_st_info,
+    EF_RISCV_FLOAT_ABI_SOFT, EF_RISCV_RVC, EI_ABIVERSION, EI_CLASS, EI_DATA,
+    EI_MAG0, EI_MAG1, EI_MAG2, EI_MAG3, EI_OSABI, EI_VERSION, EM_RISCV,
+    ET_EXEC, EV_CURRENT, ElfHeader, ElfProgramHeader, ElfSectionHeader,
+    ElfSymbol, PF_R, PF_W, PF_X, PT_LOAD, PT_RISCV_ATTRIBUTES, SHF_ALLOC,
+    SHF_EXECINSTR, SHF_WRITE, SHN_ABS, SHT_NOBITS, SHT_PROGBITS,
+    SHT_RISCV_ATTRIBUTES, SHT_STRTAB, SHT_SYMTAB, STB_GLOBAL, STB_LOCAL,
+    STT_NOTYPE, make_st_info,
 };
 use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues};
@@ -175,6 +176,7 @@ impl<'a> ElfBuilder<'a> {
         }
 
         // Symbol table section
+        output.resize(output.len().next_multiple_of(4), 0);
         let symtab_offset = output.len() as u32;
         for sym in &self.symbol_table {
             output.extend_from_slice(&sym.encode());
@@ -199,6 +201,7 @@ impl<'a> ElfBuilder<'a> {
         )?;
 
         // Write section headers
+        output.resize(output.len().next_multiple_of(4), 0);
         let shoff = output.len() as u32;
         for sh in &self.section_headers {
             output.extend_from_slice(&sh.encode());
@@ -263,7 +266,7 @@ impl<'a> ElfBuilder<'a> {
             p_filesz: text_filesz,
             p_memsz: text_filesz,
             p_flags: PF_R | PF_X,
-            p_align: 0x1000,
+            p_align: 1 << base_vaddr.trailing_zeros().min(12),
         });
 
         // LOAD segment for .data + .bss (if present)
@@ -306,7 +309,7 @@ impl<'a> ElfBuilder<'a> {
             sh_size: self.text_data.len() as u32,
             sh_link: 0,
             sh_info: 0,
-            sh_addralign: 4,
+            sh_addralign: 1 << self.layout.text_start.trailing_zeros().min(2),
             sh_entsize: 0,
         });
 
@@ -339,6 +342,7 @@ impl<'a> ElfBuilder<'a> {
                 sh_flags: SHF_WRITE | SHF_ALLOC,
                 sh_addr: self.layout.bss_start,
                 sh_offset: data_offset
+                    .map(|offset| offset + self.data_data.len() as u32)
                     .unwrap_or(text_offset + self.text_data.len() as u32),
                 sh_size: self.layout.bss_size,
                 sh_link: 0,
@@ -378,7 +382,7 @@ impl<'a> ElfBuilder<'a> {
             sh_size: (self.symbol_table.len() * ElfSymbol::SIZE) as u32,
             sh_link: u32::from(self.executable_layout.strtab),
             sh_info: first_global, // Index of first global symbol
-            sh_addralign: 8,
+            sh_addralign: 4,
             sh_entsize: ElfSymbol::SIZE as u32,
         });
 
@@ -642,7 +646,7 @@ fn executable_header() -> ElfHeader {
         e_entry: 0,
         e_phoff: ElfHeader::SIZE as u32,
         e_shoff: 0,
-        e_flags: EF_RISCV_FLOAT_ABI_DOUBLE,
+        e_flags: EF_RISCV_FLOAT_ABI_SOFT | EF_RISCV_RVC,
         e_ehsize: ElfHeader::SIZE as u16,
         e_phentsize: ElfProgramHeader::SIZE as u16,
         e_phnum: 0,
@@ -712,7 +716,7 @@ fn generate_riscv_attributes() -> Vec<u8> {
     // Format version (always 'A' = 0x41)
     attrs.push(b'A');
 
-    // Total length of attribute section (will be patched)
+    // Vendor subsection length includes its length field and vendor name.
     let length_pos = attrs.len();
     attrs.extend_from_slice(&[0u8; 4]);
 
@@ -720,6 +724,7 @@ fn generate_riscv_attributes() -> Vec<u8> {
     attrs.extend_from_slice(b"riscv\0");
 
     // File attributes tag (1)
+    let file_attrs_start = attrs.len();
     attrs.push(1);
 
     // Length of file attributes subsection (will be patched)
@@ -731,8 +736,8 @@ fn generate_riscv_attributes() -> Vec<u8> {
     attrs.extend_from_slice(arch_string.as_bytes());
     attrs.push(0); // Null terminator
 
-    // Patch file attributes length
-    let file_attrs_length = (attrs.len() - file_attrs_length_pos) as u32;
+    // The file subsection length includes the tag and length field.
+    let file_attrs_length = (attrs.len() - file_attrs_start) as u32;
     attrs[file_attrs_length_pos..file_attrs_length_pos + 4]
         .copy_from_slice(&file_attrs_length.to_le_bytes());
 

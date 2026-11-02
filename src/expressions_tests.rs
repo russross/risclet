@@ -50,7 +50,7 @@ mod tests {
         let pointer = LinePointer { file_index: 0, line_index: 0 };
 
         // Set segment addresses based on nominal text_start
-        layout.set_segment_addresses(text_start);
+        layout.set_segment_addresses(text_start)?;
 
         // Look up the concrete address or use adjusted text_start as fallback
         let address = layout.get_line_address(pointer);
@@ -689,7 +689,7 @@ mod tests {
         layout.header_size = 0;
 
         let text_start = 0x100e8;
-        layout.set_segment_addresses(text_start);
+        layout.set_segment_addresses(text_start).unwrap();
 
         assert_eq!(layout.text_start, 0x100e8);
         // data_start should be next 4K boundary after (0x100e8 + 1000)
