@@ -222,7 +222,7 @@ impl CheckABI {
         m: &Machine,
         effects: &mut Effects,
     ) -> Result<(), String> {
-        if !effects.reg_write.is_some_and(|write| write.register == RA) {
+        if effects.reg_write.is_none_or(|write| write.register != RA) {
             return Err("Return address must be stored in ra".to_string());
         }
         let (_, target) = effects.pc;
