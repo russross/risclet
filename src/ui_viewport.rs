@@ -58,7 +58,7 @@ impl StackState {
     // Each scan direction owns its frame history; no machine state is mutated.
     fn step(&mut self, effect: &Effects, forward: bool) {
         if let Some(write) = effect.reg_write
-            && write.register == SP
+            && write.register.index() == SP
         {
             self.sp =
                 if forward { write.new_value } else { write.old_value } as u32;
@@ -144,10 +144,10 @@ impl Segment {
         }
         // Reads precede writes when an instruction exposes both kinds of access.
         let read = effect.mem_read.as_ref().and_then(|value| {
-            self.access(value.address, value.value.len(), stack)
+            self.access(value.address, value.length as usize, stack)
         });
         let write = effect.mem_write.as_ref().and_then(|value| {
-            self.access(value.address, value.new_value.len(), stack)
+            self.access(value.address, value.byte_count(), stack)
         });
         read.into_iter().chain(write).collect()
     }
@@ -162,10 +162,10 @@ impl Segment {
                 stack,
             )
         } else if let Some(read) = &effect.mem_read {
-            self.access(read.address, read.value.len(), stack)
+            self.access(read.address, read.length as usize, stack)
         } else {
             effect.mem_write.as_ref().and_then(|write| {
-                self.access(write.address, write.new_value.len(), stack)
+                self.access(write.address, write.byte_count(), stack)
             })
         }
     }

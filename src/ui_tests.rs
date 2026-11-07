@@ -15,7 +15,8 @@ use crate::execution::{Instruction, Machine};
 use crate::memory::Segment;
 use crate::riscv::{Op, RA, SP, ZERO};
 use crate::trace::{
-    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterWrite, SyscallInfo,
+    Effects, FrameChange, MemoryAccess, MemoryWrite, RegisterWrite,
+    SyscallInfo, WrittenRegister,
 };
 
 const ALL: MemoryVisibility =
@@ -169,11 +170,17 @@ fn call_entries_combine_static_and_observed_destinations() {
     let mut tui = debugger(false);
     set_operation(&mut tui, 0, Op::Auipc { rd: RA, imm: 0 }, 0x1002);
     set_operation(&mut tui, 1, Op::Jalr { rd: RA, rs1: RA, offset: 6 }, 0x1006);
-    tui.sequence[1].reg_write =
-        Some(RegisterWrite { register: RA, old_value: 0, new_value: 0x1006 });
+    tui.sequence[1].reg_write = Some(RegisterWrite {
+        register: WrittenRegister::new(RA),
+        old_value: 0,
+        new_value: 0x1006,
+    });
     set_operation(&mut tui, 2, Op::Jalr { rd: RA, rs1: SP, offset: 0 }, 0x100c);
-    tui.sequence[2].reg_write =
-        Some(RegisterWrite { register: RA, old_value: 0, new_value: 0x100a });
+    tui.sequence[2].reg_write = Some(RegisterWrite {
+        register: WrittenRegister::new(RA),
+        old_value: 0,
+        new_value: 0x100a,
+    });
     assert_eq!(
         call_entries(0x1000, &tui.instructions, &tui.sequence),
         vec![0x1000, 0x1006, 0x100a, 0x100c]
@@ -581,7 +588,7 @@ fn text_before_entries_stays_neutral_and_function_colors_wrap() {
 fn data_keeps_partial_rows_and_recent_access_highlighting() {
     let mut tui = debugger(true);
     tui.sequence[0].mem_read =
-        Some(MemoryValue { address: 0x2010, value: vec![b'q'] });
+        Some(MemoryAccess { address: 0x2010, length: 1 });
     key(&mut tui, KeyCode::Right);
     let (screen, _) = tui.render_screen(80, 24);
     let row = label_row(&screen, "002010:").unwrap();
@@ -603,13 +610,9 @@ fn upcoming_memory_access_takes_priority_and_rewinds() {
         if segment == Stack {
             tui.machine.set(SP, address as i32);
         }
-        tui.sequence[0].mem_read =
-            Some(MemoryValue { address, value: vec![0; 4] });
-        tui.sequence[1].mem_write = Some(MemoryWrite {
-            address: address + 2,
-            old_value: vec![0; 4],
-            new_value: vec![1; 4],
-        });
+        tui.sequence[0].mem_read = Some(MemoryAccess { address, length: 4 });
+        tui.sequence[1].mem_write =
+            Some(MemoryWrite::new(address + 2, &[0; 4], &[1; 4]));
         key(&mut tui, KeyCode::Right);
 
         // Only the upcoming store is highlighted, including overlapping bytes.
@@ -633,7 +636,7 @@ fn upcoming_memory_access_takes_priority_and_rewinds() {
 
         // A later access removes the store highlight entirely.
         tui.sequence[4].mem_read =
-            Some(MemoryValue { address: address + 6, value: vec![0; 2] });
+            Some(MemoryAccess { address: address + 6, length: 2 });
         key(&mut tui, KeyCode::Right);
         let (screen, _) = tui.render_screen(80, 24);
         let row = label_row(&screen, &format!("{address:06x}:")).unwrap();
@@ -657,11 +660,9 @@ fn upcoming_memory_access_takes_priority_and_rewinds() {
 fn upcoming_access_selects_the_memory_pane_when_space_is_short() {
     let mut tui = debugger(true);
     tui.sequence[0].mem_read =
-        Some(MemoryValue { address: 0x2000, value: vec![0; 1] });
-    tui.sequence[1].mem_read = Some(MemoryValue {
-        address: tui.machine.stack_end() - 16,
-        value: vec![0; 1],
-    });
+        Some(MemoryAccess { address: 0x2000, length: 1 });
+    tui.sequence[1].mem_read =
+        Some(MemoryAccess { address: tui.machine.stack_end() - 16, length: 1 });
     let (data, _) = tui.render_screen(80, 16);
     assert!(label_row(&data, "Data").is_some());
     assert!(label_row(&data, "Stack").is_none());
@@ -681,7 +682,7 @@ fn released_stack_keeps_recent_access_in_dim_gray() {
     let mut tui = debugger(true);
     let address = tui.machine.stack_end() - 16;
     tui.machine.set(SP, address as i32);
-    tui.sequence[0].mem_read = Some(MemoryValue { address, value: vec![0; 4] });
+    tui.sequence[0].mem_read = Some(MemoryAccess { address, length: 4 });
     let (active, _) = tui.render_screen(80, 24);
     let row = label_row(&active, &format!("{address:06x}:")).unwrap();
     assert_eq!(active[row][47].1.background, tui.pastels[0].foreground);
@@ -701,7 +702,7 @@ fn released_stack_keeps_recent_access_in_dim_gray() {
 fn stack_positions_one_instruction_earlier_and_keeps_its_fallback() {
     let mut tui = debugger(true);
     let address = tui.machine.stack_end() - 128;
-    tui.sequence[0].mem_read = Some(MemoryValue { address, value: vec![0; 4] });
+    tui.sequence[0].mem_read = Some(MemoryAccess { address, length: 4 });
     let (preview, _) = tui.render_screen(80, 24);
     let row = label_row(&preview, &format!("{address:06x}:")).unwrap();
     let stack_label = label_row(&preview, "Stack").unwrap();
@@ -734,10 +735,8 @@ fn stack_trace(rows: &[Option<u32>], index: usize) -> Tui {
         .map(|row| {
             let mut effect = Effects::new(&tui.instructions[0]);
             effect.pc = (0x1000, 0x1000);
-            effect.mem_read = row.map(|row| MemoryValue {
-                address: base + row * 8,
-                value: vec![0; 4],
-            });
+            effect.mem_read = row
+                .map(|row| MemoryAccess { address: base + row * 8, length: 4 });
             effect
         })
         .collect();
@@ -786,18 +785,15 @@ fn overflowing_future_still_allows_recent_past_values() {
 fn copy_accesses_outrank_surrounding_regions_and_include_current_write() {
     let mut tui = stack_trace(&[Some(100), Some(101)], 0);
     let address = tui.machine.stack_start() + 104 * 8;
-    tui.sequence[0].mem_write = Some(MemoryWrite {
-        address,
-        old_value: vec![0; 4],
-        new_value: vec![1; 4],
-    });
+    tui.sequence[0].mem_write =
+        Some(MemoryWrite::new(address, &[0; 4], &[1; 4]));
     assert_eq!(tui.memory_viewport(Stack, 5), 100);
 }
 
 #[test]
 fn partial_terminal_value_uses_space_without_displacing_complete_values() {
     let mut tui = stack_trace(&[Some(100), Some(103)], 0);
-    tui.sequence[1].mem_read.as_mut().unwrap().value = vec![0; 32];
+    tui.sequence[1].mem_read.as_mut().unwrap().length = 32;
     assert_eq!(tui.memory_viewport(Stack, 5), 100);
 }
 
@@ -806,7 +802,7 @@ fn unaligned_highlight_that_fills_pane_anchors_its_start() {
     let mut tui = stack_trace(&[Some(100)], 0);
     let value = tui.sequence[0].mem_read.as_mut().unwrap();
     value.address += 7;
-    value.value = vec![0; 10];
+    value.length = 10;
     tui.machine.set_most_recent_memory(&tui.sequence, 0);
     assert_eq!(tui.memory_viewport(Stack, 3), 100);
     assert_eq!(tui.memory_viewport(Stack, 2), 100);
@@ -817,8 +813,7 @@ fn unaligned_highlight_that_fills_pane_anchors_its_start() {
 fn short_segments_lock_alignment_across_accesses() {
     let mut tui = debugger(true);
     for address in [0x2000, 0x2010, 0x2008] {
-        tui.sequence[0].mem_read =
-            Some(MemoryValue { address, value: vec![0] });
+        tui.sequence[0].mem_read = Some(MemoryAccess { address, length: 1 });
         tui.machine.set_most_recent_memory(&tui.sequence, 0);
         assert_eq!(tui.memory_viewport(Data, 8), -2);
         assert_eq!(tui.memory_viewport(Text, 8), 0);
@@ -852,7 +847,7 @@ fn future_frame_boundaries_expand_the_region_around_its_access() {
     tui.machine.set(SP, top as i32);
     tui.sequence[0].frame_change = Some(FrameChange::Enter(top));
     tui.sequence[0].reg_write = Some(RegisterWrite {
-        register: SP,
+        register: WrittenRegister::new(SP),
         old_value: top as i32,
         new_value: (base + 99 * 8) as i32,
     });
@@ -869,7 +864,7 @@ fn past_access_uses_the_frame_that_existed_before_return() {
     tui.machine.set(SP, top as i32);
     tui.sequence[0].frame_change = Some(FrameChange::Leave(top));
     tui.sequence[0].reg_write = Some(RegisterWrite {
-        register: SP,
+        register: WrittenRegister::new(SP),
         old_value: (base + 99 * 8) as i32,
         new_value: top as i32,
     });
@@ -923,7 +918,7 @@ fn static_region_debugger() -> Tui {
 fn data_centers_complete_region_with_odd_spare_row_above() {
     let mut tui = static_region_debugger();
     tui.sequence[0].mem_read =
-        Some(MemoryValue { address: 0x2000 + 21 * 8, value: vec![0; 4] });
+        Some(MemoryAccess { address: 0x2000 + 21 * 8, length: 4 });
     tui.machine.set_most_recent_memory(&tui.sequence, 0);
     assert_eq!(tui.memory_viewport(Data, 7), 19);
 
@@ -961,10 +956,9 @@ fn earlier_regions_take_priority_when_both_cannot_fit() {
     tui.data_colors =
         [0, 20, 24, 30].map(|row| (0x2000 + row * 8, color)).to_vec();
     tui.sequence[0].mem_read =
-        Some(MemoryValue { address: 0x2000 + 23 * 8, value: vec![0; 4] });
+        Some(MemoryAccess { address: 0x2000 + 23 * 8, length: 4 });
     let mut next = Effects::new(&tui.instructions[1]);
-    next.mem_read =
-        Some(MemoryValue { address: 0x2000 + 24 * 8, value: vec![0; 4] });
+    next.mem_read = Some(MemoryAccess { address: 0x2000 + 24 * 8, length: 4 });
     tui.sequence.push(next);
     tui.machine.set_most_recent_memory(&tui.sequence, 0);
     assert_eq!(tui.memory_viewport(Data, 7), 20);

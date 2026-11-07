@@ -13,8 +13,8 @@ use crate::riscv::{
     Field, Op, ZERO, fields_to_string, format_instruction_address,
 };
 use crate::trace::{
-    Effects, FrameChange, IoEvent, IoRecord, MemoryValue, MemoryWrite,
-    RegisterValue, RegisterWrite, SyscallInfo,
+    Effects, FrameChange, IoEvent, IoRecord, MemoryAccess, MemoryWrite,
+    RegisterValue, RegisterWrite, SyscallInfo, WrittenRegister,
 };
 
 pub struct Machine {
@@ -118,13 +118,13 @@ impl Machine {
     }
 
     pub fn load(&mut self, addr: u32, size: u32) -> Result<Vec<u8>> {
-        let raw = self.memory.load_raw(addr, size)?;
+        let raw = self.memory.load(addr, size)?;
         if let Some(effects) = &mut self.current_effect {
             assert!(effects.mem_read.is_none());
             effects.mem_read =
-                Some(MemoryValue { address: addr, value: raw.to_vec() });
+                Some(MemoryAccess { address: addr, length: size });
         }
-        Ok(raw.to_vec())
+        Ok(raw)
     }
 
     pub fn load_i8(&mut self, addr: u32) -> Result<i32> {
@@ -158,14 +158,10 @@ impl Machine {
 
     pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<()> {
         if let Some(effects) = &mut self.current_effect
-            && let Ok(old_val) = self.memory.load(addr, raw.len() as u32)
+            && let Ok(old_val) = self.memory.load_raw(addr, raw.len() as u32)
         {
             assert!(effects.mem_write.is_none());
-            effects.mem_write = Some(MemoryWrite {
-                address: addr,
-                old_value: old_val,
-                new_value: raw.to_vec(),
-            });
+            effects.mem_write = Some(MemoryWrite::new(addr, old_val, raw));
         }
         self.memory.store(addr, raw)
     }
@@ -190,7 +186,7 @@ impl Machine {
             assert!(effects.reg_write.is_none());
             let old_val = self.state.get_reg(reg);
             effects.reg_write = Some(RegisterWrite {
-                register: reg,
+                register: WrittenRegister::new(reg),
                 old_value: old_val,
                 new_value: value,
             });
@@ -298,9 +294,9 @@ impl Machine {
         // the latest access in each segment when that instruction goes elsewhere.
         for effect in sequence.iter().take(index.saturating_add(1)).rev() {
             let (address, value_len) = if let Some(read) = &effect.mem_read {
-                (read.address, read.value.len())
+                (read.address, read.length as usize)
             } else if let Some(write) = &effect.mem_write {
-                (write.address, write.new_value.len())
+                (write.address, write.byte_count())
             } else {
                 continue;
             };
@@ -351,12 +347,12 @@ impl Machine {
         if let Some(write) = &effect.reg_write {
             let value =
                 if is_forward { write.new_value } else { write.old_value };
-            self.set(write.register, value);
+            self.set(write.register.index(), value);
         }
 
         if let Some(write) = &effect.mem_write {
             let value =
-                if is_forward { &write.new_value } else { &write.old_value };
+                if is_forward { write.new_value() } else { write.old_value() };
             self.store(write.address, value)
                 .expect("Memory should be valid during replay");
         }
@@ -1009,7 +1005,7 @@ fn merge_pseudo_effects(effects_list: &[Effects]) -> Effects {
             merged.reg_write = effects.reg_write;
         }
         if effects.mem_read.is_some() {
-            merged.mem_read = effects.mem_read.clone();
+            merged.mem_read = effects.mem_read;
         }
         if effects.mem_write.is_some() {
             merged.mem_write = effects.mem_write.clone();

@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::execution::{Instruction, Machine};
 use crate::riscv::{A_REGS, GP, Op, R, RA, S_REGS, SP, T_REGS, TP, ZERO};
 use crate::trace::{
-    Effects, FrameChange, MemoryValue, MemoryWrite, RegisterValue,
+    Effects, FrameChange, MemoryAccess, MemoryWrite, RegisterValue,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,7 +222,7 @@ impl CheckABI {
         m: &Machine,
         effects: &mut Effects,
     ) -> Result<(), String> {
-        if effects.reg_write.is_none_or(|write| write.register != RA) {
+        if effects.reg_write.is_none_or(|write| write.register.index() != RA) {
             return Err("Return address must be stored in ra".to_string());
         }
         let (_, target) = effects.pc;
@@ -341,7 +341,7 @@ impl CheckABI {
         write: &MemoryWrite,
         state: RegisterState,
     ) -> Result<(), String> {
-        let width = write.new_value.len();
+        let width = write.byte_count();
         if write.address & (width as u32 - 1) != 0 {
             return Err(format!(
                 "Unaligned {width}-byte memory write at 0x{:x}",
@@ -357,9 +357,9 @@ impl CheckABI {
 
     fn load_value(
         &mut self,
-        read: &MemoryValue,
+        read: &MemoryAccess,
     ) -> Result<RegisterState, String> {
-        let width = read.value.len();
+        let width = read.length as usize;
         if read.address & (width as u32 - 1) != 0 {
             return Err(format!(
                 "Unaligned {width}-byte memory read at 0x{:x}",
@@ -416,8 +416,7 @@ impl CheckABI {
     ) -> Result<(), String> {
         // Syscall buffers remain byte-oriented, with each input byte a new value.
         if let Some(read) = &effects.mem_read {
-            for address in read.address..read.address + read.value.len() as u32
-            {
+            for address in read.address..read.address + read.length {
                 if let Some((_, size)) = self.shadow_get(address)
                     && !matches!(
                         size,
@@ -432,7 +431,7 @@ impl CheckABI {
         }
         if let Some(write) = &effects.mem_write {
             for address in
-                write.address..write.address + write.new_value.len() as u32
+                write.address..write.address + write.byte_count() as u32
             {
                 if let Some((_, size)) = self.shadow_get(address)
                     && !matches!(
@@ -445,7 +444,7 @@ impl CheckABI {
                 }
             }
             for address in
-                write.address..write.address + write.new_value.len() as u32
+                write.address..write.address + write.byte_count() as u32
             {
                 let state = RegisterState::Value(self.new_id());
                 self.shadow_insert(address, state, ShadowSize::Byte);
@@ -494,12 +493,12 @@ impl CheckABI {
         let sp = m.get_reg(SP) as u32;
         let access_sp = effects
             .reg_write
-            .filter(|write| write.register == SP)
+            .filter(|write| write.register.index() == SP)
             .map_or(sp, |write| write.old_value as u32);
         if let Some(read) = &effects.mem_read {
             self.check_stack_access(
                 read.address,
-                read.value.len(),
+                read.length as usize,
                 access_sp,
                 true,
             )?;
@@ -507,14 +506,14 @@ impl CheckABI {
         if let Some(write) = &effects.mem_write {
             self.check_stack_access(
                 write.address,
-                write.new_value.len(),
+                write.byte_count(),
                 access_sp,
                 false,
             )?;
         }
 
         if let Some(write) = &effects.reg_write {
-            let register = write.register;
+            let register = write.register.index();
             if !self.callers.is_empty() && matches!(register, GP | TP) {
                 return Err(format!(
                     "{} must be preserved across function call; cannot modify inside a function",
@@ -568,7 +567,7 @@ impl CheckABI {
         }
         // Complete loads using the old frame before clearing bytes released by SP.
         if let Some(write) =
-            effects.reg_write.filter(|write| write.register == SP)
+            effects.reg_write.filter(|write| write.register.index() == SP)
         {
             let old_sp = write.old_value as u32;
             if sp > old_sp {

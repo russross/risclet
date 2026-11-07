@@ -41,10 +41,10 @@ mod tests {
         let read = effects.mem_read.as_ref().expect("memory read");
         let write = effects.mem_write.as_ref().expect("memory write");
         assert_eq!(read.address, address);
-        assert_eq!(read.value, 17_i32.to_le_bytes());
+        assert_eq!(read.length, 4);
         assert_eq!(write.address, address);
-        assert_eq!(write.old_value, 17_i32.to_le_bytes());
-        assert_eq!(write.new_value, 26_i32.to_le_bytes());
+        assert_eq!(write.old_value(), 17_i32.to_le_bytes());
+        assert_eq!(write.new_value(), 26_i32.to_le_bytes());
 
         // Reverse replay restores memory and the destination register together.
         machine.apply(&effects, false);
@@ -186,6 +186,54 @@ mod tests {
     }
 
     #[test]
+    fn input_buffer_replays_empty_odd_and_large_writes_after_clone() {
+        for length in [0, 1, 2, 3, 4, 513] {
+            let input: Vec<u8> = (0..length).map(|i| i as u8).collect();
+            let mut machine = Machine::for_testing().with_stdin(input.clone());
+            let start = machine.stack_start();
+            let original = vec![0xa5; length + 2];
+            machine.store(start, &original).unwrap();
+            machine.set(11, (start + 1) as i32);
+            machine.set(12, length as i32);
+            machine.set(17, 63);
+
+            // The captured buffer excludes neighboring bytes, even at EOF.
+            let inst = instruction(&machine, Op::Ecall);
+            let effect = machine.execute_and_collect_effects(&inst);
+            assert!(!effect.is_terminal());
+            let write = effect.mem_write.as_ref().expect("input write");
+            assert_eq!(write.byte_count(), length);
+            assert_eq!(write.old_value(), &original[1..length + 1]);
+            assert_eq!(write.new_value(), input);
+            let cloned = effect.clone();
+            drop(effect);
+
+            // Both halves survive cloning and repeated replay without new input.
+            let mut expected = original.clone();
+            expected[1..length + 1].copy_from_slice(&input);
+            for _ in 0..2 {
+                machine.apply(&cloned, false);
+                assert_eq!(
+                    machine.load(start, original.len() as u32).unwrap(),
+                    original
+                );
+                assert_eq!(machine.get_reg(10), 0);
+                assert_eq!(machine.pc(), inst.address);
+                assert!(machine.output_events.is_empty());
+                machine.apply(&cloned, true);
+                assert_eq!(
+                    machine.load(start, expected.len() as u32).unwrap(),
+                    expected
+                );
+                assert_eq!(machine.get_reg(10), length as i32);
+                assert_eq!(machine.pc(), inst.address + inst.length);
+                assert_eq!(machine.output_events.len(), 1);
+                assert_eq!(machine.io.stdin, input);
+            }
+        }
+    }
+
+    #[test]
     fn test_frame_changes_replay_in_both_directions() {
         let mut machine = Machine::for_testing();
         let inst =
@@ -237,7 +285,7 @@ mod tests {
         // An in-place update records the original value before changing the register.
         let effects = machine.execute_and_collect_effects(&instruction);
         let write = effects.reg_write.as_ref().expect("register write");
-        assert_eq!(write.register, 5);
+        assert_eq!(write.register.index(), 5);
         assert_eq!(write.old_value, -17);
         assert_eq!(write.new_value, -11);
         assert_eq!(effects.report(false, &machine.io), vec!["t0 <- -11"]);

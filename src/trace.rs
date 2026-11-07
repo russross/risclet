@@ -1,3 +1,4 @@
+use std::num::NonZeroU8;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -5,17 +6,56 @@ use crate::Instruction;
 use crate::error::RiscletError;
 use crate::riscv::R;
 
-#[derive(Clone)]
-pub struct MemoryValue {
+// Read effects describe the accessed range; execution consumes the bytes directly.
+#[derive(Clone, Copy)]
+pub struct MemoryAccess {
     pub address: u32,
-    pub value: Vec<u8>,
+    pub length: u32,
 }
 
 #[derive(Clone)]
 pub struct MemoryWrite {
     pub address: u32,
-    pub old_value: Vec<u8>,
-    pub new_value: Vec<u8>,
+    values: Box<[u8]>,
+}
+
+impl MemoryWrite {
+    // Equal-sized halves keep both directions in one exact-length allocation.
+    pub fn new(address: u32, old_value: &[u8], new_value: &[u8]) -> Self {
+        assert_eq!(old_value.len(), new_value.len());
+        let mut values = Vec::with_capacity(old_value.len() * 2);
+        values.extend_from_slice(old_value);
+        values.extend_from_slice(new_value);
+        Self { address, values: values.into_boxed_slice() }
+    }
+
+    pub fn byte_count(&self) -> usize {
+        self.values.len() / 2
+    }
+
+    // Replay borrows the appropriate half without copying or changing the record.
+    pub fn old_value(&self) -> &[u8] {
+        &self.values[..self.byte_count()]
+    }
+
+    pub fn new_value(&self) -> &[u8] {
+        &self.values[self.byte_count()..]
+    }
+}
+
+// Only registers x1 through x31 can have a recorded write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WrittenRegister(NonZeroU8);
+
+impl WrittenRegister {
+    pub fn new(index: usize) -> Self {
+        assert!((1..32).contains(&index));
+        Self(NonZeroU8::new(index as u8).expect("nonzero register"))
+    }
+
+    pub fn index(self) -> usize {
+        usize::from(self.0.get())
+    }
 }
 
 #[derive(Clone)]
@@ -25,7 +65,7 @@ pub struct RegisterValue {
 
 #[derive(Clone, Copy)]
 pub struct RegisterWrite {
-    pub register: usize,
+    pub register: WrittenRegister,
     pub old_value: i32,
     pub new_value: i32,
 }
@@ -69,7 +109,7 @@ pub struct Effects {
 
     pub pc: (u32, u32),
     pub reg_write: Option<RegisterWrite>,
-    pub mem_read: Option<MemoryValue>,
+    pub mem_read: Option<MemoryAccess>,
     pub mem_write: Option<MemoryWrite>,
     extra: Option<Box<ExtraEffects>>,
     pub frame_change: Option<FrameChange>,
@@ -191,9 +231,9 @@ impl Effects {
             }) = self.reg_write
             {
                 if hex_mode {
-                    parts.push(format!("{} <- 0x{:x}", R[rd], val));
+                    parts.push(format!("{} <- 0x{:x}", R[rd.index()], val));
                 } else {
-                    parts.push(format!("{} <- {}", R[rd], val));
+                    parts.push(format!("{} <- {}", R[rd.index()], val));
                 }
             }
             if self.pc.1 != self.pc.0 + self.instruction.length {
