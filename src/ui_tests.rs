@@ -108,6 +108,21 @@ fn key(tui: &mut Tui, code: KeyCode) {
     );
 }
 
+// The status bar previews only the summary; details belong to the initial run.
+#[test]
+fn error_status_shows_only_summary_without_an_error_window() {
+    let mut tui = debugger(false);
+    let message = "learning failure\nroot cause marker".to_string();
+    tui.sequence[0].error(crate::error::RiscletError::execution_error(message));
+    let (screen, _) = tui.render_screen(40, 12);
+    assert!(line(&screen, 11).contains("learning failure"));
+    assert!(!(0..12).any(|row| line(&screen, row).contains("root cause")));
+    key(&mut tui, KeyCode::Char('e'));
+    let (after, _) = tui.render_screen(40, 12);
+    assert_eq!(screen, after);
+    assert_eq!(tui.sequence_index, 0);
+}
+
 // Replace a displayed operation and its trace preview together.
 fn set_operation(tui: &mut Tui, index: usize, op: Op, target: u32) {
     let old = &tui.instructions[index];

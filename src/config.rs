@@ -159,7 +159,10 @@ fn parse_dump_option(arg: &str, config: &mut Config) -> Result<bool, String> {
         let parts = dump::parse_elf_parts(option_value_after_equals(arg))?;
         config.dump.dump_elf = Some(parts);
     } else {
-        return Err(format!("Error: unknown option: {}", arg));
+        return Err(format!(
+            "Error: unknown option: {}; use risclet --help for supported options",
+            arg
+        ));
     }
 
     Ok(true)
@@ -211,7 +214,10 @@ fn require_option_value(
 ) -> Result<String, String> {
     *i += 1;
     if *i >= args.len() {
-        return Err(format!("Error: {} requires an argument", option));
+        return Err(format!(
+            "Error: {} requires an argument; use risclet --help for usage",
+            option
+        ));
     }
     Ok(args[*i].clone())
 }
@@ -261,8 +267,11 @@ fn parse_options(
             (false, "-s" | "--steps") => {
                 let value = require_option_value(args, &mut i, arg.as_str())?;
                 config.max_steps = value.parse::<usize>().map_err(|_| {
-                    format!("Error: invalid number of steps: {}", value)
+                    format!("Error: invalid number of steps: {}; --steps requires a positive integer", value)
                 })?;
+                if config.max_steps == 0 {
+                    return Err("Error: --steps must be a positive integer; use --steps N to set the execution limit".into());
+                }
             }
             (false, "--show-encoding") => config.show_encoding = true,
             (false, "--no-show-encoding") => config.show_encoding = false,
@@ -295,7 +304,10 @@ fn parse_options(
             }
             _ => {
                 if arg.starts_with('-') {
-                    return Err(format!("Error: unknown option: {}", arg));
+                    return Err(format!(
+                        "Error: unknown option: {}; use risclet --help for supported options",
+                        arg
+                    ));
                 }
                 if !explicit_command && is_explicit_subcommand(arg) {
                     return Err(format!(
@@ -330,7 +342,7 @@ fn resolve_input(
         }
         if config.input_files.is_empty() {
             return Err(
-                "Error: no assembly files (*.s) found in current directory"
+                "Error: no assembly files (*.s) found in current directory; provide source paths: risclet assemble file.s"
                     .to_string(),
             );
         }
@@ -372,7 +384,7 @@ fn resolve_input(
         if config.input_files.is_empty()
             && fs::metadata(EXECUTABLE_DEFAULT).is_err()
         {
-            return Err("Error: no assembly files (*.s) or a.out found in current directory".to_string());
+            return Err("Error: no assembly files (*.s) or a.out found in current directory; provide a source path (risclet run file.s) or an executable (risclet run -e program)".to_string());
         }
     }
 
@@ -388,8 +400,10 @@ fn find_assembly_files() -> Result<Vec<String>, String> {
         .map_err(|e| format!("Error reading current directory: {}", e))?;
 
     for entry in entries {
-        if let Ok(entry) = entry
-            && let Some(name) = entry.file_name().to_str()
+        let entry = entry.map_err(|error| {
+            format!("Error reading a current-directory entry: {error}")
+        })?;
+        if let Some(name) = entry.file_name().to_str()
             && name.ends_with(".s")
         {
             asm_files.push(name.to_string());

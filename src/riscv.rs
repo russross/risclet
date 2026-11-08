@@ -949,15 +949,15 @@ impl Op {
                         let count = m.get(A2);
 
                         if fd != 0 {
-                            return Err(RiscletError::syscall_error(
-                                "read syscall: only stdin (fd 0) supported"
-                                    .to_string(),
-                            ));
+                            return Err(RiscletError::syscall_error(format!(
+                                "read syscall: fd is {}; only stdin (fd 0) is supported. Set a0 to 0 before ecall",
+                                m.format_integer(fd)
+                            )));
                         }
                         if count < 0 {
                             return Err(RiscletError::syscall_error(format!(
                                 "read syscall: invalid buffer size: {}",
-                                count
+                                m.format_integer(count)
                             )));
                         }
 
@@ -985,15 +985,15 @@ impl Op {
                         let count = m.get(12);
 
                         if fd != 1 {
-                            return Err(RiscletError::syscall_error(
-                                "write syscall: only stdout (fd 1) supported"
-                                    .to_string(),
-                            ));
+                            return Err(RiscletError::syscall_error(format!(
+                                "write syscall: fd is {}; only stdout (fd 1) is supported. Set a0 to 1 before ecall",
+                                m.format_integer(fd)
+                            )));
                         }
                         if count < 0 {
                             return Err(RiscletError::syscall_error(format!(
                                 "write syscall: invalid buffer size: {}",
-                                count
+                                m.format_integer(count)
                             )));
                         }
 
@@ -1018,15 +1018,15 @@ impl Op {
                     }
                     syscall => {
                         return Err(RiscletError::syscall_error(format!(
-                            "unsupported syscall {}",
-                            syscall
+                            "unsupported syscall {} in a7; supported calls are read (63), write (64), and exit (93). Set a7 before ecall",
+                            m.format_integer(syscall)
                         )));
                     }
                 }
             }
             Op::Ebreak => {
                 return Err(RiscletError::execution_error(String::from(
-                    "ebreak",
+                    "ebreak stops execution with an error; use risclet debug to inspect a recorded execution, or syscall 93 to exit normally",
                 )));
             }
 
@@ -1195,7 +1195,7 @@ impl Op {
 
             Op::Unimplemented { inst, note } => {
                 return Err(RiscletError::invalid_instruction_error(format!(
-                    "inst: 0x{:x} note: {}",
+                    "unsupported instruction encoding 0x{:08x}: {}; Risclet supports RV32 integer instructions with M, word-sized A, and integer C extensions",
                     inst, note
                 )));
             }

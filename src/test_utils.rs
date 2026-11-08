@@ -125,7 +125,8 @@ mod tests {
                 config.max_steps = 3;
                 config.strict = false;
                 let effects =
-                    trace(&mut machine, &instructions, &addresses, &config);
+                    trace(&mut machine, &instructions, &addresses, &config)
+                        .effects;
                 if mode == Mode::Debug {
                     let data = if syscall == 63 {
                         &machine.io.stdin

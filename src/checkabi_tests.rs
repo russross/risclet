@@ -46,7 +46,7 @@ fn assemble_source(source: &str, compressed: bool) -> Result<Vec<u8>, String> {
     config.relax.compressed = compressed;
     let sources = vec![("test.s".to_string(), source.to_string())];
     match crate::assembler::assemble(&mut config, sources) {
-        Ok(AssemblyOutput::Elf(bytes)) => Ok(bytes),
+        Ok(AssemblyOutput::Elf(bytes, _)) => Ok(bytes),
         Ok(AssemblyOutput::Dumped) => {
             panic!("unexpected dump in execution test")
         }
@@ -157,7 +157,7 @@ fn run_with_abi_options(
         instructions.into_iter().map(Rc::new).collect();
 
     // Run with ABI checking
-    let effects = trace(&mut m, &instructions, &addresses, &config);
+    let effects = trace(&mut m, &instructions, &addresses, &config).effects;
 
     // A successful test must reach an ordinary exit rather than another execution error.
     for effect in effects {
@@ -178,7 +178,8 @@ fn run_with_abi_options(
 /// Assert program triggers ABI violation containing pattern
 fn check_abi_violation(source: &str, error_pattern: &str) {
     match run_with_abi_check(source) {
-        AbiTestResult::Violation(msg) if msg.contains(error_pattern) => {}
+        AbiTestResult::Violation(msg)
+            if msg.to_lowercase().contains(&error_pattern.to_lowercase()) => {}
         AbiTestResult::Violation(msg) => {
             panic!("Expected '{}', got: {}", error_pattern, msg)
         }
@@ -235,7 +236,7 @@ _start:
     li a7, 93
     ecall
 "#,
-        "Cannot use uninitialized",
+        "cannot read from uninitialized",
     );
 }
 
@@ -631,7 +632,7 @@ use_a2:
             exit_code(0),
             "    ret",
         ),
-        "Cannot use uninitialized",
+        "cannot read from uninitialized",
     );
 }
 
@@ -817,7 +818,7 @@ _start:
     la gp, __global_pointer$
     jr ra
 "#,
-        "Cannot use uninitialized ra",
+        "cannot read from uninitialized ra",
     );
 }
 
@@ -1524,7 +1525,7 @@ _start:
     la gp, __global_pointer$
     jr ra
 "#,
-        "Cannot use uninitialized ra",
+        "cannot read from uninitialized ra",
     );
 }
 
@@ -1640,7 +1641,7 @@ fn test_return_result_valid_when_caller_a0_uninitialized() {
 fn test_uninitialized_result_does_not_inherit_caller_validity() {
     check_abi_violation(
         ".global _start\n.text\n_start:\nli a0, 42\njal foo\naddi t0, a0, 1\nfoo:\nret\n.global foo_args\n.equ foo_args, 0",
-        "Cannot use uninitialized a0",
+        "cannot read from uninitialized a0",
     );
 }
 
@@ -1660,7 +1661,7 @@ fn test_saved_register_caller_availability_is_restored() {
     ));
     check_abi_violation(
         ".global _start\n.text\n_start:\njal foo\naddi t0, s0, 1\nfoo:\nret",
-        "Cannot use uninitialized s0",
+        "cannot read from uninitialized s0",
     );
 }
 
@@ -1692,7 +1693,7 @@ fn test_caller_saved_registers_unavailable_after_return() {
             &format!(
                 ".global _start\n.text\n_start:\nli {register}, 1\njal foo\naddi s0, {register}, 1\nfoo:\nli {register}, 2\nret",
             ),
-            &format!("Cannot use uninitialized {register}"),
+            &format!("cannot read from uninitialized {register}"),
         );
     }
 }
@@ -1701,7 +1702,7 @@ fn test_caller_saved_registers_unavailable_after_return() {
 fn test_unknown_signature_does_not_revive_uninitialized_arguments() {
     check_abi_violation(
         &function_program("", "addi t0, a0, 1", None),
-        "Cannot use uninitialized a0",
+        "cannot read from uninitialized a0",
     );
 }
 
@@ -1761,10 +1762,7 @@ fn test_stack_access_below_sp_rejected_with_aliases() {
         "mv t0, sp\nsw zero, -4(t0)",
         "mv t0, sp\nlw t1, -4(t0)",
     ] {
-        check_abi_violation(
-            &function_program("", access, Some(0)),
-            "stack below sp",
-        );
+        check_abi_violation(&function_program("", access, Some(0)), "below sp");
     }
 }
 
@@ -1817,7 +1815,7 @@ fn test_released_stack_access_rejected() {
             "addi sp, sp, -16\nsw zero, 0(sp)\nmv t0, sp\naddi sp, sp, 16\nlw t1, 0(t0)",
             Some(0),
         ),
-        "stack below sp",
+        "below sp",
     );
 }
 
@@ -1947,7 +1945,7 @@ fn test_syscall_stack_buffer_below_sp_rejected() {
             "li a0, 1\naddi a1, sp, -4\nli a2, 1\nli a7, 64\necall",
             Some(0),
         ),
-        "stack below sp",
+        "below sp",
     );
 }
 
@@ -1979,7 +1977,7 @@ fn test_syscall_input_below_sp_rejected() {
         Some(0),
     );
     assert!(
-        matches!(run_with_abi_options(&source, b"x", false), AbiTestResult::Violation(message) if message.contains("stack below sp"))
+        matches!(run_with_abi_options(&source, b"x", false), AbiTestResult::Violation(message) if message.contains("below sp"))
     );
 }
 

@@ -10,7 +10,9 @@ use crate::elf::{
     ElfFile, PF_W, PF_X, PT_LOAD, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE, SHN_ABS,
     SHN_UNDEF, SHT_NOBITS, SHT_PROGBITS, SHT_SYMTAB, STT_FILE,
 };
-use crate::error::{Result, RiscletError};
+use crate::error::{
+    Diagnostic, DiagnosticContext, Result, RiscletError, address,
+};
 use crate::{
     Machine,
     memory::{MemoryLayout, Segment},
@@ -23,26 +25,50 @@ pub enum ElfInput<'a> {
 }
 
 pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
+    load_elf_with_style(input, false)
+}
+
+pub fn load_elf_with_style(input: ElfInput<'_>, hex: bool) -> Result<Machine> {
+    let name = match &input {
+        ElfInput::File(filename) => format!("executable '{filename}'"),
+        ElfInput::Bytes(_) => "assembled executable".into(),
+    };
+    load_elf_inner(input, hex).map_err(|error| match error {
+        RiscletError::Elf(message) => {
+            let mut diagnostic = Diagnostic::from(message);
+            diagnostic.context =
+                DiagnosticContext::Operation(format!("while loading {name}"));
+            RiscletError::Diagnostic(Box::new(diagnostic))
+        }
+        other => other,
+    })
+}
+
+fn load_elf_inner(input: ElfInput<'_>, hex: bool) -> Result<Machine> {
     let raw = match input {
         ElfInput::File(filename) => {
             Cow::Owned(fs::read(filename).map_err(|e| {
-                RiscletError::io(format!(
-                    "failed to read file '{filename}': {e}"
-                ))
+                RiscletError::io_at("read executable", filename, e)
             })?)
         }
         ElfInput::Bytes(bytes) => Cow::Borrowed(bytes),
     };
     let file = ElfFile::parse(&raw)?;
-    validate_executable(&file)?;
+    validate_executable(&file, hex)?;
 
     // Sections retain the simulator's region boundaries and permissions.
     // Their initialized bytes come from the first covering LOAD segment.
     let mut segments = Vec::new();
-    for section in &file.section_headers {
+    for (index, section) in file.section_headers.iter().enumerate() {
+        let context = format!(
+            "section {index} '{}' at address {}, size {}",
+            String::from_utf8_lossy(file.section_name(index)?),
+            address(section.sh_addr, hex),
+            address(section.sh_size, hex)
+        );
         if is_unsupported_section_type(section.sh_type) {
             return Err(RiscletError::elf(format!(
-                "ELF file contains unsupported section type: {:#x}",
+                "{context}: ELF file contains unsupported section type: {:#x}",
                 section.sh_type
             )));
         }
@@ -50,10 +76,9 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
             && (!matches!(section.sh_type, SHT_PROGBITS | SHT_NOBITS)
                 || section.sh_flags & 0x400 != 0)
         {
-            return Err(RiscletError::elf(
-                "unsupported allocated section type or thread-local storage"
-                    .into(),
-            ));
+            return Err(RiscletError::elf(format!(
+                "{context}: unsupported allocated section type or thread-local storage"
+            )));
         }
         if !matches!(section.sh_type, SHT_PROGBITS | SHT_NOBITS)
             || section.sh_flags & SHF_ALLOC == 0
@@ -64,12 +89,14 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
 
         let end =
             section.sh_addr.checked_add(section.sh_size).ok_or_else(|| {
-                RiscletError::elf("allocated section address overflows".into())
+                RiscletError::elf(format!(
+                    "{context}: allocated section address overflows"
+                ))
             })?;
         if section.sh_addr == 0 {
-            return Err(RiscletError::elf(
-                "allocated section starts at address zero".into(),
-            ));
+            return Err(RiscletError::elf(format!(
+                "{context}: allocated section starts at address zero"
+            )));
         }
         let overlaps = file.section_headers.iter().any(|other| {
             !std::ptr::eq(section, other)
@@ -80,7 +107,9 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
                 && other.sh_addr < end
         });
         if overlaps {
-            return Err(RiscletError::elf("allocated sections overlap".into()));
+            return Err(RiscletError::elf(format!(
+                "{context}: allocated sections overlap; inspect allocated section address ranges"
+            )));
         }
         let header = file
             .program_headers
@@ -92,7 +121,7 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
             })
             .ok_or_else(|| {
                 RiscletError::elf(
-                    "allocated section is not covered by a LOAD segment".into(),
+                    format!("{context}: allocated section is not covered by a LOAD segment"),
                 )
             })?;
 
@@ -102,9 +131,10 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
             || (section.sh_flags & SHF_EXECINSTR != 0
                 && header.p_flags & PF_X == 0)
         {
-            return Err(RiscletError::elf(
-                "section permissions exceed LOAD permissions".into(),
-            ));
+            return Err(RiscletError::elf(format!(
+                "{context}: section permissions 0x{:x} exceed LOAD permissions 0x{:x}",
+                section.sh_flags, header.p_flags
+            )));
         }
         let init = if section.sh_type == SHT_NOBITS {
             Vec::new()
@@ -115,10 +145,12 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
                 || u64::from(header.p_offset) + u64::from(start)
                     != u64::from(section.sh_offset)
             {
-                return Err(RiscletError::elf(
-                    "initialized section disagrees with LOAD file mapping"
-                        .into(),
-                ));
+                return Err(RiscletError::elf(format!(
+                    "{context}: initialized section disagrees with LOAD file mapping; section offset {}, LOAD offset {}, LOAD file size {}",
+                    address(section.sh_offset, hex),
+                    address(header.p_offset, hex),
+                    address(header.p_filesz, hex)
+                )));
             }
             file.program_data(header)?
                 [start as usize..(start + section.sh_size) as usize]
@@ -140,7 +172,7 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
         .iter()
         .position(|section| section.sh_type == SHT_SYMTAB)
         .ok_or_else(|| {
-            RiscletError::elf("ELF file does not contain a symbol table".into())
+            RiscletError::elf("ELF file does not contain a symbol table; Risclet requires section and symbol metadata, so use an unstripped executable".into())
         })?;
     let symbols = load_symbols(&file, table)?;
     // Stack placement must not shadow any section in the simulated address space.
@@ -165,17 +197,19 @@ pub fn load_elf(input: ElfInput<'_>) -> Result<Machine> {
     ))
 }
 
-fn validate_executable(file: &ElfFile<'_>) -> Result<()> {
+fn validate_executable(file: &ElfFile<'_>, hex: bool) -> Result<()> {
     let header = &file.header;
     if header.e_ident[7] != EI_OSABI {
-        return Err(RiscletError::elf(
-            "ELF file OS/ABI is not System V (must be 0)".into(),
-        ));
+        return Err(RiscletError::elf(format!(
+            "ELF file OS/ABI is not System V (must be 0); got {}",
+            header.e_ident[7]
+        )));
     }
     if header.e_flags & EF_RISCV_FLOAT_ABI != EF_RISCV_FLOAT_ABI_SOFT {
-        return Err(RiscletError::elf(
-            "ELF file must use the soft-float ABI".into(),
-        ));
+        return Err(RiscletError::elf(format!(
+            "ELF file must use the soft-float ABI; flags are 0x{:x}, floating-point ABI bits must be zero",
+            header.e_flags
+        )));
     }
     if header.e_type != ET_EXEC {
         return Err(RiscletError::elf(format!(
@@ -204,9 +238,10 @@ fn validate_executable(file: &ElfFile<'_>) -> Result<()> {
                     <= u64::from(section.sh_addr) + u64::from(section.sh_size)
         })
     {
-        return Err(RiscletError::elf(
-            "ELF entry must be aligned and inside executable code".into(),
-        ));
+        return Err(RiscletError::elf(format!(
+            "ELF entry must be aligned and inside executable code; entry address is {}",
+            address(header.e_entry, hex)
+        )));
     }
     if file
         .program_headers

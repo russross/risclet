@@ -1,4 +1,4 @@
-use crate::error::{Result, RiscletError};
+use crate::error::{Result, RiscletError, address};
 
 const STACK_SIZE: u32 = 8192;
 
@@ -66,6 +66,19 @@ pub struct MemoryLayout {
 }
 
 impl MemoryLayout {
+    pub fn describe_address(self, value: u32, hex: bool) -> String {
+        let segment = if (self.stack_start..self.stack_end).contains(&value) {
+            "stack "
+        } else if (self.text_start..self.text_end).contains(&value) {
+            "text "
+        } else if (self.data_start..self.data_end).contains(&value) {
+            "data "
+        } else {
+            ""
+        };
+        format!("{segment}address {}", address(value, hex))
+    }
+
     pub fn new(segments: &[Segment]) -> Self {
         let mut stack_start = 0x100000 - STACK_SIZE;
         for segment in segments {
@@ -113,6 +126,7 @@ impl MemoryLayout {
 pub struct MemoryManager {
     pub segments: Vec<Segment>,
     pub layout: MemoryLayout,
+    pub hex: bool,
 }
 
 impl MemoryManager {
@@ -125,7 +139,7 @@ impl MemoryManager {
             false,
             Vec::new(),
         ));
-        Self { segments, layout }
+        Self { segments, layout, hex: false }
     }
 
     pub fn reset(&mut self) {
@@ -140,10 +154,7 @@ impl MemoryManager {
                 return Ok(segment.load(addr, size).to_vec());
             }
         }
-        Err(RiscletError::memory_access_error(format!(
-            "cannot read {} bytes from address 0x{:x} (no allocated memory)",
-            size, addr
-        )))
+        Err(self.access_error("read", addr, size))
     }
 
     pub fn load_raw(&self, addr: u32, size: u32) -> Result<&[u8]> {
@@ -152,10 +163,7 @@ impl MemoryManager {
                 return Ok(segment.load(addr, size));
             }
         }
-        Err(RiscletError::memory_access_error(format!(
-            "cannot read {} bytes from address 0x{:x} (no allocated memory)",
-            size, addr
-        )))
+        Err(self.access_error("read", addr, size))
     }
 
     pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<()> {
@@ -166,10 +174,58 @@ impl MemoryManager {
                 return Ok(());
             }
         }
-        Err(RiscletError::memory_access_error(format!(
-            "cannot write {} bytes to address 0x{:x} (not allocated or read-only)",
-            size, addr
-        )))
+        Err(self.access_error("write", addr, size))
+    }
+
+    // Distinguish a bad pointer from an access that starts in a valid region.
+    fn access_error(
+        &self,
+        operation: &str,
+        addr: u32,
+        size: u32,
+    ) -> RiscletError {
+        let reason = if u64::from(addr) + u64::from(size)
+            > u64::from(u32::MAX) + 1
+        {
+            "access wraps the 32-bit address space".into()
+        } else if let Some(segment) = self
+            .segments
+            .iter()
+            .find(|segment| addr >= segment.start && addr < segment.end)
+        {
+            if !segment.in_range(addr, size) {
+                format!(
+                    "access crosses the region boundary at {}; each access must fit in one region",
+                    address(segment.end, self.hex)
+                )
+            } else if operation == "write" {
+                format!(
+                    "region {}..{} is read-only; place writable storage in .data or .bss",
+                    address(segment.start, self.hex),
+                    address(segment.end, self.hex)
+                )
+            } else {
+                format!(
+                    "region {}..{} is not executable",
+                    address(segment.start, self.hex),
+                    address(segment.end, self.hex)
+                )
+            }
+        } else {
+            "no allocated memory; check the pointer and its offset".into()
+        };
+        let location = if self
+            .segments
+            .iter()
+            .any(|segment| (segment.start..segment.end).contains(&addr))
+        {
+            self.layout.describe_address(addr, self.hex)
+        } else {
+            format!("address {}", address(addr, self.hex))
+        };
+        RiscletError::memory_access_error(format!(
+            "cannot {operation} {size} bytes at {location}: {reason}"
+        ))
     }
 
     pub fn load_instruction(&self, addr: u32) -> Result<(i32, u32)> {
@@ -188,15 +244,12 @@ impl MemoryManager {
                 return Ok((i32::from_le_bytes(raw.try_into().unwrap()), 4));
             } else {
                 return Err(RiscletError::memory_access_error(format!(
-                    "instruction at 0x{:x} is incomplete (extends beyond segment)",
-                    addr
+                    "instruction at {} is incomplete (extends beyond segment)",
+                    self.layout.describe_address(addr, self.hex)
                 )));
             }
         }
-        Err(RiscletError::memory_access_error(format!(
-            "cannot fetch instruction from 0x{:x} (no allocated memory)",
-            addr
-        )))
+        Err(self.access_error("fetch instruction", addr, 2))
     }
 }
 

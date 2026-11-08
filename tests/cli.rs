@@ -40,6 +40,449 @@ impl Drop for Workspace {
     }
 }
 
+// Diagnostics must identify both the failed use and the executed cause.
+#[test]
+fn strict_loop_failure_labels_the_call_and_later_use() {
+    let workspace = Workspace::new();
+    write(workspace.0.join("loop.s"), ".global _start\n_start:\nli t0, 0\nloop:\naddi t0, t0, 1\ncall worker\nj loop\nworker:\nret\n").unwrap();
+    let output = workspace.run(&["run", "--strict", "loop.s"]);
+    assert!(!output.status.success());
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(message.contains("cannot read from uninitialized t0"), "{message}");
+    assert!(message.contains("loop.s:5"), "{message}");
+    assert!(message.contains("loop.s:6"), "{message}");
+    assert!(message.contains("call worker"), "{message}");
+    assert!(message.contains("this earlier call"), "{message}");
+    assert!(message.contains("may overwrite a caller-saved"), "{message}");
+}
+
+#[test]
+fn strict_failures_distinguish_entry_argument_and_return_causes() {
+    let workspace = Workspace::new();
+    let cases = [
+        ("lw a0, 0(t0)", "Initialize t0 before reading it"),
+        (
+            "call worker\nworker: addi a0, t0, 1",
+            "temporary registers are unavailable",
+        ),
+        (
+            ".global worker_args\n.equ worker_args, 0\ncall worker\nworker: addi a1, a0, 1",
+            "_args declaration",
+        ),
+        (
+            "call worker\naddi t0, a0, 1\nworker: ret",
+            "returned without an initialized a0",
+        ),
+    ];
+    for (body, expected) in cases {
+        write(
+            workspace.0.join("case.s"),
+            format!(".global _start\n_start:\n{body}\n"),
+        )
+        .unwrap();
+        let output = workspace.run(&["run", "--strict", "case.s"]);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success() && message.contains(expected),
+            "{expected}: {message}"
+        );
+        assert!(message.contains("case.s:"), "{message}");
+    }
+}
+
+#[test]
+fn strict_restoration_and_memory_failures_label_earlier_events() {
+    let workspace = Workspace::new();
+    let cases = [
+        (
+            "call worker\nli a7, 93\necall\nworker:\nli s0, 1\nret",
+            "replaced the incoming s0",
+            "li s0, 1",
+        ),
+        (
+            "addi sp, sp, -16\nli t0, 1\nsw t0, 0(sp)\nlb a0, 0(sp)",
+            "earlier write established",
+            "sw t0, 0(sp)",
+        ),
+        (
+            "addi sp, sp, -16\nli t0, 1\nsw t0, 0(sp)\naddi sp, sp, 16\naddi sp, sp, -16\nlw a0, 0(sp)",
+            "released the stack storage",
+            "addi sp, sp, 16",
+        ),
+    ];
+    for (body, expected, cause) in cases {
+        write(
+            workspace.0.join("case.s"),
+            format!(".global _start\n_start:\n{body}\n"),
+        )
+        .unwrap();
+        let output = workspace.run(&["run", "--strict", "case.s"]);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success()
+                && message.contains(expected)
+                && message.contains(cause),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn invalid_control_flow_and_limits_report_failure_in_all_cli_modes() {
+    let workspace = Workspace::new();
+    for body in ["jalr zero, 0(zero)", "nop\njalr zero, 0(zero)"] {
+        write(
+            workspace.0.join("jump.s"),
+            format!(".global _start\n_start:\n{body}\n"),
+        )
+        .unwrap();
+        for mode in ["run", "trace"] {
+            let output = workspace.run(&[mode, "jump.s"]);
+            let message = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !output.status.success()
+                    && message.contains("PC 0")
+                    && message.contains("transferred control"),
+                "{message}"
+            );
+        }
+    }
+    write(workspace.0.join("loop.s"), ".global _start\n_start: j _start\n")
+        .unwrap();
+    for mode in ["run", "trace"] {
+        let output = workspace.run(&[mode, "--steps", "2", "loop.s"]);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success()
+                && message.contains("stopped after 2 steps")
+                && message.contains("--steps N"),
+            "{message}"
+        );
+    }
+    let output = workspace.run(&["run", "--steps", "0", "loop.s"]);
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("positive integer")
+    );
+}
+
+#[test]
+fn preparation_errors_name_paths_entry_requirements_and_syntax_reference() {
+    let workspace = Workspace::new();
+    workspace.source("program.s", 0);
+    let output =
+        workspace.run(&["assemble", "program.s", "-o", "missing/output"]);
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && message.contains("cannot create output:")
+            && message.contains("at file 'missing/output'"),
+        "{message}"
+    );
+    write(workspace.0.join("local.s"), "_start: nop\n").unwrap();
+    let output = workspace.run(&["run", "local.s"]);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("add .global _start")
+    );
+    for instruction in ["typo a0, a1", "c.typo a0"] {
+        write(workspace.0.join("unknown.s"), instruction).unwrap();
+        let output = workspace.run(&["run", "unknown.s"]);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success()
+                && message.contains(
+                    "https://github.com/russross/risclet/blob/main/SYNTAX.md"
+                ),
+            "{message}"
+        );
+    }
+    write(workspace.0.join("broken.elf"), b"not ELF").unwrap();
+    let output = workspace.run(&["run", "-e", "broken.elf"]);
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("executable 'broken.elf'")
+    );
+}
+
+#[test]
+fn loaded_executable_diagnostics_fall_back_to_disassembly() {
+    let workspace = Workspace::new();
+    write(
+        workspace.0.join("bad.s"),
+        ".global _start\n_start: lw a0, 0(zero)\n",
+    )
+    .unwrap();
+    success(&workspace.run(&["assemble", "bad.s"]));
+    let output = workspace.run(&["run", "--hex", "-e", "a.out"]);
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && message.contains("0x100")
+            && message.contains("lw")
+            && message.contains("no allocated memory"),
+        "{message}"
+    );
+    assert!(!message.contains("could not read source"), "{message}");
+}
+
+#[test]
+fn memory_and_syscall_failures_explain_actual_operands_and_permissions() {
+    let workspace = Workspace::new();
+    let cases = [
+        ("la t0, _start\nsw zero, 0(t0)", "read-only"),
+        (
+            "la t0, item\nlw a0, 0(t0)\n.data\nitem: .byte 1",
+            "crosses the region boundary",
+        ),
+        ("li a0, 2\nli a7, 64\necall", "fd is 2"),
+        ("li a7, 999\necall", "supported calls are read (63)"),
+        ("ebreak", "use risclet debug"),
+    ];
+    for (body, expected) in cases {
+        write(
+            workspace.0.join("case.s"),
+            format!(".global _start\n_start:\n{body}\n"),
+        )
+        .unwrap();
+        let output = workspace.run(&["run", "case.s"]);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success()
+                && message.contains(expected)
+                && message.contains("case.s:"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn strict_syscall_failures_remain_visible_in_trace_output() {
+    let workspace = Workspace::new();
+    write(workspace.0.join("write.s"), ".global _start\n_start:\nli a0, 1\nla a1, item\nlw t0, 0(a1)\nli a2, 4\nli a7, 64\necall\n.data\nitem: .word 0\n").unwrap();
+    let output = workspace.run(&["trace", "--strict", "write.s"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !output.status.success()
+            && stdout.contains("syscall write requires byte-level data"),
+        "{stdout}"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("write.s:8"));
+}
+
+#[test]
+fn nested_calls_retain_the_cause_of_an_unavailable_return_value() {
+    let workspace = Workspace::new();
+    write(workspace.0.join("nested.s"), ".global _start\n_start:\ncall outer\naddi t0, a0, 1\nouter:\naddi sp, sp, -16\nsw ra, 0(sp)\ncall inner\nlw ra, 0(sp)\naddi sp, sp, 16\nret\ninner: ret\n").unwrap();
+    let output = workspace.run(&["run", "--strict", "nested.s"]);
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && message.contains("nested.s:4")
+            && message.contains("nested.s:8"),
+        "{message}"
+    );
+    assert!(
+        message.contains("returned without an initialized a0"),
+        "{message}"
+    );
+}
+
+#[test]
+fn source_labels_survive_multiple_files_and_expanded_compressed_calls() {
+    let workspace = Workspace::new();
+    write(
+        workspace.0.join("caller.s"),
+        ".global _start\n_start: call helper\n",
+    )
+    .unwrap();
+    write(
+        workspace.0.join("callee.s"),
+        ".global helper\nhelper: addi t0, t0, 1\n",
+    )
+    .unwrap();
+    for options in [vec![], vec!["--no-relax-pseudo", "--relax-compressed"]] {
+        let mut args = vec!["run", "--strict"];
+        args.extend(options);
+        args.extend(["caller.s", "callee.s"]);
+        let output = workspace.run(&args);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success()
+                && message.contains("caller.s:2")
+                && message.contains("callee.s:2"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn empty_recording_reports_invalid_entry_without_opening_debugger() {
+    let workspace = Workspace::new();
+    workspace.source("program.s", 0);
+    success(&workspace.run(&["assemble", "program.s"]));
+    let mut bytes = read(workspace.0.join("a.out")).unwrap();
+    let entry = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+    bytes[24..28].copy_from_slice(&(entry + 2).to_le_bytes());
+    write(workspace.0.join("a.out"), bytes).unwrap();
+    for mode in ["run", "trace", "debug"] {
+        let output = workspace.run(&[mode, "-e", "a.out"]);
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success()
+                && message.contains("next instruction not found"),
+            "{message}"
+        );
+        assert!(!message.contains("panicked"), "{message}");
+    }
+}
+
+// Debug reports the completed run before attempting to take over the terminal.
+#[test]
+fn debug_prints_run_diagnostic_before_terminal_initialization() {
+    let workspace = Workspace::new();
+    write(
+        workspace.0.join("failure.s"),
+        ".global _start\n_start:\ncall worker\naddi a0, t0, 1\nworker: ret\n",
+    )
+    .unwrap();
+    let run = workspace.run(&["run", "--strict", "failure.s"]);
+    let debug = workspace.run(&["debug", "--strict", "failure.s"]);
+    let run_error = String::from_utf8_lossy(&run.stderr);
+    let debug_error = String::from_utf8_lossy(&debug.stderr);
+    assert!(!run.status.success() && !debug.status.success());
+    assert!(debug_error.starts_with(run_error.as_ref()), "{debug_error}");
+    assert!(debug_error.contains("interactive terminal/tty"), "{debug_error}");
+    assert_eq!(debug_error.matches("this earlier call").count(), 1);
+}
+
+// Source and ELF reports use one opening layout and the selected numeric style.
+#[test]
+fn alignment_reports_have_step_segment_and_seven_context_rows() {
+    let workspace = Workspace::new();
+    let source = ".global _start\n_start:\naddi sp, sp, -32\nli s2, 0\nnop\nnop\nnop\nsw s2, 22(sp)\nnop\nnop\nnop\nli a7, 93\necall\n";
+    write(workspace.0.join("alignment.s"), source).unwrap();
+    success(&workspace.run(&["assemble", "alignment.s"]));
+    for (style, memory_address, sp) in
+        [("--hex", "0xffff6", "0xfffe0"), ("--no-hex", "1048566", "1048544")]
+    {
+        let output = workspace.run(&["run", "--strict", style, "alignment.s"]);
+        let report = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(report.starts_with(&format!("\nERROR: unaligned 4-byte memory write to stack address {memory_address}\nat pc:")), "{report}");
+        assert!(
+            report.lines().nth(2).unwrap().contains(&format!(
+                "step 6 in alignment.s:8 with sp={sp}, s2=0"
+            )),
+            "{report}"
+        );
+        let rows: Vec<_> = report
+            .split("at alignment.s:8:\n")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .take(7)
+            .collect();
+        assert_eq!(rows.len(), 7);
+        for (row, original) in rows.iter().zip(source.lines().skip(4).take(7)) {
+            assert_eq!(&row[12..], original);
+        }
+        assert!(rows[3].starts_with(">>> "));
+        assert!(report.contains("help: a 4-byte write to memory must be to an address that is divisible by 4"));
+        assert!(report.contains("STRICT.md)"));
+
+        let output = workspace.run(&["run", "--strict", style, "-e", "a.out"]);
+        let report = String::from_utf8_lossy(&output.stderr);
+        assert!(report.starts_with(&format!("\nERROR: unaligned 4-byte memory write to stack address {memory_address}\nat pc:")), "{report}");
+        let rows: Vec<_> = report
+            .split("disassembled from ELF binary 'a.out':\n")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .take(7)
+            .collect();
+        assert!(rows[3].starts_with(">>> "));
+        let output = workspace.run(&[
+            "disassemble",
+            style,
+            "--no-show-encoding",
+            "-e",
+            "a.out",
+        ]);
+        success(&output);
+        let disassembly = String::from_utf8_lossy(&output.stdout);
+        let instructions: Vec<_> = disassembly.lines().collect();
+        let selected =
+            instructions.iter().position(|line| line.contains("sw ")).unwrap();
+        for (row, original) in
+            rows.iter().zip(&instructions[selected - 3..=selected + 3])
+        {
+            assert_eq!(&row[8..], *original);
+        }
+    }
+}
+
+#[test]
+fn assembler_and_cli_errors_use_the_standard_opening_lines() {
+    let workspace = Workspace::new();
+    let source = ".global _start\n_start:\nnop\nnop\nnop\nnop\nnop\nunknown a0\nnop\nnop\nnop\n";
+    write(workspace.0.join("syntax.s"), source).unwrap();
+    let output = workspace.run(&["assemble", "syntax.s"]);
+    let report = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        report.starts_with(
+            "\nERROR: unknown instruction 'unknown'\nat syntax.s:8:\n"
+        ),
+        "{report}"
+    );
+    let rows: Vec<_> = report
+        .split("at syntax.s:8:\n")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .take(7)
+        .collect();
+    assert_eq!(rows[3], ">>>      8: unknown a0");
+    assert_eq!(rows.len(), 7);
+    assert!(report.contains(
+        "\n    (see https://github.com/russross/risclet/blob/main/SYNTAX.md)"
+    ));
+    let output = workspace.run(&["run", "--unsupported"]);
+    let report = String::from_utf8_lossy(&output.stderr);
+    assert!(report.starts_with("\nERROR: unknown option:"), "{report}");
+    assert_eq!(
+        report.lines().nth(2),
+        Some("while parsing command-line arguments")
+    );
+}
+
+#[test]
+fn syntax_errors_merge_source_context_and_link_the_reference() {
+    let workspace = Workspace::new();
+    for instruction in
+        ["addi s2, s22, 9", "addi s2 s2, 9", ".ascii \"unterminated"]
+    {
+        let source = format!(
+            ".global _start\n_start:\nnop\nnop\nnop\nnop\nnop\n{instruction}\nnop\nnop\nnop\n"
+        );
+        write(workspace.0.join("syntax.s"), source).unwrap();
+        let output = workspace.run(&["assemble", "syntax.s"]);
+        let report = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(report.starts_with("\nERROR: "), "{report}");
+        assert_eq!(report.lines().nth(2), Some("at syntax.s:8:"));
+        assert_eq!(report.matches("at syntax.s:8").count(), 1, "{report}");
+        let rows: Vec<_> = report
+            .split("at syntax.s:8:\n")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .take(7)
+            .collect();
+        assert_eq!(rows[3], format!(">>>      8: {instruction}"));
+        assert!(report.contains("\n    (see https://github.com/russross/risclet/blob/main/SYNTAX.md)"), "{report}");
+    }
+}
+
 fn success(output: &Output) {
     assert!(
         output.status.success(),

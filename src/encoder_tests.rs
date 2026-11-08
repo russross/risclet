@@ -1429,7 +1429,7 @@ add x1, x2, x3
     assert!(result.is_err(), "Expected error for instruction in .bss");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Instruction") && err_msg.contains(".bss"),
+        err_msg.contains("instruction") && err_msg.contains(".bss"),
         "Error should mention instructions not allowed in .bss, got: {}",
         err_msg
     );
@@ -1527,7 +1527,7 @@ jal x1, 42
     assert!(result.is_err(), "Expected error for jal with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump target")
+        err_msg.contains("jump target")
             && err_msg.contains("address")
             && err_msg.contains("numeric value"),
         "Error should mention type mismatch, got: {}",
@@ -1546,7 +1546,7 @@ beq x1, x2, 16
     assert!(result.is_err(), "Expected error for branch with integer");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch target")
+        err_msg.contains("branch target")
             && err_msg.contains("address")
             && err_msg.contains("numeric value"),
         "Error should mention type mismatch, got: {}",
@@ -1722,7 +1722,7 @@ nop
     assert!(result.is_err(), "Expected error for branch offset out of range");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch")
+        err_msg.contains("branch")
             && (err_msg.contains("13-bit")
                 || err_msg.contains("range")
                 || err_msg.contains("4096")),
@@ -1747,7 +1747,7 @@ nop
     assert!(result.is_err(), "Expected error for misaligned branch offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Branch")
+        err_msg.contains("branch")
             && (err_msg.contains("even") || err_msg.contains("aligned")),
         "Error should mention branch offset must be even, got: {}",
         err_msg
@@ -1770,7 +1770,7 @@ nop
     assert!(result.is_err(), "Expected error for misaligned jal offset");
     let err_msg = result.unwrap_err();
     assert!(
-        err_msg.contains("Jump")
+        err_msg.contains("jump")
             && (err_msg.contains("even") || err_msg.contains("aligned")),
         "Error should mention jump offset must be even, got: {}",
         err_msg

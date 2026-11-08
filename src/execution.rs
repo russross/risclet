@@ -7,7 +7,11 @@ use crossterm::tty::IsTty;
 
 use crate::checkabi::CheckABI;
 use crate::config::{Config, Mode};
-use crate::error::{Result, RiscletError};
+use crate::error::{
+    ContextListing, Diagnostic, DiagnosticContext, DiagnosticSite,
+    DiagnosticSources, ExecutionContext, Result, RiscletError, address,
+    context_window, register_value,
+};
 use crate::memory::{CpuState, MemoryLayout, MemoryManager, Segment};
 use crate::riscv::{
     Field, Op, ZERO, fields_to_string, format_instruction_address,
@@ -18,6 +22,8 @@ use crate::trace::{
 };
 
 pub struct Machine {
+    pub diagnostic_sources: DiagnosticSources,
+    pub executable_name: Option<String>,
     pub io: IoRecord,
     pub output_events: Vec<IoEvent>,
     state: CpuState,
@@ -72,6 +78,8 @@ impl Machine {
             Self::default_recent_memory(memory.layout);
 
         Self {
+            diagnostic_sources: DiagnosticSources::default(),
+            executable_name: None,
             io: IoRecord::default(),
             output_events: Vec::new(),
             state,
@@ -156,6 +164,14 @@ impl Machine {
         self.memory.load_instruction(addr)
     }
 
+    pub fn set_numeric_style(&mut self, hex: bool) {
+        self.memory.hex = hex;
+    }
+
+    pub fn format_integer(&self, value: i32) -> String {
+        register_value(value, self.memory.hex)
+    }
+
     pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<()> {
         if let Some(effects) = &mut self.current_effect
             && let Ok(old_val) = self.memory.load_raw(addr, raw.len() as u32)
@@ -172,7 +188,7 @@ impl Machine {
             && self.current_effect.is_some()
             && !self.reg_reads.iter().any(|r| r.register == reg)
         {
-            self.reg_reads.push(RegisterValue { register: reg });
+            self.reg_reads.push(RegisterValue { register: reg, value: val });
         }
         val
     }
@@ -676,7 +692,7 @@ fn print_instruction_trace(
     hex_mode: bool,
     io: &IoRecord,
 ) {
-    let effect_lines = effects.report(hex_mode, io);
+    let effect_lines = effects.report_effects(hex_mode, io);
 
     if !effect_lines.is_empty() && !effect_lines[0].is_empty() {
         println!("{}{}", disassembly, effect_lines[0]);
@@ -684,8 +700,18 @@ fn print_instruction_trace(
         println!("{}", disassembly);
     }
 
-    for line in &effect_lines[1..] {
+    print_effect_details(effects, &effect_lines);
+}
+
+// Instruction effects are indented; diagnostic listings own their exact layout.
+fn print_effect_details(effects: &Effects, effect_lines: &[String]) {
+    for line in effect_lines.iter().skip(1) {
         println!("    {}", line);
+    }
+    if let Some(error) = effects.other_message()
+        && !matches!(error, RiscletError::Exit(_))
+    {
+        println!("\n{error}");
     }
 }
 
@@ -768,12 +794,19 @@ fn print_ecall_trace_line(
     }
 }
 
+// Termination is independent of the replay, including failures before step one.
+pub struct Recording {
+    pub effects: Vec<Effects>,
+    pub outcome: Result<i32>,
+}
+
 pub fn trace(
     m: &mut Machine,
     instructions: &[Rc<Instruction>],
     addresses: &HashMap<u32, usize>,
     config: &Config,
-) -> Vec<Effects> {
+) -> Recording {
+    m.set_numeric_style(config.hex_mode);
     let mut abi = CheckABI::new(
         m.get_reg(2) as u32,
         m.text_start(),
@@ -782,7 +815,8 @@ pub fn trace(
         m.data_end(),
         m.stack_start(),
         m.stack_end(),
-    );
+    )
+    .with_numeric_style(config.hex_mode);
     // Each execution starts a new recording; reset later preserves it for replay.
     m.io = IoRecord::default();
     m.output_events.clear();
@@ -791,15 +825,45 @@ pub fn trace(
     let mut prev_pseudo_index: Option<usize> = None;
     let mut pending_pseudo_effects: Vec<Effects> = Vec::new();
     let echo_in = matches!(config.mode, Mode::Debug) && !io::stdin().is_tty();
+    let mut outcome = Err(RiscletError::execution_error(format!(
+        "no instruction at entry PC {}",
+        address(m.pc(), config.hex_mode)
+    )));
 
     for steps in 1..=config.max_steps {
         if i >= instructions.len() || instructions[i].address != m.pc() {
             let Some(&new_i) = addresses.get(&m.pc()) else {
+                let mut diagnostic = Diagnostic::from(format!(
+                    "next instruction not found at PC {}",
+                    address(m.pc(), config.hex_mode)
+                ));
                 if let Some(effects) = sequence.last_mut() {
-                    effects.error(RiscletError::execution_error(
-                        "next instruction not found".to_string(),
-                    ));
+                    diagnostic.sites.push(DiagnosticSite::new(effects.instruction.address, "this instruction transferred control to the invalid address"));
+                    enrich_diagnostic(
+                        &mut diagnostic,
+                        m,
+                        instructions,
+                        addresses,
+                        config,
+                        effects.instruction.address,
+                        steps - 1,
+                    );
+                    effects.error(RiscletError::Diagnostic(Box::new(
+                        diagnostic.clone(),
+                    )));
                 }
+                if diagnostic.sites.is_empty() {
+                    enrich_diagnostic(
+                        &mut diagnostic,
+                        m,
+                        instructions,
+                        addresses,
+                        config,
+                        m.pc(),
+                        0,
+                    );
+                }
+                outcome = Err(RiscletError::Diagnostic(Box::new(diagnostic)));
                 break;
             };
             i = new_i;
@@ -837,13 +901,23 @@ pub fn trace(
         let mut effects = m.execute_and_collect_effects(instruction);
         i += 1;
 
+        if config.strict
+            && effects
+                .other_message()
+                .is_some_and(|error| !matches!(error, RiscletError::Exit(_)))
+            && let Err(diagnostic) =
+                abi.check_register_reads(instruction, m.register_reads())
+        {
+            effects.error(RiscletError::abi_violation(diagnostic));
+        }
+
         // Echo stdout for run and debug modes (trace mode handles printing itself)
         if !effects.is_terminal()
             && matches!(config.mode, Mode::Run | Mode::Debug)
             && let Some(output) = effects.stdout(&m.io)
         {
             let mut handle = io::stdout().lock();
-            if let Err(e) = handle.write(output) {
+            if let Err(e) = handle.write_all(output) {
                 effects.error(RiscletError::io(format!(
                     "error echoing stdout: {}",
                     e
@@ -857,7 +931,7 @@ pub fn trace(
             && let Some(input) = effects.stdin(&m.io)
         {
             let mut handle = io::stdout().lock();
-            if let Err(e) = handle.write(input) {
+            if let Err(e) = handle.write_all(input) {
                 effects.error(RiscletError::io(format!(
                     "error echoing stdin: {}",
                     e
@@ -878,6 +952,42 @@ pub fn trace(
             effects.error(RiscletError::abi_violation(msg));
         }
 
+        // Errors gain their instruction context before any presentation consumes them.
+        if steps == config.max_steps && !effects.is_terminal() {
+            effects.error(RiscletError::explained(format!("stopped after {} steps", config.max_steps), "Check for a loop that does not terminate, or raise the execution limit with --steps N."));
+        }
+        if let Some(error) = effects.other_message().cloned() {
+            if let RiscletError::Exit(code) = error {
+                outcome = Ok(code);
+            } else {
+                let is_abi = matches!(error, RiscletError::AbiViolation(_));
+                let mut diagnostic = match error {
+                    RiscletError::AbiViolation(d)
+                    | RiscletError::Diagnostic(d) => *d,
+                    other => Diagnostic::from(other.message()),
+                };
+                diagnostic
+                    .sites
+                    .insert(0, DiagnosticSite::new(instruction.address, ""));
+                enrich_diagnostic(
+                    &mut diagnostic,
+                    m,
+                    instructions,
+                    addresses,
+                    config,
+                    instruction.address,
+                    steps,
+                );
+                let error = if is_abi {
+                    RiscletError::abi_violation(diagnostic)
+                } else {
+                    RiscletError::Diagnostic(Box::new(diagnostic))
+                };
+                effects.error(error.clone());
+                outcome = Err(error);
+            }
+        }
+
         // For trace mode, handle pseudo-instruction printing
         if matches!(config.mode, Mode::Trace) {
             if config.verbose_instructions {
@@ -885,10 +995,9 @@ pub fn trace(
                 // For ecall, we already printed the instruction with syscall signature before execution,
                 // so only print the follow-up effect lines (not the first line with syscall signature)
                 if is_ecall {
-                    let effect_lines = effects.report(config.hex_mode, &m.io);
-                    for line in &effect_lines[1..] {
-                        println!("    {}", line);
-                    }
+                    let effect_lines =
+                        effects.report_effects(config.hex_mode, &m.io);
+                    print_effect_details(&effects, &effect_lines);
                 } else {
                     let disassembly = disassembly_for_instruction(
                         config,
@@ -912,10 +1021,9 @@ pub fn trace(
                 // (pending effects were flushed and ecall line was printed)
                 // So we only need to print the follow-up effect lines for ecall
                 if is_ecall {
-                    let effect_lines = effects.report(config.hex_mode, &m.io);
-                    for line in &effect_lines[1..] {
-                        println!("    {}", line);
-                    }
+                    let effect_lines =
+                        effects.report_effects(config.hex_mode, &m.io);
+                    print_effect_details(&effects, &effect_lines);
                     prev_pseudo_index = Some(instruction.pseudo_index);
                 } else {
                     // Normal pseudo-instruction accumulation for non-ecall
@@ -952,22 +1060,12 @@ pub fn trace(
             }
         }
         let terminate = effects.is_terminal();
+        if config.mode != Mode::Debug {
+            sequence.clear();
+        }
         sequence.push(effects);
         if terminate {
             break;
-        }
-
-        if steps == config.max_steps {
-            if let Some(last) = sequence.last_mut()
-                && last.other_message().is_none()
-            {
-                last.error(RiscletError::execution_error(format!(
-                    "stopped after {} steps",
-                    config.max_steps
-                )));
-            }
-        } else if !matches!(config.mode, Mode::Debug) {
-            sequence.clear();
         }
     }
 
@@ -987,7 +1085,68 @@ pub fn trace(
         );
     }
 
-    sequence
+    Recording { effects: sequence, outcome }
+}
+
+fn enrich_diagnostic(
+    diagnostic: &mut Diagnostic,
+    machine: &Machine,
+    instructions: &[Rc<Instruction>],
+    addresses: &HashMap<u32, usize>,
+    config: &Config,
+    pc: u32,
+    step: usize,
+) {
+    diagnostic.context =
+        DiagnosticContext::Execution(Box::new(ExecutionContext {
+            pc,
+            step,
+            hex: config.hex_mode,
+            location: machine.diagnostic_sources.locations.get(&pc).cloned(),
+            registers: machine
+                .register_reads()
+                .iter()
+                .map(|read| (read.register, read.value))
+                .collect(),
+        }));
+    let mut listing_config = config.clone();
+    listing_config.show_addresses = true;
+    listing_config.show_encoding = false;
+    for site in &mut diagnostic.sites {
+        if let Some(location) =
+            machine.diagnostic_sources.locations.get(&site.address)
+            && let Some(lines) =
+                machine.diagnostic_sources.files.get(&location.file)
+        {
+            site.listing = Some(ContextListing::source(location, lines));
+        } else if let Some(&index) = addresses.get(&site.address) {
+            let heading = match &machine.executable_name {
+                Some(name) => format!("disassembled from ELF binary '{name}':"),
+                None => "disassembled from assembled executable:".into(),
+            };
+            let rows = context_window(index, instructions.len())
+                .map(|row| {
+                    let instruction = &instructions[row];
+                    let fields = if config.verbose_instructions {
+                        instruction.op.to_encoding_fields(instruction.encoding)
+                    } else {
+                        instruction.op.to_pseudo_fields()
+                    };
+                    let listing = fields_to_string(
+                        &listing_config,
+                        &fields,
+                        instruction.address,
+                        machine.global_pointer,
+                        instruction.length == 2,
+                        None,
+                        &machine.address_symbols,
+                    );
+                    (row == index, format!("    {}", listing.trim_end()))
+                })
+                .collect();
+            site.listing = Some(ContextListing { heading, rows });
+        }
+    }
 }
 
 /// Merge effects from multiple instructions in a pseudo-sequence into a single effect
@@ -1009,6 +1168,9 @@ fn merge_pseudo_effects(effects_list: &[Effects]) -> Effects {
         }
         if effects.mem_write.is_some() {
             merged.mem_write = effects.mem_write.clone();
+        }
+        if let Some(error) = effects.other_message() {
+            merged.error(error.clone());
         }
         // Update PC to the final PC from the last instruction
         merged.pc.1 = effects.pc.1;

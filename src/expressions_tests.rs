@@ -203,7 +203,7 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Cannot add two addresses"));
+        assert!(err_msg.contains("cannot add two addresses"));
     }
 
     #[test]
@@ -219,7 +219,7 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Cannot subtract an address from a number"));
+        assert!(err_msg.contains("cannot subtract an address from a number"));
     }
 
     // ========================================================================
@@ -293,7 +293,7 @@ mod tests {
         let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Division by zero"));
+        assert!(err_msg.contains("division by zero"));
     }
 
     #[test]
@@ -309,7 +309,7 @@ mod tests {
         let result = eval_simple(expr, &source, &mut layout, 0x100e8);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Modulo by zero"));
+        assert!(err_msg.contains("modulo by zero"));
     }
 
     // ========================================================================

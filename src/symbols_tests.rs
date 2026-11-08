@@ -1823,7 +1823,7 @@ mod tests {
         );
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("duplicate") && err.contains("Duplicate global"),
+            err.contains("duplicate") && err.contains("duplicate global"),
             "Error should mention duplicate: {}",
             err
         );
@@ -2121,7 +2121,7 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("__global_pointer$")
-                && err.contains("Duplicate global symbol"),
+                && err.contains("duplicate global symbol"),
             "Error should mention duplicate global symbol: {}",
             err
         );
@@ -2144,7 +2144,7 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("__global_pointer$")
-                && err.contains("Duplicate global symbol"),
+                && err.contains("duplicate global symbol"),
             "Error should mention duplicate global symbol: {}",
             err
         );

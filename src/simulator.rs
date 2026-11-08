@@ -3,8 +3,8 @@
 // Provides the RISC-V simulation and debugging functionality
 
 use crate::config::{Config, Mode};
-use crate::elf_loader::{ElfInput, load_elf};
-use crate::error::{Result, RiscletError};
+use crate::elf_loader::{ElfInput, load_elf_with_style};
+use crate::error::{DiagnosticSources, Result, RiscletError, report};
 use crate::execution::{Instruction, add_local_labels, trace};
 use crate::riscv::{Op, get_pseudo_sequence};
 use crate::ui::Tui;
@@ -12,8 +12,19 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Run the simulator with the specified ELF input (file or bytes)
-pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
-    let mut m = load_elf(input)?;
+pub fn run_simulator(
+    config: &Config,
+    input: ElfInput,
+    sources: DiagnosticSources,
+) -> Result<i32> {
+    let executable_name = match &input {
+        ElfInput::File(name) => Some((*name).to_string()),
+        ElfInput::Bytes(_) => None,
+    };
+    let mut m = load_elf_with_style(input, config.hex_mode)?;
+    m.diagnostic_sources = sources;
+    m.executable_name = executable_name;
+    m.set_numeric_style(config.hex_mode);
     let mut instructions = Vec::new();
     let mut pc = m.text_start();
     while pc < m.text_end() {
@@ -93,34 +104,24 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
                     .trim_end()
             );
         }
-        return Ok(());
+        return Ok(0);
     }
 
     let instructions: Vec<Rc<Instruction>> =
         instructions.into_iter().map(Rc::new).collect();
 
     // Unified execution loop for run, debug, and trace modes
-    let sequence = trace(&mut m, &instructions, &addresses, config);
-
-    // Handle exit codes and errors from trace execution
-    if config.mode == Mode::Trace {
-        if let Some(effects) = sequence.last()
-            && let Some(error) = effects.other_message()
-        {
-            match error {
-                RiscletError::Exit(code) => {
-                    std::process::exit(*code);
-                }
-                _ => {
-                    eprintln!("{}", error);
-                    std::process::exit(1);
-                }
-            }
-        }
-        return Ok(());
-    }
+    let recording = trace(&mut m, &instructions, &addresses, config);
+    let sequence = recording.effects;
 
     if config.mode == Mode::Debug {
+        if sequence.is_empty() {
+            return recording.outcome;
+        }
+        // The normal terminal retains the initial run's diagnostic after replay.
+        if let Err(error) = &recording.outcome {
+            report(error);
+        }
         m.reset();
         m.set_most_recent_memory(&sequence, 0);
         let mut tui = Tui::new(
@@ -133,22 +134,8 @@ pub fn run_simulator(config: &Config, input: ElfInput) -> Result<()> {
         )
         .map_err(RiscletError::ui)?;
         tui.main_loop().map_err(RiscletError::ui)?;
-        return Ok(());
+        return Ok(0);
     }
 
-    if let Some(effects) = sequence.last()
-        && let Some(error) = effects.other_message()
-    {
-        match error {
-            RiscletError::Exit(code) => {
-                std::process::exit(*code);
-            }
-            _ => {
-                eprintln!("{}", error);
-                std::process::exit(1);
-            }
-        }
-    }
-    eprintln!("program ended unexpectedly");
-    std::process::exit(1);
+    recording.outcome
 }

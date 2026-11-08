@@ -25,7 +25,7 @@ In addition:
 *   `risclet disassemble`: print the program's disassembly
 *   `risclet debug`: run the program to completion, then enter a TUI to step back and forth through execution and examine its effects
 
-Add `--strict` to `run`, `trace`, or `debug` to check for calling-convention violations and common beginner mistakes, treating them as errors. Use `risclet <command> --help` for other options.
+Add `--strict` to `run`, `trace`, or `debug` to check for calling-convention violations and common beginner mistakes, treating them as errors. The [strict validation reference](STRICT.md) explains register availability, preservation, stack lifetime, memory widths, and alignment. Use `risclet <command> --help` for other options.
 
 All commands use the same input defaults, except `assemble` requires source files. For example, `risclet disassemble` assembles and links `*.s` files in the current directory before disassembling the result.
 
@@ -36,6 +36,8 @@ The debugger
 `risclet debug` runs the program first, including all input/output, and records each instruction's effects. It then opens a terminal interface for stepping and jumping forward and backward through the recorded execution. An 80×24 or larger terminal is recommended.
 
 The debugger displays disassembly, registers, input/output, and the stack, data, and text segments. It previews the next instruction's effects and draws taken branches. Colors distinguish stack frames, labeled data, and functions; highlights mark recent memory accesses and the current instruction.
+
+Execution failures print the full diagnostic before the debugger opens, including related earlier instructions and guidance. These details remain in the console after quitting. The debugger's status bar shows the error summary. Source runs show the original source lines in diagnostics; loaded executables use disassembly.
 
 Press `?` to display the controls:
 

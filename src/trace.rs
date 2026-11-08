@@ -61,6 +61,7 @@ impl WrittenRegister {
 #[derive(Clone)]
 pub struct RegisterValue {
     pub register: usize,
+    pub value: i32,
 }
 
 #[derive(Clone, Copy)]
@@ -165,6 +166,17 @@ impl Effects {
     }
 
     pub fn report(&self, hex_mode: bool, io: &IoRecord) -> Vec<String> {
+        let mut lines = self.report_effects(hex_mode, io);
+        if let Some(error) = self.other_message()
+            && !matches!(error, RiscletError::Exit(_))
+        {
+            lines.push(String::new());
+            lines.extend(error.message().lines().map(str::to_owned));
+        }
+        lines
+    }
+
+    pub fn report_effects(&self, hex_mode: bool, io: &IoRecord) -> Vec<String> {
         let mut lines = Vec::new();
 
         // Handle syscalls specially - they replace normal output formatting
@@ -222,7 +234,6 @@ impl Effects {
                     lines.push(format!("0x{:x}: {:?}", buf_addr, msg));
                 }
             }
-            // Don't add error message when syscall is already reported
         } else {
             // Normal instruction effect reporting
             let mut parts = Vec::new();
@@ -244,10 +255,6 @@ impl Effects {
                 }
             }
             lines.push(parts.join(", "));
-
-            if let Some(error) = self.other_message() {
-                lines.push(error.message());
-            }
         }
 
         lines

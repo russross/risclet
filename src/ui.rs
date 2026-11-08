@@ -15,6 +15,7 @@ use crossterm::{
 };
 
 use crate::config::Config;
+use crate::error::RiscletError;
 use crate::execution::{Instruction, Machine};
 use crate::riscv::{Op, R, RA, SP, ZERO, fields_to_string};
 use crate::trace::{Effects, IoEvent};
@@ -1010,6 +1011,16 @@ impl Tui {
         // draw the side-effects label
         let mut side_effects = self.sequence[self.sequence_index]
             .report(self.config.hex_mode, &self.machine.io);
+        if let Some(error) = self.sequence[self.sequence_index].other_message()
+            && !matches!(error, RiscletError::Exit(_))
+        {
+            return error
+                .message()
+                .lines()
+                .next()
+                .unwrap_or("execution error")
+                .to_string();
+        }
         side_effects.truncate(2);
         if side_effects[0].is_empty() {
             side_effects.remove(0);
@@ -1259,16 +1270,26 @@ struct Terminal;
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        if let Err(e) = (|| {
-            crossterm::terminal::disable_raw_mode()?;
-            queue!(
-                std::io::stdout(),
-                crossterm::terminal::LeaveAlternateScreen,
-                crossterm::cursor::Show
-            )?;
-            std::io::stdout().flush()
-        })() {
-            eprintln!("{}", e);
+        // Attempt every restoration step even if another step fails.
+        let mut stdout = io::stdout();
+        let results = [
+            ("restore terminal input", crossterm::terminal::disable_raw_mode()),
+            (
+                "leave debugger screen",
+                crossterm::execute!(
+                    stdout,
+                    crossterm::terminal::LeaveAlternateScreen
+                ),
+            ),
+            (
+                "show terminal cursor",
+                crossterm::execute!(stdout, crossterm::cursor::Show),
+            ),
+        ];
+        for (operation, result) in results {
+            if let Err(error) = result {
+                eprintln!("cannot {operation}: {error}");
+            }
         }
     }
 }

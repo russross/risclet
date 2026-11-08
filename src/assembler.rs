@@ -11,7 +11,7 @@ use crate::dump::{dump_ast, dump_code, dump_elf, dump_layout, dump_symbols};
 use crate::elf::ElfFile;
 use crate::elf_builder::ElfBuilder;
 use crate::encoder::encode;
-use crate::error::{Result, RiscletError};
+use crate::error::{DiagnosticSources, Result, RiscletError};
 use crate::expressions::{SymbolValues, eval_symbol_values};
 use crate::layout::{Layout, LineSizes, approximate_line_sizes};
 use crate::parser::parse;
@@ -27,29 +27,44 @@ use std::os::unix::fs::PermissionsExt;
 /// A dump completes successfully without producing an executable.
 #[derive(Debug)]
 pub enum AssemblyOutput {
-    Elf(Vec<u8>),
+    Elf(Vec<u8>, DiagnosticSources),
     Dumped,
 }
 
 /// Assemble source files and write ELF to disk
 pub fn assemble_and_save(config: &mut Config) -> Result<()> {
     // Generate ELF bytes (handles all phases and dump checkpoints)
-    let AssemblyOutput::Elf(elf_bytes) = assemble_files(config)? else {
+    let AssemblyOutput::Elf(elf_bytes, _) = assemble_files(config)? else {
         return Ok(());
     };
 
     // Write to output file
-    let mut file = File::create(&config.output_file)
-        .map_err(|e| RiscletError::io(e.to_string()))?;
-    file.write_all(&elf_bytes).map_err(|e| RiscletError::io(e.to_string()))?;
+    let mut file = File::create(&config.output_file).map_err(|e| {
+        RiscletError::io_at("create output", &config.output_file, e)
+    })?;
+    file.write_all(&elf_bytes).map_err(|e| {
+        RiscletError::io_at(
+            "write output",
+            &config.output_file,
+            format!("{e}; output may be incomplete"),
+        )
+    })?;
 
     // Set executable permissions (0755)
-    let metadata =
-        file.metadata().map_err(|e| RiscletError::io(e.to_string()))?;
+    let metadata = file.metadata().map_err(|e| {
+        RiscletError::io_at("inspect output", &config.output_file, e)
+    })?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&config.output_file, permissions)
-        .map_err(|e| RiscletError::io(e.to_string()))?;
+    std::fs::set_permissions(&config.output_file, permissions).map_err(
+        |e| {
+            RiscletError::io_at(
+                "make output executable",
+                &config.output_file,
+                e,
+            )
+        },
+    )?;
 
     // Default: silent on success
     Ok(())
@@ -63,6 +78,31 @@ pub fn assemble_and_save(config: &mut Config) -> Result<()> {
 pub fn assemble(
     config: &mut Config,
     sources: Vec<(String, String)>,
+) -> Result<AssemblyOutput> {
+    let mut diagnostic_sources = DiagnosticSources::default();
+    for (filename, text) in &sources {
+        diagnostic_sources.files.insert(
+            filename.clone(),
+            text.lines().map(str::to_owned).collect(),
+        );
+    }
+    assemble_inner(config, sources, &mut diagnostic_sources).map_err(
+        |mut error| {
+            if let RiscletError::Assembly { location, source_lines, .. } =
+                &mut error
+            {
+                *source_lines =
+                    diagnostic_sources.files.get(&location.file).cloned();
+            }
+            error
+        },
+    )
+}
+
+fn assemble_inner(
+    config: &mut Config,
+    sources: Vec<(String, String)>,
+    diagnostic_sources: &mut DiagnosticSources,
 ) -> Result<AssemblyOutput> {
     let terminal_phase = last_dump_phase(config);
     // ========================================================================
@@ -139,7 +179,12 @@ pub fn assemble(
             let pointer = g.definition_pointer;
             Ok(layout.get_line_address(pointer))
         } else {
-            Err(RiscletError::io("_start symbol not defined".to_string()))
+            let message = if source.files.iter().flat_map(|file| &file.lines).any(|line| matches!(&line.content, LineContent::Label(name) if name == "_start")) {
+                "_start is defined but not exported; add .global _start"
+            } else {
+                "_start symbol not defined; define _start: and export it with .global _start"
+            };
+            Err(RiscletError::Diagnostic(Box::new(message.to_string().into())))
         }
     }?;
 
@@ -149,7 +194,21 @@ pub fn assemble(
         dump_elf(config, &ElfFile::parse(&bytes)?)?;
         return finish_dump();
     }
-    Ok(AssemblyOutput::Elf(bytes))
+    // Relaxed line ranges include every instruction in an expanded pseudo-op.
+    for (pointer, line_layout) in &layout.lines {
+        if line_layout.segment == crate::ast::Segment::Text
+            && line_layout.size > 0
+        {
+            let location = source.get_line(*pointer)?.location.clone();
+            let address = layout.get_line_address(*pointer);
+            for offset in (0..line_layout.size).step_by(2) {
+                diagnostic_sources
+                    .locations
+                    .insert(address + offset, location.clone());
+            }
+        }
+    }
+    Ok(AssemblyOutput::Elf(bytes, std::mem::take(diagnostic_sources)))
 }
 
 fn finish_dump() -> Result<AssemblyOutput> {
@@ -162,12 +221,8 @@ pub fn assemble_files(config: &mut Config) -> Result<AssemblyOutput> {
     // Read all input files into (filename, content) pairs
     let mut sources = Vec::new();
     for file_path in &config.input_files {
-        let content = std::fs::read_to_string(file_path).map_err(|e| {
-            RiscletError::io(format!(
-                "could not read file '{}': {}",
-                file_path, e
-            ))
-        })?;
+        let content = std::fs::read_to_string(file_path)
+            .map_err(|e| RiscletError::io_at("read source", file_path, e))?;
         sources.push((file_path.clone(), content));
     }
 
@@ -283,10 +338,10 @@ pub fn relaxation_loop(
         line_sizes = encoded.line_sizes;
     }
 
-    Err(RiscletError::io(format!(
-        "Failed to converge after {} iterations - possible cyclic size dependencies",
+    Err(RiscletError::Diagnostic(Box::new(format!(
+        "Assembly failed to converge after {} iterations; inspect address-dependent .space/.balign expressions and pseudo-instruction sizes, or use assemble --dump-layout=all",
         MAX_ITERATIONS
-    )))
+    ).into())))
 }
 
 // Assembly phases - each phase has a checkpoint where we can dump and optionally exit
@@ -333,7 +388,7 @@ fn parse_source_from_string(
             Location { file: file_name.to_string(), line: line_num + 1 };
 
         let tokens = tokenize(line_text)
-            .map_err(|e| RiscletError::from_context(e, location.clone()))?;
+            .map_err(|e| RiscletError::syntax_error(e, location.clone()))?;
 
         if !tokens.is_empty() {
             let parsed_lines =
@@ -446,5 +501,49 @@ pub fn apply_gp_auto_detection(config: &mut Config, source: &Source) {
                 eprintln!("  GP relaxation: {}", status);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::{AssemblyOutput, assemble};
+    use crate::config::{Config, Mode};
+
+    // In-memory assembly never reads another file to explain its input.
+    #[test]
+    fn assembly_error_uses_supplied_source_snapshot() {
+        let error = assemble(
+            &mut Config::for_mode(Mode::Run),
+            vec![(
+                "unavailable-source.s".into(),
+                "_start: misspelled a0\n".into(),
+            )],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("_start: misspelled a0"), "{error}");
+        assert!(!error.contains("could not read source"), "{error}");
+    }
+
+    #[test]
+    fn expanded_instruction_addresses_retain_their_source_line() {
+        let mut config = Config::for_mode(Mode::Run);
+        config.relax.pseudo = false;
+        let AssemblyOutput::Elf(_, sources) = assemble(
+            &mut config,
+            vec![(
+                "snapshot.s".into(),
+                ".global _start\n_start: li t0, 0x12345678\n".into(),
+            )],
+        )
+        .unwrap() else {
+            panic!("unexpected dump")
+        };
+        let mut addresses: Vec<_> = sources.locations.keys().copied().collect();
+        addresses.sort_unstable();
+        assert!(addresses.len() >= 4);
+        assert_eq!(sources.locations[&addresses[0]].line, 2);
+        assert_eq!(sources.locations[&(addresses[0] + 4)].line, 2);
+        assert_eq!(sources.files["snapshot.s"][1], "_start: li t0, 0x12345678");
     }
 }

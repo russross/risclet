@@ -51,6 +51,7 @@ mod tokenizer_tests;
 use crate::assembler::{AssemblyOutput, assemble_and_save, assemble_files};
 use crate::config::{CliAction, Mode, parse_cli_args};
 use crate::elf_loader::ElfInput;
+use crate::error::{command_line_diagnostic, report};
 use crate::simulator::run_simulator;
 
 fn main() {
@@ -68,7 +69,7 @@ fn main() {
             return;
         }
         Err(e) => {
-            eprintln!("{}", e);
+            report(&command_line_diagnostic(&e));
             std::process::exit(1);
         }
     };
@@ -77,21 +78,23 @@ fn main() {
     match config.mode {
         Mode::Assemble => {
             if let Err(e) = assemble_and_save(&mut config) {
-                eprintln!("{}", e);
+                report(&e);
                 std::process::exit(1);
             }
         }
 
         Mode::Run | Mode::Debug | Mode::Disassemble | Mode::Trace => {
             // Source input produces an in-memory executable; file input loads directly.
-            let elf_bytes = if config.input_files.is_empty() {
-                None
+            let (elf_bytes, sources) = if config.input_files.is_empty() {
+                (None, error::DiagnosticSources::default())
             } else {
                 match assemble_files(&mut config) {
-                    Ok(AssemblyOutput::Elf(bytes)) => Some(bytes),
+                    Ok(AssemblyOutput::Elf(bytes, sources)) => {
+                        (Some(bytes), sources)
+                    }
                     Ok(AssemblyOutput::Dumped) => return,
                     Err(e) => {
-                        eprintln!("{}", e);
+                        report(&e);
                         std::process::exit(1);
                     }
                 }
@@ -100,9 +103,12 @@ fn main() {
                 Some(bytes) => ElfInput::Bytes(bytes),
                 None => ElfInput::File(&config.executable),
             };
-            if let Err(e) = run_simulator(&config, input) {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
+            match run_simulator(&config, input, sources) {
+                Ok(status) => std::process::exit(status),
+                Err(e) => {
+                    report(&e);
+                    std::process::exit(1);
+                }
             }
         }
     }

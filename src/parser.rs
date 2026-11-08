@@ -59,7 +59,7 @@ impl<'a> Parser<'a> {
                     Token::Integer(n) => &format!("number {}", n),
                     _ => "unexpected token",
                 };
-                Err(RiscletError::from_context(
+                Err(RiscletError::syntax_error(
                     format!(
                         "Expected {} but found {}",
                         expected_name, found_name
@@ -75,7 +75,7 @@ impl<'a> Parser<'a> {
                 Token::CloseParen => "right parenthesis ())",
                 _ => "expected token",
             };
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 format!("Expected {} but reached end of line", expected_name),
                 self.location(),
             ))
@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
         if let Some(Token::Identifier(s)) = self.next() {
             Ok(s)
         } else {
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 "Expected an identifier (label, symbol, or directive name)"
                     .to_string(),
                 self.location(),
@@ -102,7 +102,7 @@ impl<'a> Parser<'a> {
         if let Some(Token::Register(r)) = self.next() {
             Ok(r)
         } else {
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 "Expected a register name (x0-x31, a0-a7, sp, ra, etc.)"
                     .to_string(),
                 self.location(),
@@ -339,13 +339,13 @@ impl<'a> Parser<'a> {
                     self.next();
                     Ok(Expression::CurrentAddress) // .
                 }
-                _ => Err(RiscletError::from_context(
+                _ => Err(RiscletError::syntax_error(
                     "Expected an operand (number, label, register, or parenthesized expression)".to_string(),
                     self.location(),
                 )),
             }
         } else {
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 "Expected an operand but reached end of line".to_string(),
                 self.location(),
             ))
@@ -401,7 +401,7 @@ impl<'a> Parser<'a> {
             lines.push(Line { location, content: c });
         }
         if lines.is_empty() {
-            return Err(RiscletError::from_context(
+            return Err(RiscletError::syntax_error(
                 "Empty line: a label must be followed by an instruction or directive".to_string(),
                 self.location(),
             ));
@@ -501,7 +501,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 "Expected a directive (like .global, .text, .data, .bss, .space, .byte, etc.)".to_string(),
                 self.location(),
             ))
@@ -820,11 +820,8 @@ impl<'a> Parser<'a> {
                     return self.parse_atomic(op, ordering);
                 }
 
-                Err(RiscletError::from_context(
-                    format!(
-                        "Unknown instruction '{}': check spelling or consult the RISC-V ISA reference",
-                        opcode
-                    ),
+                Err(RiscletError::syntax_error(
+                    format!("Unknown instruction '{}'", opcode),
                     self.location(),
                 ))
             }
@@ -960,7 +957,7 @@ impl<'a> Parser<'a> {
                 Box::new(offset),
             ))
         } else {
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 "jalr expects offset(rs1), (rs1), rs1, or rs1, offset syntax"
                     .to_string(),
                 self.location(),
@@ -1016,7 +1013,7 @@ impl<'a> Parser<'a> {
                 'r' => bits |= 0x02, // read (bit 1)
                 'w' => bits |= 0x01, // write (bit 0)
                 _ => {
-                    return Err(RiscletError::from_context(
+                    return Err(RiscletError::syntax_error(
                         format!(
                             "Invalid fence ordering character '{}': must be 'i' (input), 'o' (output), 'r' (read), or 'w' (write)",
                             ch
@@ -1037,7 +1034,7 @@ impl<'a> Parser<'a> {
         if reg.is_compressed_register() {
             Ok(())
         } else {
-            Err(RiscletError::from_context(
+            Err(RiscletError::syntax_error(
                 format!(
                     "{} must be in compressed set (x8-x15/s0-s1 and a0-a5), got {}",
                     subject, reg
@@ -1276,7 +1273,7 @@ impl<'a> Parser<'a> {
             "addi16sp" => {
                 let rd = self.parse_register()?;
                 if rd != Register::X2 {
-                    return Err(RiscletError::from_context(
+                    return Err(RiscletError::syntax_error(
                         format!(
                             "c.addi16sp destination must be sp (x2), got {}",
                             rd
@@ -1298,7 +1295,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let base = self.parse_register()?;
                 if base != Register::X2 {
-                    return Err(RiscletError::from_context(
+                    return Err(RiscletError::syntax_error(
                         format!(
                             "c.addi4spn base register must be sp (x2), got {}",
                             base
@@ -1333,7 +1330,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let (offset, base) = self.parse_memory_operand()?;
                 if base != Register::X2 {
-                    return Err(RiscletError::from_context(
+                    return Err(RiscletError::syntax_error(
                         format!(
                             "c.lwsp base register must be sp (x2), got {}",
                             base
@@ -1356,7 +1353,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::Comma)?;
                 let (offset, base) = self.parse_memory_operand()?;
                 if base != Register::X2 {
-                    return Err(RiscletError::from_context(
+                    return Err(RiscletError::syntax_error(
                         format!(
                             "c.swsp base register must be sp (x2), got {}",
                             base
@@ -1550,11 +1547,8 @@ impl<'a> Parser<'a> {
             "ebreak" => (CompressedOp::CEbreak, CompressedOperands::None),
 
             _ => {
-                return Err(RiscletError::from_context(
-                    format!(
-                        "Unknown compressed instruction 'c.{}': check spelling or consult the RISC-V ISA reference",
-                        op
-                    ),
+                return Err(RiscletError::syntax_error(
+                    format!("Unknown compressed instruction 'c.{}'", op),
                     self.location(),
                 ));
             }
@@ -1574,7 +1568,7 @@ pub fn parse(tokens: &[Token], file: String, line: usize) -> Result<Vec<Line>> {
             .iter()
             .map(|t| format!("{:?}", t))
             .collect();
-        return Err(RiscletError::from_context(
+        return Err(RiscletError::syntax_error(
             format!(
                 "Extra tokens after instruction: '{}' (each line should have at most one instruction or directive)",
                 remaining.join(" ")

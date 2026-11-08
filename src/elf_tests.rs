@@ -217,7 +217,7 @@ fn assembled(source: &str) -> Vec<u8> {
     let mut config = Config::for_mode(Mode::Assemble);
     match assemble(&mut config, vec![("test.s".into(), source.into())]).unwrap()
     {
-        AssemblyOutput::Elf(bytes) => bytes,
+        AssemblyOutput::Elf(bytes, _) => bytes,
         AssemblyOutput::Dumped => panic!("unexpected dump"),
     }
 }
@@ -331,7 +331,7 @@ fn emitted_tables_obey_their_declared_alignment() {
 fn custom_text_base_preserves_segment_alignment() {
     let mut config = Config::for_mode(Mode::Assemble);
     config.text_start = 0x10002;
-    let AssemblyOutput::Elf(bytes) = assemble(
+    let AssemblyOutput::Elf(bytes, _) = assemble(
         &mut config,
         vec![("test.s".into(), ".global _start\n_start: c.nop\n".into())],
     )
