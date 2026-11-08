@@ -1,7 +1,9 @@
 risclet
 =======
 
-This is a lightweight RISC-V assembler, disassembler, simulator, debugger, and linter for students learning assembly language. It has few controls and deliberately limited functionality, with simplicity and approachability as overriding goals. It is designed to be the only tool a student needs to install for the assembly language portion of a course.
+This is a lightweight RISC-V assembler, disassembler, simulator, debugger, and linter for learning assembly language. It is designed to be the only tool a student needs to install for the assembly language portion of a course.
+
+The highlight is the TUI debugger: it displays helpful context information and gives simple, fluid controls to step and skip forward and backward through an execution. It has few controls and deliberately limited functionality, with simplicity and approachability as overriding goals.
 
 Try it out: [live demo](https://russross.github.io/risclet/)
 
@@ -25,9 +27,11 @@ In addition:
 *   `risclet disassemble`: print the program's disassembly
 *   `risclet debug`: run the program to completion, then enter a TUI to step back and forth through execution and examine its effects
 
-Add `--strict` to `run`, `trace`, or `debug` to check for calling-convention violations and common beginner mistakes, treating them as errors. The [strict validation reference](STRICT.md) explains register availability, preservation, stack lifetime, memory widths, and alignment. Use `risclet <command> --help` for other options.
+Add `--strict` to `run`, `trace`, or `debug` to check for calling-convention violations and common beginner mistakes, treating them as errors.
 
-All commands use the same input defaults, except `assemble` requires source files. For example, `risclet disassemble` assembles and links `*.s` files in the current directory before disassembling the result.
+Use `risclet <command> --help` for other options.
+
+All commands take the same core inputs, except `assemble` requires source files. For example, `risclet disassemble` assembles and links `*.s` files in the current directory before disassembling the result.
 
 
 The debugger
@@ -52,7 +56,7 @@ Features
 --------
 
 *   Support for RV32 integer instructions and the M, A, and C extensions (rv32imac)
-*   Optional checks for ABI register use, function structure, and stack usage
+*   Optional strict checks for ABI register use, function structure, and stack usage
 *   Minimal controls, no breakpoints or watch expressions
 *   System calls for reading stdin, writing stdout, and exiting
 *   Portable Rust implementation with one direct crate dependency (crossterm for the TUI)
@@ -62,9 +66,11 @@ Features
 More details
 ------------
 
-[Assembly language reference](SYNTAX.md)
+Warning: these are AI-written references.
 
-[How the assembler works](ASSEMBLER.md)
+*   [Assembly language dialect reference](SYNTAX.md)
+*   [Strict validation reference](STRICT.md)
+*   [How the assembler works](ASSEMBLER.md)
 
 
 Editor syntax highlighting
@@ -81,6 +87,6 @@ Syntax definitions follow the language implemented by the assembler:
 Contributors
 ------------
 
-This tool is designed for small programs written by hand. Minimal features and simple controls are explicit goals. I am reluctant to accept features that work against those goals. Bug reports and fixes are welcome.
+This tool is designed for small programs written by hand, and especially for use in education. Minimal features and simple controls are explicit goals. I am reluctant to accept features that work against those goals. Bug reports and fixes are welcome.
 
 *   [Russ Ross](https://github.com/russross)

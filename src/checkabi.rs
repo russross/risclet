@@ -272,7 +272,7 @@ impl CheckABI {
                     "cannot read from uninitialized {}",
                     self.memory_address(address)
                 ));
-                diagnostic.help = Some("Store a value in this stack allocation before loading it. Allocating stack space does not initialize its contents.".into());
+                diagnostic.help = Some("Initialize these stack bytes before reading them. Allocating stack space does not initialize its contents.".into());
                 return Err(diagnostic);
             }
         }

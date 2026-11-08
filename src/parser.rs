@@ -402,7 +402,7 @@ impl<'a> Parser<'a> {
         }
         if lines.is_empty() {
             return Err(RiscletError::syntax_error(
-                "Empty line: a label must be followed by an instruction or directive".to_string(),
+                "Empty line".to_string(),
                 self.location(),
             ));
         }

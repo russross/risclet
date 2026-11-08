@@ -2030,7 +2030,7 @@ fn encode_compressed_inst(
             if !fits_signed(*imm as i64, 6) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.addi immediate must be in range -32 to 31 (6-bit signed), got {} (must fit in 6-bit signed)",
+                        "c.addi immediate must be in range -32 to 31 (6-bit signed), got {}",
                         imm
                     ),
                     location.clone(),
@@ -2042,7 +2042,7 @@ fn encode_compressed_inst(
             if !fits_signed(*imm as i64, 6) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.li immediate {} out of range (must fit in 6-bit signed)",
+                        "c.li immediate must be in range -32 to 31 (6-bit signed), got {}",
                         imm
                     ),
                     location.clone(),
@@ -2077,7 +2077,7 @@ fn encode_compressed_inst(
             if *imm == 0 || *imm % 4 != 0 || *imm < 0 || *imm > 1020 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.addi4spn immediate must be non-zero, a multiple of 4, and in range 4-1020, got {} non-zero, multiple of 4, and 4-1020",
+                        "c.addi4spn immediate must be non-zero, a multiple of 4, and in range 4-1020, got {}",
                         imm
                     ),
                     location.clone(),
@@ -2092,7 +2092,7 @@ fn encode_compressed_inst(
             if *imm == 0 || *imm % 16 != 0 || !fits_signed(*imm as i64, 10) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.addi16sp immediate must be non-zero, a multiple of 16, and fit in 10 bits, got {} non-zero, multiple of 16, and fit in 10 bits",
+                        "c.addi16sp immediate must be non-zero, a multiple of 16, and fit in 10 bits, got {}",
                         imm
                     ),
                     location.clone(),
@@ -2107,7 +2107,7 @@ fn encode_compressed_inst(
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.slli shift amount must be in range 1-31, got {} (must be 1-31)",
+                        "c.slli shift amount must be in range 1-31, got {}",
                         shamt
                     ),
                     location.clone(),
@@ -2122,7 +2122,7 @@ fn encode_compressed_inst(
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.srli shift amount must be in range 1-31, got {} (must be 1-31)",
+                        "c.srli shift amount must be in range 1-31, got {}",
                         shamt
                     ),
                     location.clone(),
@@ -2137,7 +2137,7 @@ fn encode_compressed_inst(
             if *shamt <= 0 || *shamt >= 32 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.srai shift amount must be in range 1-31, got {} (must be 1-31)",
+                        "c.srai shift amount must be in range 1-31, got {}",
                         shamt
                     ),
                     location.clone(),
@@ -2152,7 +2152,7 @@ fn encode_compressed_inst(
             if !fits_signed(*imm as i64, 6) {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.andi immediate must be in range -32 to 31 (6-bit signed), got {} (must fit in 6-bit signed)",
+                        "c.andi immediate must be in range -32 to 31 (6-bit signed), got {}",
                         imm
                     ),
                     location.clone(),
@@ -2167,7 +2167,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.lw offset must be a multiple of 4 and in range 0-124, got {} 0-124 and 4-byte aligned",
+                        "c.lw offset must be a multiple of 4 and in range 0-124, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2182,7 +2182,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.lwsp offset must be a multiple of 4 and in range 0-252, got {} 0-252 and 4-byte aligned",
+                        "c.lwsp offset must be a multiple of 4 and in range 0-252, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2197,7 +2197,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 124 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.sw offset must be a multiple of 4 and in range 0-124, got {} 0-124 and 4-byte aligned",
+                        "c.sw offset must be a multiple of 4 and in range 0-124, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2212,7 +2212,7 @@ fn encode_compressed_inst(
             if *offset < 0 || *offset > 252 || *offset % 4 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.swsp offset must be a multiple of 4 and in range 0-252, got {} 0-252 and 4-byte aligned",
+                        "c.swsp offset must be a multiple of 4 and in range 0-252, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2227,7 +2227,7 @@ fn encode_compressed_inst(
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.beqz offset must be in range -256 to 254 and even, got {} -256 to 254 and even",
+                        "c.beqz offset must be in range -256 to 254 and even, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2242,7 +2242,7 @@ fn encode_compressed_inst(
             if *offset < -256 || *offset >= 256 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.bnez offset must be in range -256 to 254 and even, got {} -256 to 254 and even",
+                        "c.bnez offset must be in range -256 to 254 and even, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2257,7 +2257,7 @@ fn encode_compressed_inst(
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.j offset must be in range -2048 to 2046 and even, got {} -2048 to 2046 and even",
+                        "c.j offset must be in range -2048 to 2046 and even, got {}",
                         offset
                     ),
                     location.clone(),
@@ -2272,7 +2272,7 @@ fn encode_compressed_inst(
             if *offset < -2048 || *offset >= 2048 || *offset % 2 != 0 {
                 return Err(RiscletError::from_context(
                     format!(
-                        "c.jal offset must be in range -2048 to 2046 and even, got {} -2048 to 2046 and even",
+                        "c.jal offset must be in range -2048 to 2046 and even, got {}",
                         offset
                     ),
                     location.clone(),

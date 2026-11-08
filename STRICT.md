@@ -40,12 +40,13 @@ A call needs a return address so the callee can return to its caller. An agreed 
 
 Call named functions using `ra` as the link register, and return from called functions with `ret`. Risclet can also check a function's argument count when the program declares it.
 
-To declare that `update` takes two arguments, define and export an integer symbol:
+To declare that `update` takes two arguments, define an integer symbol:
 
     .global update_args
     .equ update_args, 2
 
 With this declaration, `a0` and `a1` must contain available input values at the call, and `a2`–`a7` are unavailable inside `update`.
+The `.global` directive exports the symbol; Risclet can also use a retained local symbol. Avoid defining the same metadata name more than once across files.
 
 Details:
 
