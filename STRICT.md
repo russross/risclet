@@ -105,7 +105,7 @@ Details:
 -   Alignment checks include compressed scalar loads and stores. RISC-V execution environments can permit unaligned user-mode data accesses; Risclet's strict mode rejects them. Non-strict scalar accesses permit them when the complete access fits within one allocated memory region.
 -   A scalar load must read one consistently initialized value with the same width as its tracked store. It cannot combine unrelated writes, read part of a wider stored value, or read a value that was only partly overwritten.
 -   Full-word stores and loads preserve the source value's identity and save-only restriction; byte and halfword stores create ordinary values of their own widths.
--   Untouched program text/data can acquire its initial tracked identity and width on its first scalar read. This supports initialized program data and zero-filled BSS. The exception does not apply to stack storage. Once established, the width must be respected by subsequent loads.
+-   Untouched program text/data can acquire its initial tracked identity and width on its first scalar read. This supports initialized program data and zero-filled BSS. The exception does not apply to stack or heap storage. Newly acquired heap bytes require explicit initialization, despite their physical zero fill. Shrinking the heap discards initialization; growing it again does not restore it. Once established, the width must be respected by subsequent loads.
 
 
 Syscall buffers
@@ -118,7 +118,7 @@ Use byte-oriented storage for syscall buffers. Allocate stack buffers before use
 Details:
 
 -   Read and write buffers must not read or overwrite memory already tracked as halfword or word values. Untouched program data and byte values are allowed; stack buffers must also follow the stack allocation and initialization rules.
--   A read syscall initializes only the bytes actually received. A short read does not initialize the rest of the requested buffer, and EOF initializes no bytes. A write syscall requires all bytes read from a stack buffer to be initialized.
+-   A read syscall initializes only the bytes actually received. A short read does not initialize the rest of the requested buffer, and EOF initializes no bytes. A write syscall requires all bytes read from a stack or heap buffer to be initialized.
 
 
 Checks that also apply without strict mode

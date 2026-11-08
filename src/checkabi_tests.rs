@@ -8,6 +8,44 @@ use crate::riscv::Op;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+// Heap initialization is independent of physical zero fill and allocation history.
+#[test]
+fn heap_initialization_and_lifetime() {
+    let prefix = ".text\n.global _start\n_start:\nli a7, 214\nli a0, 0\necall\nmv s0, a0\naddi a0, a0, 8\necall\n";
+    let exit = "li a0, 0\nli a7, 93\necall\n";
+    check_abi_violation(
+        &format!("{prefix}lw t0, 0(s0)\n{exit}"),
+        "uninitialized heap",
+    );
+    check_abi_success(&format!(
+        "{prefix}li t0, 42\nsw t0, 0(s0)\nlw t1, 0(s0)\n{exit}"
+    ));
+    check_abi_violation(
+        &format!(
+            "{prefix}li t0, 42\nsw t0, 0(s0)\nmv a0, s0\necall\naddi a0, s0, 8\necall\nlw t1, 0(s0)\n{exit}"
+        ),
+        "uninitialized heap",
+    );
+    check_abi_violation(
+        &format!(
+            "{prefix}li a0, 1\nmv a1, s0\nli a2, 1\nli a7, 64\necall\n{exit}"
+        ),
+        "uninitialized heap",
+    );
+
+    // Input initializes only the bytes actually returned by the read syscall.
+    let input = format!(
+        "{prefix}li a0, 0\nmv a1, s0\nli a2, 1\nli a7, 63\necall\nlbu t0, 0(s0)\n{exit}"
+    );
+    assert!(matches!(
+        run_with_abi_options(&input, b"x", false),
+        AbiTestResult::Success
+    ));
+    assert!(
+        matches!(run_with_abi_options(&input, b"", false), AbiTestResult::Violation(message) if message.contains("uninitialized heap"))
+    );
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================

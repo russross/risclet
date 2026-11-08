@@ -1,0 +1,4 @@
+interface:
+  display_name: "Risclet"
+  short_description: "Risclet assembly, exercises, and debugger tutoring"
+  default_prompt: "Use $risclet to write or review assembly and explain its execution."

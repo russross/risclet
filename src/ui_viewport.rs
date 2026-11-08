@@ -7,6 +7,36 @@ use crate::trace::{Effects, FrameChange};
 const FORWARD_LIMIT: usize = 1_000;
 const BACKWARD_LIMIT: usize = 500;
 
+#[cfg(test)]
+mod tests {
+    use super::{Segment, StackState};
+    use crate::ui::MemoryPane;
+
+    // Trace scans must reject unavailable storage in either historical direction.
+    #[test]
+    fn heap_context_uses_historical_and_visible_breaks() {
+        let segment = Segment {
+            kind: MemoryPane::Data,
+            bounds: 0x2000..0x3020,
+            boundaries: vec![0x2011, 0x3000],
+            heap_start: 0x3000,
+            static_data_end: 0x2011,
+        };
+        let mut state =
+            StackState { sp: 0x100000, frames: vec![], heap_break: 0x3000 };
+        assert!(segment.access(0x3000, 4, &state).is_none());
+        assert!(segment.access(0x2011, 1, &state).is_none());
+        state.heap_break = 0x3008;
+        let access = segment.access(0x3004, 4, &state).unwrap();
+        assert_eq!(access.region, 512..513);
+        assert!(segment.access(0x3008, 4, &state).is_none());
+        state.heap_break = 0x3040;
+        let access = segment.access(0x301c, 4, &state).unwrap();
+        assert_eq!(access.region, 512..516);
+        assert!(segment.access(0x3020, 4, &state).is_none());
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct MemoryViewport {
     start: i64,
@@ -52,11 +82,16 @@ impl Positions {
 struct StackState {
     sp: u32,
     frames: Vec<u32>,
+    heap_break: u32,
 }
 
 impl StackState {
     // Each scan direction owns its frame history; no machine state is mutated.
     fn step(&mut self, effect: &Effects, forward: bool) {
+        if let Some(change) = effect.heap_change() {
+            self.heap_break =
+                if forward { change.new_break } else { change.old_break };
+        }
         if let Some(write) = effect.reg_write
             && write.register.index() == SP
         {
@@ -86,6 +121,8 @@ struct Segment {
     kind: MemoryPane,
     bounds: Range<u32>,
     boundaries: Vec<u32>,
+    heap_start: u32,
+    static_data_end: u32,
 }
 
 impl Segment {
@@ -103,10 +140,24 @@ impl Segment {
         if length == 0 || !self.bounds.contains(&address) {
             return None;
         }
-        let end = (u64::from(address) + length as u64)
+        let mut end = (u64::from(address) + length as u64)
             .min(u64::from(self.bounds.end));
         let mut low = self.bounds.start;
         let mut high = self.bounds.end;
+        // Heap accesses use the break at their occurrence, clipped to today's
+        // visible storage. The alignment gap never supplies viewport context.
+        if self.kind == MemoryPane::Data {
+            if address >= self.heap_start {
+                high = high.min(stack.heap_break);
+                low = low.max(self.heap_start);
+            } else {
+                high = high.min(self.static_data_end);
+            }
+            if address >= high {
+                return None;
+            }
+            end = end.min(u64::from(high));
+        }
         let boundaries = if self.kind == MemoryPane::Stack {
             let mut boundaries = stack.frames.clone();
             boundaries.push(stack.sp);
@@ -184,7 +235,7 @@ impl Tui {
                 self.machine.most_recent_stack(),
             ),
             MemoryPane::Data => (
-                self.machine.data_start()..self.machine.data_end(),
+                self.machine.data_display_bounds(),
                 &self.data_colors,
                 self.machine.most_recent_data(),
             ),
@@ -198,10 +249,18 @@ impl Tui {
                 )
             }
         };
+        let mut boundaries: Vec<u32> =
+            colors.iter().map(|&(address, _)| address).collect();
+        if kind == MemoryPane::Data {
+            boundaries.push(self.machine.heap_start());
+            boundaries.push(self.machine.data_end());
+        }
         let segment = Segment {
             kind,
             bounds,
-            boundaries: colors.iter().map(|&(address, _)| address).collect(),
+            boundaries,
+            heap_start: self.machine.heap_start(),
+            static_data_end: self.machine.data_end(),
         };
         let rows =
             i64::from((segment.bounds.end - segment.bounds.start).div_ceil(8));
@@ -228,7 +287,7 @@ impl Tui {
                     || (previous.start <= highlight.start
                         && highlight.end <= previous.start + h))
             {
-                previous.start
+                previous.start.clamp(0, rows - h)
             } else {
                 self.plan_viewport(&segment, h, rows)
             }
@@ -247,6 +306,7 @@ impl Tui {
         let initial = StackState {
             sp: self.machine.get(SP) as u32,
             frames: self.machine.stack_frames().to_vec(),
+            heap_break: self.machine.heap_break(),
         };
         let mut positions = Positions { low: 0, high: rows - height, height };
         let mut regions = Vec::new();

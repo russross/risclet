@@ -1,6 +1,60 @@
 use crate::error::{Result, RiscletError, address};
+use crate::trace::HeapChange;
 
 const STACK_SIZE: u32 = 8192;
+
+// The break is byte-exact; only the initial address is page-aligned.
+pub struct Heap {
+    pub start: u32,
+    pub current_break: u32,
+    limit: u32,
+    bytes: Vec<u8>,
+}
+
+impl Heap {
+    fn in_range(&self, address: u32, size: u32) -> bool {
+        address >= self.start
+            && u64::from(address) + u64::from(size)
+                <= u64::from(self.current_break)
+    }
+
+    pub fn resize(&mut self, requested: u32) -> Option<HeapChange> {
+        if requested < self.start
+            || requested > self.limit
+            || requested == self.current_break
+        {
+            return None;
+        }
+        let length = (requested - self.start) as usize;
+        let mut removed = Vec::new();
+        // Reserve before modifying anything so allocation failure is atomic.
+        if length > self.bytes.len() {
+            self.bytes.try_reserve_exact(length - self.bytes.len()).ok()?;
+        } else {
+            removed.try_reserve_exact(self.bytes.len() - length).ok()?;
+            removed.extend_from_slice(&self.bytes[length..]);
+        }
+        let change = HeapChange {
+            old_break: self.current_break,
+            new_break: requested,
+            removed,
+        };
+        self.bytes.resize(length, 0);
+        self.current_break = requested;
+        Some(change)
+    }
+
+    // Undoing a shrink restores the discarded bytes rather than zero-filling.
+    pub fn apply(&mut self, change: &HeapChange, forward: bool) {
+        let end = if forward { change.new_break } else { change.old_break };
+        self.bytes.resize((end - self.start) as usize, 0);
+        if !forward && change.new_break < change.old_break {
+            let offset = (change.new_break - self.start) as usize;
+            self.bytes[offset..].copy_from_slice(&change.removed);
+        }
+        self.current_break = end;
+    }
+}
 
 pub struct Segment {
     start: u32,
@@ -127,11 +181,22 @@ pub struct MemoryManager {
     pub segments: Vec<Segment>,
     pub layout: MemoryLayout,
     pub hex: bool,
+    pub heap: Heap,
 }
 
 impl MemoryManager {
     pub fn new(mut segments: Vec<Segment>) -> Self {
         let layout = MemoryLayout::new(&segments);
+        let image_end = segments.iter().map(|s| s.end).max().unwrap_or(4096);
+        let heap_start = image_end
+            .checked_add(4095)
+            .map_or(layout.stack_start, |end| end & !4095);
+        let heap = Heap {
+            start: heap_start,
+            current_break: heap_start,
+            limit: layout.stack_start,
+            bytes: Vec::new(),
+        };
         segments.push(Segment::new(
             layout.stack_start,
             layout.stack_end,
@@ -139,25 +204,26 @@ impl MemoryManager {
             false,
             Vec::new(),
         ));
-        Self { segments, layout, hex: false }
+        Self { segments, layout, hex: false, heap }
     }
 
     pub fn reset(&mut self) {
+        self.heap.bytes.clear();
+        self.heap.current_break = self.heap.start;
         for segment in &mut self.segments {
             segment.reset();
         }
     }
 
     pub fn load(&self, addr: u32, size: u32) -> Result<Vec<u8>> {
-        for segment in &self.segments {
-            if segment.in_range(addr, size) {
-                return Ok(segment.load(addr, size).to_vec());
-            }
-        }
-        Err(self.access_error("read", addr, size))
+        self.load_raw(addr, size).map(<[u8]>::to_vec)
     }
 
     pub fn load_raw(&self, addr: u32, size: u32) -> Result<&[u8]> {
+        if self.heap.in_range(addr, size) {
+            let offset = (addr - self.heap.start) as usize;
+            return Ok(&self.heap.bytes[offset..offset + size as usize]);
+        }
         for segment in &self.segments {
             if segment.in_range(addr, size) {
                 return Ok(segment.load(addr, size));
@@ -168,6 +234,11 @@ impl MemoryManager {
 
     pub fn store(&mut self, addr: u32, raw: &[u8]) -> Result<()> {
         let size = raw.len() as u32;
+        if self.heap.in_range(addr, size) {
+            let offset = (addr - self.heap.start) as usize;
+            self.heap.bytes[offset..offset + raw.len()].copy_from_slice(raw);
+            return Ok(());
+        }
         for segment in &mut self.segments {
             if segment.in_range(addr, size) && segment.writeable {
                 segment.store(addr, raw);
@@ -188,6 +259,15 @@ impl MemoryManager {
             > u64::from(u32::MAX) + 1
         {
             "access wraps the 32-bit address space".into()
+        } else if (self.heap.start..self.heap.current_break).contains(&addr) {
+            if operation == "fetch instruction" {
+                "heap memory is not executable".into()
+            } else {
+                format!(
+                    "access crosses the heap break at {}",
+                    address(self.heap.current_break, self.hex)
+                )
+            }
         } else if let Some(segment) = self
             .segments
             .iter()

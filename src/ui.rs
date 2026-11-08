@@ -298,6 +298,7 @@ pub struct Tui {
     current_pc_color: Colors,
     cursor_color: Colors,
     data_colors: Vec<(u32, Colors)>,
+    heap_color: Colors,
     text_colors: Vec<(u32, Colors)>,
     pastels: Vec<Colors>,
 
@@ -423,6 +424,7 @@ impl Tui {
             current_pc_color,
             cursor_color,
             data_colors,
+            heap_color: Colors::new(Color::AnsiValue(215), black),
             text_colors,
             pastels,
 
@@ -728,7 +730,8 @@ impl Tui {
             size_y,
             MemoryVisibility {
                 stack: self.show_stack,
-                data: self.show_data && self.machine.data_start() > 0,
+                data: self.show_data
+                    && !self.machine.data_display_bounds().is_empty(),
                 text: self.show_text,
             },
             self.machine.most_recent_memory() >= self.machine.stack_start(),
@@ -1078,7 +1081,7 @@ impl Tui {
                 pane.label("Data");
                 (
                     &self.data_colors,
-                    self.machine.data_start()..self.machine.data_end(),
+                    self.machine.data_display_bounds(),
                     self.machine.most_recent_data(),
                 )
             }
@@ -1118,8 +1121,17 @@ impl Tui {
                 // make sure the address for this line is printed
                 addr_to_print = Some(addr);
 
-                let next_color =
-                    memory_color(colors, j as u32, highlight.clone());
+                let next_color = if segment == MemoryPane::Data
+                    && j >= i64::from(self.machine.heap_start())
+                {
+                    memory_color(
+                        &[(self.machine.heap_start(), self.heap_color)],
+                        j as u32,
+                        highlight.clone(),
+                    )
+                } else {
+                    memory_color(colors, j as u32, highlight.clone())
+                };
 
                 if let Ok(byte) = self.machine.load_u8(j as u32) {
                     bytes[(j - addr) as usize] = (Some(byte as u8), next_color);

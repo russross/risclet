@@ -22,6 +22,66 @@ use crate::trace::{
 const ALL: MemoryVisibility =
     MemoryVisibility { stack: true, data: true, text: true };
 
+// The Data pane includes heap bytes and keeps unmapped alignment bytes blank.
+#[test]
+fn heap_color_gap_and_heap_only_pane() {
+    let mut tui = debugger(true);
+    let start = tui.machine.heap_start();
+    tui.machine.brk(start + 9);
+    tui.machine.store(start, b"abcdefghi").unwrap();
+    tui.sequence[0].mem_read = Some(MemoryAccess { address: start, length: 1 });
+    tui.machine.set_most_recent_memory(&tui.sequence, 0);
+    let (screen, _) = tui.render_screen(80, 24);
+    let row = label_row(&screen, &format!("{start:06x}:")).unwrap();
+    let inverted = Colors {
+        foreground: tui.heap_color.background,
+        background: tui.heap_color.foreground,
+    };
+    assert_eq!(screen[row][47], ('6', inverted));
+    assert_eq!(screen[row][50], ('6', tui.heap_color));
+    assert_eq!(screen[row][71], ('a', inverted));
+    assert_eq!(screen[row][72], ('b', tui.heap_color));
+    let gap = label_row(&screen, &format!("{:06x}:", start - 8)).unwrap();
+    assert!(screen[gap][47..79].iter().all(|&(character, _)| character == ' '));
+
+    let mut tui = debugger(false);
+    let (screen, _) = tui.render_screen(80, 24);
+    assert!(label_row(&screen, " Data ").is_none());
+    let start = tui.machine.heap_start();
+    tui.machine.brk(start + 1);
+    let (screen, _) = tui.render_screen(80, 24);
+    assert!(label_row(&screen, " Data ").is_some());
+    assert!(label_row(&screen, &format!("{start:06x}:")).is_some());
+}
+
+#[test]
+fn replay_heap_growth_and_shrink_change_pane_visibility() {
+    let mut tui = debugger(false);
+    let start = tui.machine.heap_start();
+    // Record actual syscalls so pane visibility follows replayed allocation.
+    for (index, request) in [(0, start + 16), (2, start)] {
+        let target = tui.instructions[index + 1].address;
+        set_operation(&mut tui, index, Op::Ecall, target);
+        tui.machine.set(17, 214);
+        tui.machine.set(10, request as i32);
+        tui.sequence[index] =
+            tui.machine.execute_and_collect_effects(&tui.instructions[index]);
+    }
+    tui.machine.reset();
+    for (code, visible) in [
+        (KeyCode::Right, true),
+        (KeyCode::Right, true),
+        (KeyCode::Right, false),
+        (KeyCode::Left, true),
+        (KeyCode::Left, true),
+        (KeyCode::Left, false),
+    ] {
+        key(&mut tui, code);
+        let (screen, _) = tui.render_screen(80, 24);
+        assert_eq!(label_row(&screen, " Data ").is_some(), visible);
+    }
+}
+
 // Use mixed instruction lengths and a partial final memory row. The first two
 // instructions share a source pseudoinstruction but remain distinct in memory.
 fn debugger(data: bool) -> Tui {

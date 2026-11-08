@@ -19,6 +19,8 @@ To assemble and run a program:
 
 This assembles and links all `*.s` files in the current directory in memory, or loads `a.out` if no assembly files are present, then runs the program and exits. Optional arguments select specific assembly files or an executable.
 
+Syscalls include stdin `read` (63), stdout `write` (64), `exit` (93), and `brk` (214), selected with `a7`. For `brk`, set `a0` to the requested end address, or zero to query it; `a0` returns the resulting break, unchanged on failure. The heap starts on a 4096-byte boundary after the loaded image and can grow up to the fixed stack region. The debugger shows heap bytes in the Data pane with a distinct color.
+
 In addition:
 
 *   `risclet run`: same as plain `risclet`

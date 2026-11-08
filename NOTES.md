@@ -88,7 +88,9 @@ Allocated, nonempty `PROGBITS` and `NOBITS` sections define simulator memory reg
 
 Memory accesses must fit within a single region; stores additionally require write permission. Instruction fetch requires executable memory and reads either two or four bytes according to the encoding. An incomplete instruction at a region boundary fails. Integer memory encoding is little-endian.
 
-The normal small-program stack occupies the 8192 bytes ending at `0x100000` and grows toward lower addresses. Stack allocation is separate from program data; initial stack bytes are physically zero, but strict mode treats them as uninitialized. There is no process argument/environment stack, heap allocator, filesystem syscall interface, or operating-system emulation in the core. The Linux environment in the browser demo surrounds Risclet; it is not the environment implemented by the RV32 simulator.
+The normal small-program stack occupies the 8192 bytes ending at `0x100000` and grows toward lower addresses. Stack allocation is separate from program data; initial stack bytes are physically zero, but strict mode treats them as uninitialized. There is no process argument/environment stack, malloc/free allocator, filesystem syscall interface, or general operating-system emulation in the core. The Linux environment in the browser demo surrounds Risclet; it is not the environment implemented by the RV32 simulator.
+
+The heap starts empty at the first 4096-byte boundary at or after the highest loaded section end. It grows upward through `brk`, with a byte-exact exclusive break and the fixed stack start as its maximum break. The alignment gap remains unmapped, and heap bytes are writable but nonexecutable. Successful growth supplies physical zeroes; shrinking discards the removed bytes, and subsequent growth supplies fresh zeroes. Reset restores the empty initial heap without moving any loaded region or the stack. Static data bounds remain separate from the heap and the combined debugger display bounds.
 
 
 Instruction semantics and execution limits
@@ -120,7 +122,9 @@ Decode, execute, and stop
 
 Memory-read effects retain only address and byte count; execution consumes the actual bytes, and strict checking uses the accessed range with its shadow identities. Memory writes retain equal-sized old/new byte ranges in one boxed allocation, so forward and backward replay borrow the corresponding half without executing the instruction. Recorded register writes identify only x1 through x31 with a validated compact identifier; writes to x0 still produce no register effect. Strict-check shadow state remains local to the initial trace and is not retained for replay.
 
-The simulated syscall interface uses `a7` for the operation and `a0`–`a2` for arguments. It supports `read` (63) from fd 0, `write` (64) to fd 1, and `exit` (93). Read/write return the byte count in `a0`; negative counts, unsupported descriptors, and unknown calls fail. Exit retains the low eight bits of `a0`. These calls interact with the host streams during initial execution, not during debugger navigation.
+The simulated syscall interface uses `a7` for the operation and `a0`–`a2` for arguments. It supports `read` (63) from fd 0, `write` (64) to fd 1, `exit` (93), and `brk` (214). Read/write return the byte count in `a0`; negative counts, unsupported descriptors, and unknown calls fail. Exit retains the low eight bits of `a0`. Read/write interact with the host streams during initial execution, not during debugger navigation. `brk` takes an unsigned requested break in `a0` and returns the resulting break there. Zero queries the current break. Requests below the heap start, above the stack start, or requiring an unsuccessful host allocation leave the break and bytes unchanged; failure returns the unchanged break rather than an errno or terminal error.
+
+Heap resize effects retain the old/new breaks and, for a shrink, the discarded tail. Forward replay supplies zeroes on growth and removes bytes on shrink; reverse replay removes newly acquired bytes or restores the recorded tail. Queries, rejected requests, and unchanged breaks need no resize effect. Reset and replay reconstruct the same heap boundaries and bytes without executing syscalls again.
 
 Execution ends on an exit, instruction/memory/syscall error, strict-check failure, or step limit. The limit counts machine instructions, including the individual instructions behind a displayed pseudo-instruction. Failures are recorded effects, not rollback transactions: the instruction may already have changed state or performed I/O before a later check rejects it.
 
@@ -167,6 +171,8 @@ The callee must restore the identities of `ra`, `gp`, `tp`, and every saved regi
 ### Memory initialization and stack lifetime
 
 Every write to `sp` must leave it 16-byte aligned. Stack accesses cannot touch bytes below the applicable `sp`; reads additionally require that every accessed stack byte be initialized. An instruction that changes `sp` while accessing memory uses the old `sp` for that access. When `sp` increases, released bytes lose their logical initialization even though the physical bytes remain visible. Reallocating the same addresses does not revive their validity.
+
+Heap shadow storage follows each successful break change. Newly acquired bytes are logically uninitialized despite physical zero fill, and scalar reads and write-syscall buffers require explicit initialization. Read syscalls initialize only received bytes. Shrinking removes stored identities and widths; regrowth does not revive them. Heap scalar stores and loads follow the same alignment, value-identity, and width rules as other scalar memory.
 
 Scalar byte, halfword, and word loads/stores require natural alignment. Full-word saves/loads preserve a value's identity and save-only status. Partial stores create ordinary values. A later load must cover consistently initialized bytes from a compatible value and width: loading a word assembled from unrelated byte writes, reading half of a tracked word as a halfword, or reading a partially overwritten value fails. Untouched program text/data can acquire its initial tracked identity on its first scalar read; stack contents cannot use this exemption.
 
@@ -277,6 +283,8 @@ Memory bytes, focus, and colors
 -------------------------------
 
 All memory panes show eight bytes per row, grouped from the segment's start. Each row shows its hexadecimal address, bytes in increasing address order left to right, and printable ASCII equivalents; other bytes use a visible placeholder. Missing bytes in a partial final row are blank, not fabricated zeroes. Memory rows run upward as addresses increase: the low-address row is drawn at the bottom of a pane. Keep hex and character columns aligned and color each representation of a byte identically.
+
+The Data pane includes allocated heap bytes using a dedicated foreground color and the normal inverted-byte focus. Static data keeps its symbol colors. The alignment gap keeps its address spacing but displays no hex or ASCII bytes. A program with no static data gains a Data pane while its heap is nonempty. Viewport context separates static data, gap, and heap, reconstructs historical breaks while scanning accesses, and clips historical or future storage to the currently allocated heap. Shrinking clamps a retained viewport to the remaining display bounds.
 
 Text highlights exactly the upcoming instruction's two or four bytes, even if they cross a row boundary. It follows execution order through branches and repeated addresses. It does not follow the source cursor, pseudo-group start, or the preceding instruction. Toggling verbose mode must leave these exact bytes unchanged.
 

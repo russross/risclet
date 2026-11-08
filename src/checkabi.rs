@@ -148,6 +148,7 @@ struct FunctionContext {
 pub struct CheckABI {
     program_shadow: [ShadowSegment; 2],
     stack_shadow: ShadowSegment,
+    heap_shadow: ShadowSegment,
     context: FunctionContext,
     callers: Vec<FunctionContext>,
     next_id: u64,
@@ -176,6 +177,7 @@ impl CheckABI {
                 ShadowSegment::new(data_start, data_end),
             ],
             stack_shadow: ShadowSegment::new(stack_start, stack_end),
+            heap_shadow: ShadowSegment::new(0, 0),
             context: FunctionContext {
                 registers,
                 at_entry: registers.map(RegisterState::identity),
@@ -205,6 +207,9 @@ impl CheckABI {
     }
 
     fn memory_address(&self, value: u32) -> String {
+        if self.heap_shadow.offset(value).is_some() {
+            return format!("heap address {}", address_string(value, self.hex));
+        }
         self.layout.describe_address(value, self.hex)
     }
 
@@ -219,6 +224,7 @@ impl CheckABI {
         self.program_shadow
             .iter()
             .chain(once(&self.stack_shadow))
+            .chain(once(&self.heap_shadow))
             .find_map(|segment| segment.get(address))
     }
 
@@ -233,6 +239,7 @@ impl CheckABI {
             .program_shadow
             .iter_mut()
             .chain(once(&mut self.stack_shadow))
+            .chain(once(&mut self.heap_shadow))
             .find(|segment| segment.offset(address).is_some())
             .expect("machine-validated memory address");
         segment.insert(address, state, size);
@@ -240,7 +247,7 @@ impl CheckABI {
         segment.origins[offset] = origin;
     }
 
-    fn check_stack_access(
+    fn check_dynamic_access(
         &self,
         address: u32,
         size: usize,
@@ -250,6 +257,19 @@ impl CheckABI {
         for address in u64::from(address)..u64::from(address) + size as u64 {
             let address = u32::try_from(address)
                 .map_err(|_| "Memory access wraps address space")?;
+            if read
+                && self
+                    .heap_shadow
+                    .get(address)
+                    .is_some_and(|(_, size)| size == ShadowSize::Uninitialized)
+            {
+                let mut diagnostic = Diagnostic::from(format!(
+                    "cannot read from uninitialized {}",
+                    self.memory_address(address)
+                ));
+                diagnostic.help = Some("Initialize these heap bytes before reading them. Growing the heap does not initialize its contents in strict mode.".into());
+                return Err(diagnostic);
+            }
             if self.stack_shadow.offset(address).is_none() {
                 continue;
             }
@@ -643,13 +663,18 @@ impl CheckABI {
                     .program_shadow
                     .iter()
                     .chain(once(&self.stack_shadow))
+                    .chain(once(&self.heap_shadow))
                     .find_map(|segment| {
                         segment.offset(address).map(|offset| (segment, offset))
                     })
                 {
                     let origin = segment.origins[offset];
                     if origin != 0 {
-                        let label = if segment.entries[offset] == 0 {
+                        let label = if std::ptr::eq(segment, &self.heap_shadow)
+                            && segment.entries[offset] == 0
+                        {
+                            "this instruction acquired uninitialized heap storage"
+                        } else if segment.entries[offset] == 0 {
                             "this instruction released the stack storage; allocating it again does not initialize it"
                         } else {
                             "this earlier write established the stored value and its width"
@@ -738,6 +763,13 @@ impl CheckABI {
         instruction: &Rc<Instruction>,
         effects: &mut Effects,
     ) -> Result<(), Diagnostic> {
+        // Resizing precedes subsequent accesses and drops released identities.
+        if let Some(change) = effects.heap_change() {
+            self.heap_shadow.start = m.heap_start();
+            let length = (change.new_break - m.heap_start()) as usize;
+            self.heap_shadow.entries.resize(length, 0);
+            self.heap_shadow.origins.resize(length, instruction.address);
+        }
         // Memory effects carry actual addresses, including aliases and syscall buffers.
         let sp = m.get_reg(SP) as u32;
         let access_sp = effects
@@ -745,7 +777,7 @@ impl CheckABI {
             .filter(|write| write.register.index() == SP)
             .map_or(sp, |write| write.old_value as u32);
         if let Some(read) = &effects.mem_read {
-            self.check_stack_access(
+            self.check_dynamic_access(
                 read.address,
                 read.length as usize,
                 access_sp,
@@ -753,7 +785,7 @@ impl CheckABI {
             )?;
         }
         if let Some(write) = &effects.mem_write {
-            self.check_stack_access(
+            self.check_dynamic_access(
                 write.address,
                 write.byte_count(),
                 access_sp,

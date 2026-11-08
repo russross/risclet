@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 #[allow(unused_imports)]
 use std::io::{self, Read, Write};
+use std::ops::Range;
 use std::rc::Rc;
 
 use crossterm::tty::IsTty;
@@ -182,6 +183,37 @@ impl Machine {
         self.memory.store(addr, raw)
     }
 
+    // Heap changes have their own replay record, separate from byte stores.
+    pub fn brk(&mut self, requested: u32) -> u32 {
+        let change = self.memory.heap.resize(requested);
+        if let Some(effects) = &mut self.current_effect {
+            effects.extra_mut().heap_change = change;
+        }
+        self.heap_break()
+    }
+
+    pub fn heap_start(&self) -> u32 {
+        self.memory.heap.start
+    }
+
+    pub fn heap_break(&self) -> u32 {
+        self.memory.heap.current_break
+    }
+
+    // Static data bounds remain unchanged for checking and ELF metadata.
+    pub fn data_display_bounds(&self) -> Range<u32> {
+        if self.heap_break() > self.heap_start() {
+            let start = if self.data_start() > 0 {
+                self.data_start()
+            } else {
+                self.heap_start()
+            };
+            start..self.heap_break()
+        } else {
+            self.data_start()..self.data_end()
+        }
+    }
+
     pub fn get(&mut self, reg: usize) -> i32 {
         let val = self.state.get_reg(reg);
         if reg != 0
@@ -233,6 +265,7 @@ impl Machine {
     ) -> Option<String> {
         let syscall_num = self.get_reg(17); // a7
         match syscall_num {
+            214 => Some(format!("brk(0x{:x})", self.get_reg(10) as u32)),
             63 => {
                 // read syscall
                 let fd = self.get_reg(10); // a0
@@ -325,7 +358,7 @@ impl Machine {
                 stack = true;
             }
 
-            if !data && address < self.memory.layout.data_end {
+            if !data && self.data_display_bounds().contains(&address) {
                 most_recent_data = (address, value_len);
                 if !stack {
                     most_recent_memory = address;
@@ -356,6 +389,9 @@ impl Machine {
     }
 
     pub fn apply(&mut self, effect: &Effects, is_forward: bool) {
+        if let Some(change) = effect.heap_change() {
+            self.memory.heap.apply(change, is_forward);
+        }
         let (old_pc, new_pc) = effect.pc;
         self.set_pc(if is_forward { new_pc } else { old_pc })
             .expect("PC should be valid during replay");

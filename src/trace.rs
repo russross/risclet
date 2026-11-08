@@ -73,9 +73,18 @@ pub struct RegisterWrite {
 
 #[derive(Clone)]
 pub enum SyscallInfo {
+    Brk { requested: u32, result: u32 },
     Exit(i32),
     Write { fd: i32, buf_addr: u32, count: i32, data: Range<usize> },
     Read { fd: i32, buf_addr: u32, count: i32, data: Range<usize> },
+}
+
+// Shrinks retain only their discarded tail; growth always supplies zeroes.
+#[derive(Clone)]
+pub struct HeapChange {
+    pub old_break: u32,
+    pub new_break: u32,
+    pub removed: Vec<u8>,
 }
 
 // Stream bytes outlive replay state; events retain their execution order.
@@ -94,6 +103,7 @@ pub enum IoEvent {
 // Syscall payloads and errors are allocated only for instructions that need them.
 #[derive(Clone, Default)]
 pub struct ExtraEffects {
+    pub heap_change: Option<HeapChange>,
     pub syscall: Option<SyscallInfo>,
     pub other_message: Option<RiscletError>,
 }
@@ -165,6 +175,10 @@ impl Effects {
         self.extra.as_ref()?.syscall.as_ref()
     }
 
+    pub fn heap_change(&self) -> Option<&HeapChange> {
+        self.extra.as_ref()?.heap_change.as_ref()
+    }
+
     pub fn report(&self, hex_mode: bool, io: &IoRecord) -> Vec<String> {
         let mut lines = self.report_effects(hex_mode, io);
         if let Some(error) = self.other_message()
@@ -182,6 +196,10 @@ impl Effects {
         // Handle syscalls specially - they replace normal output formatting
         if let Some(syscall) = self.syscall() {
             match syscall {
+                SyscallInfo::Brk { requested, result } => {
+                    lines.push(format!("brk(0x{requested:x})"));
+                    lines.push(format!("a0 <- 0x{result:x}"));
+                }
                 SyscallInfo::Exit(status) => {
                     lines.push(format!("exit({})", status));
                 }

@@ -942,6 +942,13 @@ impl Op {
             }
             Op::Ecall => {
                 match m.get(17) {
+                    214 => {
+                        let requested = m.get(A0) as u32;
+                        let result = m.brk(requested);
+                        m.set(A0, result as i32);
+                        m.current_effect_mut().unwrap().extra_mut().syscall =
+                            Some(SyscallInfo::Brk { requested, result });
+                    }
                     63 => {
                         // read system call
                         let fd = m.get(A0);
@@ -1018,7 +1025,7 @@ impl Op {
                     }
                     syscall => {
                         return Err(RiscletError::syscall_error(format!(
-                            "unsupported syscall {} in a7; supported calls are read (63), write (64), and exit (93). Set a7 before ecall",
+                            "unsupported syscall {} in a7; supported calls are read (63), write (64), exit (93), and brk (214). Set a7 before ecall",
                             m.format_integer(syscall)
                         )));
                     }
