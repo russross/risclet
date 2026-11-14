@@ -2,7 +2,7 @@ use crate::ast::{
     AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive,
     DirectiveOp, Expression, ITypeOp, Instruction, JTypeOp, Line, LineContent,
     LoadStoreOp, Location, MemoryOrdering, NumericLabelRef, OperatorOp,
-    PseudoOp, RTypeOp, Register, SpecialOp, Token, UTypeOp,
+    PseudoOp, RTypeOp, Register, SpecialOp, Token, UTypeOp, UnaryOp,
 };
 use crate::error::{Result, RiscletError};
 
@@ -537,6 +537,43 @@ impl<'a> Parser<'a> {
             "divu" => self.parse_rtype(RTypeOp::Divu),
             "rem" => self.parse_rtype(RTypeOp::Rem),
             "remu" => self.parse_rtype(RTypeOp::Remu),
+
+            "sh1add" => self.parse_rtype(RTypeOp::Sh1add),
+            "sh2add" => self.parse_rtype(RTypeOp::Sh2add),
+            "sh3add" => self.parse_rtype(RTypeOp::Sh3add),
+            "andn" => self.parse_rtype(RTypeOp::Andn),
+            "orn" => self.parse_rtype(RTypeOp::Orn),
+            "xnor" => self.parse_rtype(RTypeOp::Xnor),
+            "min" => self.parse_rtype(RTypeOp::Min),
+            "minu" => self.parse_rtype(RTypeOp::Minu),
+            "max" => self.parse_rtype(RTypeOp::Max),
+            "maxu" => self.parse_rtype(RTypeOp::Maxu),
+            "rol" => self.parse_rtype(RTypeOp::Rol),
+            "ror" => self.parse_rtype(RTypeOp::Ror),
+            "bclr" => self.parse_rtype(RTypeOp::Bclr),
+            "bext" => self.parse_rtype(RTypeOp::Bext),
+            "binv" => self.parse_rtype(RTypeOp::Binv),
+            "bset" => self.parse_rtype(RTypeOp::Bset),
+            "pack" => self.parse_rtype(RTypeOp::Pack),
+            "packh" => self.parse_rtype(RTypeOp::Packh),
+
+            "rori" => self.parse_itype(ITypeOp::Rori),
+            "bclri" => self.parse_itype(ITypeOp::Bclri),
+            "bexti" => self.parse_itype(ITypeOp::Bexti),
+            "binvi" => self.parse_itype(ITypeOp::Binvi),
+            "bseti" => self.parse_itype(ITypeOp::Bseti),
+
+            "clz" => self.parse_unary_instruction(UnaryOp::Clz),
+            "ctz" => self.parse_unary_instruction(UnaryOp::Ctz),
+            "cpop" => self.parse_unary_instruction(UnaryOp::Cpop),
+            "sext.b" => self.parse_unary_instruction(UnaryOp::SextB),
+            "sext.h" => self.parse_unary_instruction(UnaryOp::SextH),
+            "zext.h" => self.parse_unary_instruction(UnaryOp::ZextH),
+            "orc.b" => self.parse_unary_instruction(UnaryOp::OrcB),
+            "rev8" => self.parse_unary_instruction(UnaryOp::Rev8),
+            "brev8" => self.parse_unary_instruction(UnaryOp::Brev8),
+            "zip" => self.parse_unary_instruction(UnaryOp::Zip),
+            "unzip" => self.parse_unary_instruction(UnaryOp::Unzip),
             // I-type
             "addi" => self.parse_itype(ITypeOp::Addi),
             "slli" => self.parse_itype(ITypeOp::Slli),
@@ -803,6 +840,17 @@ impl<'a> Parser<'a> {
                     Box::new(offset),
                 ))
             }
+            "zext.b" => {
+                let rd = self.parse_register()?;
+                self.expect(&Token::Comma)?;
+                let rs = self.parse_register()?;
+                Ok(Instruction::IType(
+                    ITypeOp::Andi,
+                    rd,
+                    rs,
+                    Box::new(Expression::Literal(255)),
+                ))
+            }
             "not" => {
                 let rd = self.parse_register()?;
                 self.expect(&Token::Comma)?;
@@ -837,6 +885,14 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Comma)?;
         let rs2 = self.parse_register()?;
         Ok(Instruction::RType(op, rd, rs1, rs2))
+    }
+
+    // Unary integer instructions have two registers and no immediate operand.
+    fn parse_unary_instruction(&mut self, op: UnaryOp) -> Result<Instruction> {
+        let rd = self.parse_register()?;
+        self.expect(&Token::Comma)?;
+        let rs = self.parse_register()?;
+        Ok(Instruction::Unary(op, rd, rs))
     }
 
     // Grammar: reg , reg , exp
@@ -1213,6 +1269,69 @@ impl<'a> Parser<'a> {
         op: &str,
     ) -> Result<Instruction> {
         let (c_op, operands) = match op {
+            // Zcb reuses compact-register operands for unary and binary forms.
+            "zext.b" | "sext.b" | "zext.h" | "sext.h" | "not" => {
+                let rs1 = self.parse_register()?;
+                self.require_compressed_register(
+                    rs1,
+                    "compressed unary register",
+                )?;
+                let op = match op {
+                    "zext.b" => CompressedOp::CZextB,
+                    "sext.b" => CompressedOp::CSextB,
+                    "zext.h" => CompressedOp::CZextH,
+                    "sext.h" => CompressedOp::CSextH,
+                    "not" => CompressedOp::CNot,
+                    _ => unreachable!(),
+                };
+                (op, CompressedOperands::CRSingle { rs1 })
+            }
+            "mul" => {
+                let rd = self.parse_register()?;
+                self.require_compressed_register(rd, "c.mul destination")?;
+                self.expect(&Token::Comma)?;
+                let rs2 = self.parse_register()?;
+                self.require_compressed_register(rs2, "c.mul source")?;
+                (
+                    CompressedOp::CMul,
+                    CompressedOperands::CA { rd_prime: rd, rs2_prime: rs2 },
+                )
+            }
+            "lbu" | "lh" | "lhu" | "sb" | "sh" => {
+                let reg = self.parse_register()?;
+                self.require_compressed_register(
+                    reg,
+                    "compressed data register",
+                )?;
+                self.expect(&Token::Comma)?;
+                let (offset, base) = self.parse_memory_operand()?;
+                self.require_compressed_register(
+                    base,
+                    "compressed base register",
+                )?;
+                let (op, store) = match op {
+                    "lbu" => (CompressedOp::CLbu, false),
+                    "lh" => (CompressedOp::CLh, false),
+                    "lhu" => (CompressedOp::CLhu, false),
+                    "sb" => (CompressedOp::CSb, true),
+                    "sh" => (CompressedOp::CSh, true),
+                    _ => unreachable!(),
+                };
+                let operands = if store {
+                    CompressedOperands::CS {
+                        rs2_prime: reg,
+                        rs1_prime: base,
+                        offset: Box::new(offset),
+                    }
+                } else {
+                    CompressedOperands::CL {
+                        rd_prime: reg,
+                        rs1_prime: base,
+                        offset: Box::new(offset),
+                    }
+                };
+                (op, operands)
+            }
             // CR format (rd, rs2)
             "add" => {
                 let rd = self.parse_register()?;

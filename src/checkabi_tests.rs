@@ -8,6 +8,53 @@ use crate::riscv::Op;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+// Bit operations consume their inputs normally, even when writing zero.
+// Compressed forms must reach the same memory-width and ABI validation paths.
+#[test]
+fn bit_operations_and_zcb_preserve_strict_checks() {
+    let fixture = include_str!("test_binaries/src/bitmanip_encodings.s");
+    for instruction in fixture.lines().filter(|line| {
+        !line.is_empty()
+            && !line.starts_with(['#', '.', '_'])
+            && !line.starts_with("c.")
+    }) {
+        check_abi_success(&format!(
+            ".global _start\n_start:\nli a1, -1\nli a2, 31\n{instruction}\nli a0, 0\nli a7, 93\necall\n"
+        ));
+        check_abi_violation(
+            &format!(".global _start\n_start:\n{instruction}\n"),
+            "uninitialized",
+        );
+    }
+    for instruction in
+        ["clz zero, a1", "bext zero, a1, a2", "c.sext.b a0", "c.mul a0, a1"]
+    {
+        check_abi_violation(
+            &format!(".global _start\n_start:\n{instruction}\n"),
+            "uninitialized",
+        );
+    }
+    for (instruction, data) in [
+        ("c.lbu a0, 0(a1)", ".byte 128"),
+        ("c.lh a0, 0(a1)", ".half -128"),
+        ("c.lhu a0, 0(a1)", ".half 65535"),
+        ("c.sb a0, 0(a1)", ".byte 0"),
+        ("c.sh a0, 0(a1)", ".half 0"),
+    ] {
+        check_abi_success(&format!(
+            ".global _start\n_start:\nla gp, __global_pointer$\nla a1, item\nli a0, -1\n{instruction}\nli a0, 0\nli a7, 93\necall\n.data\nitem: {data}\n"
+        ));
+    }
+    check_abi_violation(
+        ".global _start\n_start:\nli a0, 0\ncall function\nli a7, 93\necall\nfunction:\nsext.b a0, s0\nret\n",
+        "can only be stored or moved",
+    );
+    check_abi_violation(
+        ".global _start\n_start:\naddi sp, sp, -16\nmv a1, sp\nc.lh a0, 0(a1)\n",
+        "uninitialized",
+    );
+}
+
 // Heap initialization is independent of physical zero fill and allocation history.
 #[test]
 fn heap_initialization_and_lifetime() {

@@ -231,7 +231,7 @@ pub struct NumericLabelRef {
     pub is_forward: bool,
 }
 
-/// Compressed instruction operations (C extension - RV32C)
+/// Compressed instruction operations (integer RV32C and Zcb).
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum CompressedOp {
     // CR format: c.add, c.mv, c.jr, c.jalr
@@ -278,6 +278,19 @@ pub enum CompressedOp {
     // Special
     CNop,
     CEbreak,
+
+    // Zcb compact memory, unary, and multiply forms.
+    CLbu,
+    CLh,
+    CLhu,
+    CSb,
+    CSh,
+    CZextB,
+    CSextB,
+    CZextH,
+    CSextH,
+    CNot,
+    CMul,
 }
 
 /// Operands for compressed instructions
@@ -342,6 +355,8 @@ pub enum Instruction {
     JType(JTypeOp, Register, Box<Expression>),
     /// Special instructions (opcode, no operands).
     Special(SpecialOp),
+    /// Unary integer operation (destination and source).
+    Unary(UnaryOp, Register, Register),
     /// The special case for all load and store instructions. The offset is an expression.
     /// If omitted in source, it is filled in as zero by the parser.
     LoadStore(LoadStoreOp, Register, Box<Expression>, Register),
@@ -352,7 +367,7 @@ pub enum Instruction {
     ///   sc.w[.aq|.rl|.aqrl] rd, rs2, (rs1)
     ///   amo*.w[.aq|.rl|.aqrl] rd, rs2, (rs1)
     Atomic(AtomicOp, Register, Register, Register, MemoryOrdering),
-    /// Compressed instructions (C extension) - 16-bit encoding
+    /// Compressed instructions (C and Zcb) - 16-bit encoding
     Compressed(CompressedOp, CompressedOperands),
     /// A pseudo-instruction that will be desugared by a later pass.
     Pseudo(PseudoOp),
@@ -390,6 +405,25 @@ pub enum RTypeOp {
     Divu,
     Rem,
     Remu,
+    // Address generation, bit manipulation, and packing.
+    Sh1add,
+    Sh2add,
+    Sh3add,
+    Andn,
+    Orn,
+    Xnor,
+    Min,
+    Minu,
+    Max,
+    Maxu,
+    Rol,
+    Ror,
+    Bclr,
+    Bext,
+    Binv,
+    Bset,
+    Pack,
+    Packh,
 }
 
 /// The ITypeOp enum for instructions that take an immediate value.
@@ -406,7 +440,6 @@ pub enum RTypeOp {
 /// - `jr rs` desugars to `jalr x0, rs, 0`.
 /// - `ret` desugars to `jalr x0, ra, 0`.
 /// - `zext.b rd, rs` desugars to `andi rd, rs, 0xff`.
-/// - `zext.h rd, rs` desugars to `andi rd, rs, 0xffff`.
 /// - `seqz rd, rs` desugars to `sltiu rd, rs, 1`.
 /// - `snez rd, rs` desugars to `sltu rd, x0, rs`.
 /// - `sltz rd, rs` desugars to `slt rd, rs, x0`.
@@ -423,6 +456,45 @@ pub enum ITypeOp {
     Srli,
     Srai,
     Jalr,
+    Rori,
+    Bclri,
+    Bexti,
+    Binvi,
+    Bseti,
+}
+
+/// Integer operations with one source register and no expression operand.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum UnaryOp {
+    Clz,
+    Ctz,
+    Cpop,
+    SextB,
+    SextH,
+    ZextH,
+    OrcB,
+    Rev8,
+    Brev8,
+    Zip,
+    Unzip,
+}
+
+impl UnaryOp {
+    pub fn mnemonic(self) -> &'static str {
+        match self {
+            Self::Clz => "clz",
+            Self::Ctz => "ctz",
+            Self::Cpop => "cpop",
+            Self::SextB => "sext.b",
+            Self::SextH => "sext.h",
+            Self::ZextH => "zext.h",
+            Self::OrcB => "orc.b",
+            Self::Rev8 => "rev8",
+            Self::Brev8 => "brev8",
+            Self::Zip => "zip",
+            Self::Unzip => "unzip",
+        }
+    }
 }
 
 /// An enum for the B-type branch instructions.
@@ -970,6 +1042,9 @@ impl fmt::Display for Instruction {
                 write!(f, "{:<7} {}, {}", op.to_string(), rd, expr)
             }
             Instruction::Special(op) => write!(f, "{}", op),
+            Instruction::Unary(op, rd, rs) => {
+                write!(f, "{:<7} {}, {}", op.mnemonic(), rd, rs)
+            }
             Instruction::LoadStore(op, rd, offset, rs) => {
                 write!(f, "{:<7} {}, {}({})", op.to_string(), rd, offset, rs)
             }
@@ -996,6 +1071,46 @@ fn format_compressed_instruction(
     operands: &CompressedOperands,
 ) -> String {
     match (op, operands) {
+        (
+            CompressedOp::CZextB
+            | CompressedOp::CSextB
+            | CompressedOp::CZextH
+            | CompressedOp::CSextH
+            | CompressedOp::CNot,
+            CompressedOperands::CRSingle { rs1 },
+        ) => {
+            let name = match op {
+                CompressedOp::CZextB => "c.zext.b",
+                CompressedOp::CSextB => "c.sext.b",
+                CompressedOp::CZextH => "c.zext.h",
+                CompressedOp::CSextH => "c.sext.h",
+                CompressedOp::CNot => "c.not",
+                _ => unreachable!(),
+            };
+            format!("{:<7} {}", name, rs1)
+        }
+        (
+            CompressedOp::CMul,
+            CompressedOperands::CA { rd_prime, rs2_prime },
+        ) => format!("{:<7} {}, {}", "c.mul", rd_prime, rs2_prime),
+        (
+            CompressedOp::CLbu | CompressedOp::CLh | CompressedOp::CLhu,
+            CompressedOperands::CL { rd_prime: reg, rs1_prime: base, offset },
+        )
+        | (
+            CompressedOp::CSb | CompressedOp::CSh,
+            CompressedOperands::CS { rs2_prime: reg, rs1_prime: base, offset },
+        ) => {
+            let name = match op {
+                CompressedOp::CLbu => "c.lbu",
+                CompressedOp::CLh => "c.lh",
+                CompressedOp::CLhu => "c.lhu",
+                CompressedOp::CSb => "c.sb",
+                CompressedOp::CSh => "c.sh",
+                _ => unreachable!(),
+            };
+            format!("{:<7} {}, {}({})", name, reg, offset, base)
+        }
         (CompressedOp::CAdd, CompressedOperands::CR { rd, rs2 }) => {
             format!("c.add       {}, {}", rd, rs2)
         }

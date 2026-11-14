@@ -2,6 +2,10 @@
 
 Complete test suite for validating RV32IMAC instruction implementations against the official RISC-V test specification.
 
+`bitmanip_encodings.s` supplies GNU reference bytes for RV32 Zba, Zbb, Zbs, Zbkb, and Zcb. `make ../bitmanip_encodings` rebuilds its raw text fixture. `./bitmanip_results.py` uses those bytes, GNU binutils, and QEMU's `max` CPU to regenerate `../bitmanip_results`: little-endian records of instruction encoding, first input, second input, and expected result. Use `--prefix riscv64-linux-gnu-` to select that toolchain. The Rust tests consume the committed fixtures without requiring external tools, compare assembly/disassembly, and verify execution and replay with aliased and discarded destinations.
+
+The reference fixtures were generated with GNU binutils 2.44 and QEMU 10.0.13. They contain 46 source forms and 7,360 execution cases, including every immediate bit index and fixed extremes plus deterministic varied bit patterns.
+
 ## Quick Start
 
 ```bash

@@ -716,6 +716,7 @@ fn extract_refs_from_instruction(inst: &Instruction, refs: &mut Vec<String>) {
     match inst {
         // Instructions with no expressions
         Instruction::RType(_, _, _, _)
+        | Instruction::Unary(_, _, _)
         | Instruction::Special(_)
         | Instruction::Atomic(_, _, _, _, _) => {}
 

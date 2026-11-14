@@ -388,8 +388,107 @@ fn assembler_emits_ilp32_and_complete_riscv_attributes() {
         .unwrap();
     assert_eq!(
         file.section_data(section).unwrap(),
-        b"A\x34\0\0\0riscv\0\x01\x2a\0\0\0\x05rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0\0"
+        b"A\x19\0\0\0riscv\0\x01\x0f\0\0\0\x05rv32i2p1\0"
     );
+}
+
+// Attribute requirements follow emitted instructions, not enabled features or
+// instruction-shaped constants embedded in either text or data sections.
+#[test]
+fn architecture_attributes_describe_only_emitted_instruction_families() {
+    for (instructions, compressed, expected) in [
+        ("nop\nfence\nfence.tso", false, "rv32i2p1"),
+        ("mul a0, a1, a2\ndivu a0, a1, a2", false, "rv32i2p1_m2p0"),
+        ("lr.w.aq a0, (a1)\nsc.w.rl a0, a2, (a1)", false, "rv32i2p1_a2p1"),
+        ("fence.i", false, "rv32i2p1_zifencei2p0"),
+        ("c.nop", false, "rv32i2p1_c2p0"),
+        ("addi a0, a0, 1", false, "rv32i2p1"),
+        ("addi a0, a0, 1", true, "rv32i2p1_c2p0"),
+        ("li a0, 0x12345001", true, "rv32i2p1_c2p0"),
+        ("sh1add a0, a1, a2", false, "rv32i2p1_zba1p0"),
+        (
+            "andn a0, a1, a2\nrori a0, a1, 31\nrev8 a0, a1\norc.b a0, a1\nclz a0, a1\nctz a0, a1\ncpop a0, a1\nsext.b a0, a1\nsext.h a0, a1",
+            false,
+            "rv32i2p1_zbb1p0",
+        ),
+        (
+            "pack a0, a1, a2\npackh a0, a1, a2\nbrev8 a0, a1\nzip a0, a1\nunzip a0, a1",
+            false,
+            "rv32i2p1_zbkb1p0",
+        ),
+        ("zext.h a0, a1", false, "rv32i2p1_zbb1p0"),
+        ("bext a0, a1, a2\nbseti a0, a1, 31", false, "rv32i2p1_zbs1p0"),
+        ("zext.b a0, a1", false, "rv32i2p1"),
+        (
+            "c.lbu a0, 0(a1)\nc.not a0\nc.zext.b a0",
+            false,
+            "rv32i2p1_c2p0_zcb1p0",
+        ),
+        ("c.mul a0, a1", false, "rv32i2p1_m2p0_c2p0_zcb1p0"),
+        (
+            "c.sext.b a0\nc.sext.h a0\nc.zext.h a0",
+            false,
+            "rv32i2p1_c2p0_zbb1p0_zcb1p0",
+        ),
+        ("sext.b a0, a0", true, "rv32i2p1_c2p0_zbb1p0_zcb1p0"),
+        ("mul a0, a0, a1", true, "rv32i2p1_m2p0_c2p0_zcb1p0"),
+        (
+            "sh1add a0, a1, a2\nclz a0, a1\nbseti a0, a1, 1\nzip a0, a1\nc.not a0",
+            false,
+            "rv32i2p1_c2p0_zba1p0_zbb1p0_zbkb1p0_zbs1p0_zcb1p0",
+        ),
+        (
+            "c.nop\nmul a0, a1, a2\namoadd.w.aqrl a0, a2, (a1)\nfence.i",
+            false,
+            "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0",
+        ),
+        (
+            "nop\n.word 0x02c58533, 0x0000100f\n.half 1\n.data\n.word 0x00c5a52f",
+            false,
+            "rv32i2p1",
+        ),
+    ] {
+        let mut config = Config::for_mode(Mode::Assemble);
+        config.relax.compressed = compressed;
+        let source = format!(".global _start\n_start:\n{instructions}\n");
+        let AssemblyOutput::Elf(bytes, _) =
+            assemble(&mut config, vec![("test.s".into(), source)]).unwrap()
+        else {
+            panic!("unexpected dump");
+        };
+        assert_eq!(architecture_attribute(&bytes), expected, "{instructions}");
+    }
+}
+
+// The initial eight-byte li estimate permits c.li, but its smaller layout makes
+// the immediate exceed the compressed range. The final pass must discard C.
+#[test]
+fn architecture_attributes_discard_extensions_from_tentative_passes() {
+    let mut config = Config::for_mode(Mode::Assemble);
+    config.relax.compressed = true;
+    let source = ".global _start\n_start: li a0, 38 - (end - _start)\nend:\n";
+    let AssemblyOutput::Elf(bytes, _) =
+        assemble(&mut config, vec![("test.s".into(), source.into())]).unwrap()
+    else {
+        panic!("unexpected dump");
+    };
+    assert_eq!(architecture_attribute(&bytes), "rv32i2p1");
+    let file = ElfFile::parse(&bytes).unwrap();
+    let text =
+        file.section_headers.iter().position(|s| s.sh_flags & 4 != 0).unwrap();
+    assert_eq!(file.section_data(text).unwrap(), [0x13, 0x05, 0x20, 0x02]);
+}
+
+fn architecture_attribute(bytes: &[u8]) -> &str {
+    let file = ElfFile::parse(bytes).unwrap();
+    let section = file
+        .section_headers
+        .iter()
+        .position(|s| s.sh_type == 0x7000_0003)
+        .unwrap();
+    let attributes = file.section_data(section).unwrap();
+    // The vendor/file headers occupy 16 bytes, followed by Tag_RISCV_arch.
+    std::str::from_utf8(attributes[17..].strip_suffix(&[0]).unwrap()).unwrap()
 }
 
 #[test]

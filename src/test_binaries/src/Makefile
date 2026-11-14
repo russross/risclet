@@ -6,6 +6,7 @@
 # Toolchain
 AS = riscv64-unknown-elf-as
 LD = riscv64-unknown-elf-ld
+OBJCOPY = riscv64-unknown-elf-objcopy
 QEMU = qemu-riscv32
 
 # Test names (60 total)
@@ -30,6 +31,16 @@ BINARIES := $(ALL_TESTS)
 
 # Default target
 all: $(BINARIES)
+
+# Raw GNU reference bytes are consumed by the Rust encoding/execution tests.
+all: ../bitmanip_encodings ../bitmanip_results
+../bitmanip_encodings: bitmanip_encodings.s Makefile
+	$(AS) -march=rv32imc_zba_zbb_zbs_zbkb_zcb -mabi=ilp32 -o $@.o $<
+	$(OBJCOPY) -O binary -j .text $@.o $@
+	rm -f $@.o
+
+../bitmanip_results: ../bitmanip_encodings bitmanip_results.py Makefile
+	./bitmanip_results.py --prefix "$(AS:as=)" --qemu "$(QEMU)"
 
 # Build rules with different architectures
 $(RV32I_TESTS) $(RV32M_TESTS): %: %.s

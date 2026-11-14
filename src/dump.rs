@@ -337,6 +337,9 @@ fn dump_instruction_ast(inst: &Instruction) {
         Instruction::Special(op) => {
             print!("(special {})", op);
         }
+        Instruction::Unary(op, rd, rs) => {
+            print!("(unary {} {} {})", op.mnemonic(), rd, rs);
+        }
         Instruction::LoadStore(op, rd, offset, rs) => {
             print!("(load-store {} {} ", op, rd);
             dump_expression_ast(offset);

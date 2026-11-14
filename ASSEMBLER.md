@@ -233,6 +233,8 @@ retained names to their final values. The exported `_start` symbol supplies
 the entry point: the address where execution begins. Early dumps do not need
 `_start`; building or dumping the executable does.
 
+The `.riscv.attributes` section describes the instruction families used by the final encoding. Each encoding pass collects these requirements afresh, so compression and pseudo-instruction relaxation contribute only their settled encodings. Data directives do not contribute instruction requirements.
+
     risclet assemble main.s helper.s --dump-elf=headers,sections
     risclet assemble main.s helper.s --dump-elf=symbols
     risclet assemble main.s helper.s -o program

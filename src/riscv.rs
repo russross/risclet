@@ -5,6 +5,25 @@ use crate::error::{Result, RiscletError};
 use crate::execution::{Instruction, Machine};
 use crate::trace::SyscallInfo;
 
+// Interleaving pairs the low and high halfword bits; deinterleaving reverses it.
+fn zip_bits(value: u32) -> u32 {
+    let mut result = 0;
+    for bit in 0..16 {
+        result |= ((value >> bit) & 1) << (2 * bit);
+        result |= ((value >> (bit + 16)) & 1) << (2 * bit + 1);
+    }
+    result
+}
+
+fn unzip_bits(value: u32) -> u32 {
+    let mut result = 0;
+    for bit in 0..16 {
+        result |= ((value >> (2 * bit)) & 1) << bit;
+        result |= ((value >> (2 * bit + 1)) & 1) << (bit + 16);
+    }
+    result
+}
+
 pub fn get_funct3(inst: i32) -> i32 {
     (inst >> 12) & 0x07
 }
@@ -241,6 +260,44 @@ pub enum Op {
     Slli { rd: usize, rs1: usize, shamt: i32 },
     Srli { rd: usize, rs1: usize, shamt: i32 },
     Srai { rd: usize, rs1: usize, shamt: i32 },
+
+    // Address generation, bit operations, and integer permutations.
+    Sh1add { rd: usize, rs1: usize, rs2: usize },
+    Sh2add { rd: usize, rs1: usize, rs2: usize },
+    Sh3add { rd: usize, rs1: usize, rs2: usize },
+    Andn { rd: usize, rs1: usize, rs2: usize },
+    Orn { rd: usize, rs1: usize, rs2: usize },
+    Xnor { rd: usize, rs1: usize, rs2: usize },
+    Min { rd: usize, rs1: usize, rs2: usize },
+    Minu { rd: usize, rs1: usize, rs2: usize },
+    Max { rd: usize, rs1: usize, rs2: usize },
+    Maxu { rd: usize, rs1: usize, rs2: usize },
+    Rol { rd: usize, rs1: usize, rs2: usize },
+    Ror { rd: usize, rs1: usize, rs2: usize },
+    Bclr { rd: usize, rs1: usize, rs2: usize },
+    Bext { rd: usize, rs1: usize, rs2: usize },
+    Binv { rd: usize, rs1: usize, rs2: usize },
+    Bset { rd: usize, rs1: usize, rs2: usize },
+    Pack { rd: usize, rs1: usize, rs2: usize },
+    Packh { rd: usize, rs1: usize, rs2: usize },
+
+    Rori { rd: usize, rs1: usize, shamt: i32 },
+    Bclri { rd: usize, rs1: usize, shamt: i32 },
+    Bexti { rd: usize, rs1: usize, shamt: i32 },
+    Binvi { rd: usize, rs1: usize, shamt: i32 },
+    Bseti { rd: usize, rs1: usize, shamt: i32 },
+
+    Clz { rd: usize, rs1: usize },
+    Ctz { rd: usize, rs1: usize },
+    Cpop { rd: usize, rs1: usize },
+    SextB { rd: usize, rs1: usize },
+    SextH { rd: usize, rs1: usize },
+    ZextH { rd: usize, rs1: usize },
+    OrcB { rd: usize, rs1: usize },
+    Rev8 { rd: usize, rs1: usize },
+    Brev8 { rd: usize, rs1: usize },
+    Zip { rd: usize, rs1: usize },
+    Unzip { rd: usize, rs1: usize },
 
     // branch
     Beq { rs1: usize, rs2: usize, offset: i32 },
@@ -736,6 +793,109 @@ impl Op {
 
     pub fn execute(&self, m: &mut Machine, length: u32) -> Result<()> {
         match self {
+            // All sources are read before the destination changes, including aliases.
+            Op::Sh1add { rd, rs1, rs2 }
+            | Op::Sh2add { rd, rs1, rs2 }
+            | Op::Sh3add { rd, rs1, rs2 }
+            | Op::Andn { rd, rs1, rs2 }
+            | Op::Orn { rd, rs1, rs2 }
+            | Op::Xnor { rd, rs1, rs2 }
+            | Op::Min { rd, rs1, rs2 }
+            | Op::Minu { rd, rs1, rs2 }
+            | Op::Max { rd, rs1, rs2 }
+            | Op::Maxu { rd, rs1, rs2 }
+            | Op::Rol { rd, rs1, rs2 }
+            | Op::Ror { rd, rs1, rs2 }
+            | Op::Bclr { rd, rs1, rs2 }
+            | Op::Bext { rd, rs1, rs2 }
+            | Op::Binv { rd, rs1, rs2 }
+            | Op::Bset { rd, rs1, rs2 }
+            | Op::Pack { rd, rs1, rs2 }
+            | Op::Packh { rd, rs1, rs2 } => {
+                let a = m.get(*rs1);
+                let b = m.get(*rs2);
+                let value = match self {
+                    Op::Sh1add { .. } => a.wrapping_shl(1).wrapping_add(b),
+                    Op::Sh2add { .. } => a.wrapping_shl(2).wrapping_add(b),
+                    Op::Sh3add { .. } => a.wrapping_shl(3).wrapping_add(b),
+                    Op::Andn { .. } => a & !b,
+                    Op::Orn { .. } => a | !b,
+                    Op::Xnor { .. } => !(a ^ b),
+                    Op::Min { .. } => a.min(b),
+                    Op::Minu { .. } => (a as u32).min(b as u32) as i32,
+                    Op::Max { .. } => a.max(b),
+                    Op::Maxu { .. } => (a as u32).max(b as u32) as i32,
+                    Op::Rol { .. } => {
+                        (a as u32).rotate_left(b as u32 & 31) as i32
+                    }
+                    Op::Ror { .. } => {
+                        (a as u32).rotate_right(b as u32 & 31) as i32
+                    }
+                    Op::Bclr { .. } => a & !(1_i32 << (b & 31)),
+                    Op::Bext { .. } => ((a as u32 >> (b & 31)) & 1) as i32,
+                    Op::Binv { .. } => a ^ (1_i32 << (b & 31)),
+                    Op::Bset { .. } => a | (1_i32 << (b & 31)),
+                    Op::Pack { .. } => (a & 0xffff) | b.wrapping_shl(16),
+                    Op::Packh { .. } => (a & 0xff) | ((b & 0xff) << 8),
+                    _ => unreachable!(),
+                };
+                m.set(*rd, value);
+            }
+
+            // Immediate bit counts have already been restricted to RV32's five bits.
+            Op::Rori { rd, rs1, shamt }
+            | Op::Bclri { rd, rs1, shamt }
+            | Op::Bexti { rd, rs1, shamt }
+            | Op::Binvi { rd, rs1, shamt }
+            | Op::Bseti { rd, rs1, shamt } => {
+                let a = m.get(*rs1);
+                let value = match self {
+                    Op::Rori { .. } => {
+                        (a as u32).rotate_right(*shamt as u32) as i32
+                    }
+                    Op::Bclri { .. } => a & !(1_i32 << shamt),
+                    Op::Bexti { .. } => ((a as u32 >> shamt) & 1) as i32,
+                    Op::Binvi { .. } => a ^ (1_i32 << shamt),
+                    Op::Bseti { .. } => a | (1_i32 << shamt),
+                    _ => unreachable!(),
+                };
+                m.set(*rd, value);
+            }
+
+            // Byte operations preserve byte positions unless reversing byte order.
+            Op::Clz { rd, rs1 }
+            | Op::Ctz { rd, rs1 }
+            | Op::Cpop { rd, rs1 }
+            | Op::SextB { rd, rs1 }
+            | Op::SextH { rd, rs1 }
+            | Op::ZextH { rd, rs1 }
+            | Op::OrcB { rd, rs1 }
+            | Op::Rev8 { rd, rs1 }
+            | Op::Brev8 { rd, rs1 }
+            | Op::Zip { rd, rs1 }
+            | Op::Unzip { rd, rs1 } => {
+                let a = m.get(*rs1);
+                let value = match self {
+                    Op::Clz { .. } => (a as u32).leading_zeros() as i32,
+                    Op::Ctz { .. } => (a as u32).trailing_zeros() as i32,
+                    Op::Cpop { .. } => a.count_ones() as i32,
+                    Op::SextB { .. } => a as i8 as i32,
+                    Op::SextH { .. } => a as i16 as i32,
+                    Op::ZextH { .. } => a & 0xffff,
+                    Op::OrcB { .. } => i32::from_le_bytes(
+                        a.to_le_bytes()
+                            .map(|byte| if byte == 0 { 0 } else { 255 }),
+                    ),
+                    Op::Rev8 { .. } => a.swap_bytes(),
+                    Op::Brev8 { .. } => i32::from_le_bytes(
+                        a.to_le_bytes().map(u8::reverse_bits),
+                    ),
+                    Op::Zip { .. } => zip_bits(a as u32) as i32,
+                    Op::Unzip { .. } => unzip_bits(a as u32) as i32,
+                    _ => unreachable!(),
+                };
+                m.set(*rd, value);
+            }
             // r-type
             Op::Add { rd, rs1, rs2 } => {
                 let val = m.get(*rs1).wrapping_add(m.get(*rs2));
@@ -1202,7 +1362,7 @@ impl Op {
 
             Op::Unimplemented { inst, note } => {
                 return Err(RiscletError::invalid_instruction_error(format!(
-                    "unsupported instruction encoding 0x{:08x}: {}; Risclet supports RV32 integer instructions with M, word-sized A, and integer C extensions",
+                    "unsupported instruction encoding 0x{:08x}: {}; Risclet supports RV32I, M, word-sized A, integer C, Zba, Zbb, Zbs, Zbkb, and Zcb instructions",
                     inst, note
                 )));
             }
@@ -1212,6 +1372,177 @@ impl Op {
 
     pub fn to_fields(&self) -> Vec<Field> {
         match *self {
+            Op::Sh1add { rd, rs1, rs2 } => vec![
+                Field::Opcode("sh1add"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Sh2add { rd, rs1, rs2 } => vec![
+                Field::Opcode("sh2add"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Sh3add { rd, rs1, rs2 } => vec![
+                Field::Opcode("sh3add"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Andn { rd, rs1, rs2 } => vec![
+                Field::Opcode("andn"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Orn { rd, rs1, rs2 } => vec![
+                Field::Opcode("orn"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Xnor { rd, rs1, rs2 } => vec![
+                Field::Opcode("xnor"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Min { rd, rs1, rs2 } => vec![
+                Field::Opcode("min"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Minu { rd, rs1, rs2 } => vec![
+                Field::Opcode("minu"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Max { rd, rs1, rs2 } => vec![
+                Field::Opcode("max"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Maxu { rd, rs1, rs2 } => vec![
+                Field::Opcode("maxu"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Rol { rd, rs1, rs2 } => vec![
+                Field::Opcode("rol"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Ror { rd, rs1, rs2 } => vec![
+                Field::Opcode("ror"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Bclr { rd, rs1, rs2 } => vec![
+                Field::Opcode("bclr"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Bext { rd, rs1, rs2 } => vec![
+                Field::Opcode("bext"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Binv { rd, rs1, rs2 } => vec![
+                Field::Opcode("binv"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Bset { rd, rs1, rs2 } => vec![
+                Field::Opcode("bset"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Pack { rd, rs1, rs2 } => vec![
+                Field::Opcode("pack"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Packh { rd, rs1, rs2 } => vec![
+                Field::Opcode("packh"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Reg(rs2),
+            ],
+            Op::Rori { rd, rs1, shamt } => vec![
+                Field::Opcode("rori"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(shamt),
+            ],
+            Op::Bclri { rd, rs1, shamt } => vec![
+                Field::Opcode("bclri"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(shamt),
+            ],
+            Op::Bexti { rd, rs1, shamt } => vec![
+                Field::Opcode("bexti"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(shamt),
+            ],
+            Op::Binvi { rd, rs1, shamt } => vec![
+                Field::Opcode("binvi"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(shamt),
+            ],
+            Op::Bseti { rd, rs1, shamt } => vec![
+                Field::Opcode("bseti"),
+                Field::Reg(rd),
+                Field::Reg(rs1),
+                Field::Imm(shamt),
+            ],
+            Op::Clz { rd, rs1 } => {
+                vec![Field::Opcode("clz"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Ctz { rd, rs1 } => {
+                vec![Field::Opcode("ctz"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Cpop { rd, rs1 } => {
+                vec![Field::Opcode("cpop"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::SextB { rd, rs1 } => {
+                vec![Field::Opcode("sext.b"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::SextH { rd, rs1 } => {
+                vec![Field::Opcode("sext.h"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::ZextH { rd, rs1 } => {
+                vec![Field::Opcode("zext.h"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::OrcB { rd, rs1 } => {
+                vec![Field::Opcode("orc.b"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Rev8 { rd, rs1 } => {
+                vec![Field::Opcode("rev8"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Brev8 { rd, rs1 } => {
+                vec![Field::Opcode("brev8"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Zip { rd, rs1 } => {
+                vec![Field::Opcode("zip"), Field::Reg(rd), Field::Reg(rs1)]
+            }
+            Op::Unzip { rd, rs1 } => {
+                vec![Field::Opcode("unzip"), Field::Reg(rd), Field::Reg(rs1)]
+            }
             // r-type
             Op::Add { rd, rs1, rs2 } => vec![
                 Field::Opcode("add"),
@@ -1658,6 +1989,9 @@ impl Op {
             Op::Xori { rd, rs1, imm: -1 } => {
                 vec![Field::Opcode("not"), Field::Reg(rd), Field::Reg(rs1)]
             }
+            Op::Andi { rd, rs1, imm: 255 } => {
+                vec![Field::Opcode("zext.b"), Field::Reg(rd), Field::Reg(rs1)]
+            }
             Op::Sltiu { rd, rs1, imm: 1 } => {
                 vec![Field::Opcode("seqz"), Field::Reg(rd), Field::Reg(rs1)]
             }
@@ -1744,6 +2078,49 @@ impl Op {
         let quadrant = encoding & 3;
         let funct3 = (encoding >> 13) & 7;
         match (quadrant, funct3, self) {
+            (0, 4, Self::Lbu { rd, rs1, offset }) => vec![
+                Field::Opcode("c.lbu"),
+                Field::Reg(*rd),
+                Field::Indirect(*offset, *rs1),
+            ],
+            (0, 4, Self::Lh { rd, rs1, offset }) => vec![
+                Field::Opcode("c.lh"),
+                Field::Reg(*rd),
+                Field::Indirect(*offset, *rs1),
+            ],
+            (0, 4, Self::Lhu { rd, rs1, offset }) => vec![
+                Field::Opcode("c.lhu"),
+                Field::Reg(*rd),
+                Field::Indirect(*offset, *rs1),
+            ],
+            (0, 4, Self::Sb { rs2, rs1, offset }) => vec![
+                Field::Opcode("c.sb"),
+                Field::Reg(*rs2),
+                Field::Indirect(*offset, *rs1),
+            ],
+            (0, 4, Self::Sh { rs2, rs1, offset }) => vec![
+                Field::Opcode("c.sh"),
+                Field::Reg(*rs2),
+                Field::Indirect(*offset, *rs1),
+            ],
+            (1, 4, Self::Andi { rd, imm: 255, .. }) => {
+                vec![Field::Opcode("c.zext.b"), Field::Reg(*rd)]
+            }
+            (1, 4, Self::Xori { rd, imm: -1, .. }) => {
+                vec![Field::Opcode("c.not"), Field::Reg(*rd)]
+            }
+            (1, 4, Self::SextB { rd, .. }) => {
+                vec![Field::Opcode("c.sext.b"), Field::Reg(*rd)]
+            }
+            (1, 4, Self::SextH { rd, .. }) => {
+                vec![Field::Opcode("c.sext.h"), Field::Reg(*rd)]
+            }
+            (1, 4, Self::ZextH { rd, .. }) => {
+                vec![Field::Opcode("c.zext.h"), Field::Reg(*rd)]
+            }
+            (1, 4, Self::Mul { rd, rs2, .. }) => {
+                vec![Field::Opcode("c.mul"), Field::Reg(*rd), Field::Reg(*rs2)]
+            }
             (0, 0, Self::Addi { rd, imm, .. }) => vec![
                 Field::Opcode("c.addi4spn"),
                 Field::Reg(*rd),

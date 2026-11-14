@@ -57,7 +57,7 @@ Press `?` to display the controls:
 Features
 --------
 
-*   Support for RV32 integer instructions and the M, A, and C extensions (rv32imac)
+*   Support for RV32 integer instructions and the M, A, C, Zba, Zbb, Zbs, Zbkb, and Zcb extensions
 *   Optional strict checks for ABI register use, function structure, and stack usage
 *   Minimal controls, no breakpoints or watch expressions
 *   System calls for reading stdin, writing stdout, and exiting

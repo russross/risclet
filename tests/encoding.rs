@@ -18,6 +18,50 @@ impl Drop for SourceFile {
     }
 }
 
+// The CLI exercises strict execution, compressed listings, and trace output
+// together, using the same assembled source through each command's loader.
+#[test]
+fn bit_manipulation_and_compressed_memory_work_across_cli_modes() {
+    let source = SourceFile(
+        temp_dir().join(format!("risclet-extensions-{}.s", std::process::id())),
+    );
+    write(&source.0, ".global _start\n_start:\nla gp, __global_pointer$\nla a1, item\nc.lh a0, (a1)\nsext.b a0, a0\nbseti a0, a0, 0\nli a2, 1\nsh1add a0, a2, a0\nrev8 a0, a0\nbrev8 a0, a0\nzip a0, a0\nunzip a0, a0\nzext.b a0, a0\nli t0, 255\nbne a0, t0, 1f\nli a0, 0\nli a7, 93\necall\n1: li a0, 1\nli a7, 93\necall\n.data\n.balign 2\nitem: .half -128\n").unwrap();
+    for mode in ["run", "trace", "disassemble"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_risclet"))
+            .args([
+                mode,
+                "--strict",
+                "--relax-compressed",
+                "--verbose-instructions",
+                "--show-encoding",
+                "--no-show-addresses",
+            ])
+            .arg(&source.0)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if mode != "run" {
+            let listing = String::from_utf8(output.stdout).unwrap();
+            for mnemonic in [
+                "c.lh", "c.sext.b", "bseti", "sh1add", "rev8", "brev8", "zip",
+                "unzip", "c.zext.b",
+            ] {
+                assert!(
+                    listing.contains(mnemonic),
+                    "{mode}: missing {mnemonic}: {listing}"
+                );
+            }
+            if mode == "trace" {
+                assert!(listing.contains("exit(0)"));
+            }
+        }
+    }
+}
+
 #[test]
 fn listings_preserve_encodings_and_pseudo_sequences() {
     let source = SourceFile(

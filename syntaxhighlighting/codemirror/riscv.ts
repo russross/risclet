@@ -13,6 +13,11 @@ const instructions = new Set([
   "li", "la", "call", "tail", "mv", "ret", "nop", "neg", "seqz", "snez",
   "sltz", "sgtz", "beqz", "blez", "bltz", "bgtz", "bgt", "ble", "bgtu",
   "bleu", "j", "jr", "not",
+  "sh1add", "sh2add", "sh3add", "andn", "orn", "xnor", "min", "minu",
+  "max", "maxu", "rol", "ror", "bclr", "bext", "binv", "bset", "pack",
+  "packh", "rori", "bclri", "bexti", "binvi", "bseti", "clz", "ctz",
+  "cpop", "sext.b", "sext.h", "zext.h", "orc.b", "rev8", "brev8", "zip",
+  "unzip", "zext.b",
 ]);
 
 // Compressed and atomic names are closed sets, rather than arbitrary c.* or
@@ -21,6 +26,8 @@ for (const name of [
   "add", "mv", "jr", "jalr", "li", "lui", "addi", "addi16sp", "addi4spn",
   "slli", "lwsp", "swsp", "lw", "sw", "and", "or", "xor", "sub", "srli",
   "srai", "andi", "beqz", "bnez", "j", "jal", "nop", "ebreak",
+  "lbu", "lh", "lhu", "sb", "sh", "zext.b", "sext.b", "zext.h", "sext.h",
+  "not", "mul",
 ]) instructions.add(`c.${name}`);
 
 for (const name of [

@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::dump::{dump_ast, dump_code, dump_elf, dump_layout, dump_symbols};
 use crate::elf::ElfFile;
 use crate::elf_builder::ElfBuilder;
-use crate::encoder::encode;
+use crate::encoder::{ExtensionsUsed, encode};
 use crate::error::{DiagnosticSources, Result, RiscletError};
 use crate::expressions::{SymbolValues, eval_symbol_values};
 use crate::layout::{Layout, LineSizes, approximate_line_sizes};
@@ -154,8 +154,13 @@ fn assemble_inner(
     }
 
     let initial_line_sizes = approximate_line_sizes(&source);
-    let RelaxedAssembly { layout, symbol_values, text_bytes, data_bytes } =
-        relaxation_loop(config, &source, symbol_links, initial_line_sizes)?;
+    let RelaxedAssembly {
+        layout,
+        symbol_values,
+        text_bytes,
+        data_bytes,
+        extensions_used,
+    } = relaxation_loop(config, &source, symbol_links, initial_line_sizes)?;
 
     // Checkpoint: after relaxation, check if we should exit before ELF generation
     if terminal_phase == Some(Phase::Relaxation) {
@@ -166,7 +171,8 @@ fn assemble_inner(
     // Phase 4: Generate ELF binary
     // ========================================================================
 
-    let mut elf_builder = ElfBuilder::new(&layout, text_bytes, data_bytes);
+    let mut elf_builder =
+        ElfBuilder::new(&layout, text_bytes, data_bytes, extensions_used);
 
     // Build symbol table
     elf_builder.build_symbol_table(&source, symbol_links, &symbol_values)?;
@@ -236,6 +242,7 @@ pub struct RelaxedAssembly {
     pub symbol_values: SymbolValues,
     pub text_bytes: Vec<u8>,
     pub data_bytes: Vec<u8>,
+    pub extensions_used: ExtensionsUsed,
 }
 
 /// Iterate until line sizes and offsets are stable.
@@ -332,6 +339,7 @@ pub fn relaxation_loop(
                 symbol_values,
                 text_bytes: encoded.text_bytes,
                 data_bytes: encoded.data_bytes,
+                extensions_used: encoded.extensions_used,
             });
         }
 

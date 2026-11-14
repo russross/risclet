@@ -40,6 +40,8 @@ mod encoder_tests;
 #[cfg(test)]
 mod expressions_tests;
 #[cfg(test)]
+mod extension_tests;
+#[cfg(test)]
 mod heap_tests;
 #[cfg(test)]
 mod parser_tests;

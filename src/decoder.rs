@@ -136,6 +136,29 @@ impl InstructionDecoder {
         let shamt = imm & 0x1f;
         let imm_high = imm >> 5;
 
+        // Unary operations use exact fixed fields; RV64 encodings stay illegal.
+        match (funct3, (inst as u32) >> 20) {
+            (1, 0x600) => return Op::Clz { rd, rs1 },
+            (1, 0x601) => return Op::Ctz { rd, rs1 },
+            (1, 0x602) => return Op::Cpop { rd, rs1 },
+            (1, 0x604) => return Op::SextB { rd, rs1 },
+            (1, 0x605) => return Op::SextH { rd, rs1 },
+            (5, 0x287) => return Op::OrcB { rd, rs1 },
+            (5, 0x698) => return Op::Rev8 { rd, rs1 },
+            (5, 0x687) => return Op::Brev8 { rd, rs1 },
+            (1, 0x08f) => return Op::Zip { rd, rs1 },
+            (5, 0x08f) => return Op::Unzip { rd, rs1 },
+            _ => {}
+        }
+        match (imm_high, funct3) {
+            (0x30, 5) => return Op::Rori { rd, rs1, shamt },
+            (0x24, 1) => return Op::Bclri { rd, rs1, shamt },
+            (0x24, 5) => return Op::Bexti { rd, rs1, shamt },
+            (0x34, 1) => return Op::Binvi { rd, rs1, shamt },
+            (0x14, 1) => return Op::Bseti { rd, rs1, shamt },
+            _ => {}
+        }
+
         match funct3 {
             0 => Op::Addi { rd, rs1, imm },
             1 => {
@@ -182,6 +205,25 @@ impl InstructionDecoder {
         let rs2 = get_rs2(inst);
 
         match (funct7, funct3) {
+            (0x04, 4) if rs2 == ZERO => Op::ZextH { rd, rs1 },
+            (0x10, 2) => Op::Sh1add { rd, rs1, rs2 },
+            (0x10, 4) => Op::Sh2add { rd, rs1, rs2 },
+            (0x10, 6) => Op::Sh3add { rd, rs1, rs2 },
+            (0x20, 7) => Op::Andn { rd, rs1, rs2 },
+            (0x20, 6) => Op::Orn { rd, rs1, rs2 },
+            (0x20, 4) => Op::Xnor { rd, rs1, rs2 },
+            (0x05, 4) => Op::Min { rd, rs1, rs2 },
+            (0x05, 5) => Op::Minu { rd, rs1, rs2 },
+            (0x05, 6) => Op::Max { rd, rs1, rs2 },
+            (0x05, 7) => Op::Maxu { rd, rs1, rs2 },
+            (0x30, 1) => Op::Rol { rd, rs1, rs2 },
+            (0x30, 5) => Op::Ror { rd, rs1, rs2 },
+            (0x24, 1) => Op::Bclr { rd, rs1, rs2 },
+            (0x24, 5) => Op::Bext { rd, rs1, rs2 },
+            (0x34, 1) => Op::Binv { rd, rs1, rs2 },
+            (0x14, 1) => Op::Bset { rd, rs1, rs2 },
+            (0x04, 4) => Op::Pack { rd, rs1, rs2 },
+            (0x04, 7) => Op::Packh { rd, rs1, rs2 },
             (0x00, 0x00) => Op::Add { rd, rs1, rs2 },
             (0x20, 0x00) => Op::Sub { rd, rs1, rs2 },
             (0x00, 0x01) => Op::Sll { rd, rs1, rs2 },
@@ -297,10 +339,27 @@ impl InstructionDecoder {
                 inst,
                 note: String::from("C.LD is not supported in RV32"),
             },
-            (0, 4) => Op::Unimplemented {
-                inst,
-                note: String::from("Reserved compressed instruction at (0, 4)"),
-            },
+            (0, 4) => {
+                let rd = get_c_rs2_prime(inst);
+                let rs1 = get_c_rs1_prime(inst);
+                let byte_offset = ((inst >> 6) & 1) | (((inst >> 5) & 1) << 1);
+                let half_offset = ((inst >> 5) & 1) << 1;
+                match (inst >> 10) & 7 {
+                    0 => Op::Lbu { rd, rs1, offset: byte_offset },
+                    1 if inst & 0x40 == 0 => {
+                        Op::Lhu { rd, rs1, offset: half_offset }
+                    }
+                    1 => Op::Lh { rd, rs1, offset: half_offset },
+                    2 => Op::Sb { rs1, rs2: rd, offset: byte_offset },
+                    3 if inst & 0x40 == 0 => {
+                        Op::Sh { rs1, rs2: rd, offset: half_offset }
+                    }
+                    _ => Op::Unimplemented {
+                        inst,
+                        note: "Reserved Zcb memory encoding".into(),
+                    },
+                }
+            }
             (0, 5) => Op::Unimplemented {
                 inst,
                 note: String::from("C.FSD is not supported"),
@@ -381,6 +440,19 @@ impl InstructionDecoder {
                             (0, 1) => Op::Xor { rd, rs1: rd, rs2 },
                             (0, 2) => Op::Or { rd, rs1: rd, rs2 },
                             (0, 3) => Op::And { rd, rs1: rd, rs2 },
+                            (1, 2) => Op::Mul { rd, rs1: rd, rs2 },
+                            (1, 3) => match (inst >> 2) & 7 {
+                                0 => Op::Andi { rd, rs1: rd, imm: 255 },
+                                1 => Op::SextB { rd, rs1: rd },
+                                2 => Op::ZextH { rd, rs1: rd },
+                                3 => Op::SextH { rd, rs1: rd },
+                                5 => Op::Xori { rd, rs1: rd, imm: -1 },
+                                _ => Op::Unimplemented {
+                                    inst,
+                                    note: "Reserved RV32 Zcb unary encoding"
+                                        .into(),
+                                },
+                            },
                             (1, 0) | (1, 1) => Op::Unimplemented {
                                 inst,
                                 note: "C.SUBW/C.ADDW are not supported in RV32"

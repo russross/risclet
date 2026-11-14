@@ -94,7 +94,9 @@ Instruction sets
 
 risclet supports RV32I integer instructions, the M extension for multiplication
 and division, the word-sized A extension for atomics, and the integer RV32C
-compressed instructions. It also accepts `fence.i` from Zifencei and
+compressed instructions, Zba address generation, Zbb and Zbs bit manipulation,
+Zbkb bit manipulation for cryptography, and RV32 Zcb compressed instructions.
+It also accepts `fence.i` from Zifencei and
 `fence.tso`. These do not imply support for other extensions.
 
 RV64 instructions, floating-point instructions and registers, vector
@@ -217,6 +219,37 @@ All use `op rd, rs1, rs2`, just like the register arithmetic instructions:
 Instructions: `mul`, `mulh`, `mulhsu`, `mulhu`, `div`, `divu`, `rem`, `remu`.
 
 
+### Zba: address generation
+
+`sh1add`, `sh2add`, and `sh3add` use `op rd, rs1, rs2`. They shift `rs1` left by one, two, or three bits and add `rs2`, wrapping to 32 bits.
+
+
+### Zbb: basic bit manipulation
+
+| Operand form      | Instructions                                                   |
+|-------------------|----------------------------------------------------------------|
+| `op rd, rs1, rs2` | `andn`, `orn`, `xnor`, `min`, `minu`, `max`, `maxu`, `rol`, `ror` |
+| `op rd, rs`        | `clz`, `ctz`, `cpop`, `sext.b`, `sext.h`, `zext.h`, `orc.b`, `rev8` |
+| `rori rd, rs, imm` | `rori`                                                         |
+
+Register rotation amounts use the low five bits; the immediate rotation amount is an integer from 0 through 31. Counts of leading or trailing zeroes return 32 for an all-zero input. `min` and `max` compare signed values; the `u` forms compare unsigned values. `orc.b` replaces each nonzero byte with 255, and `rev8` reverses byte order. Sign and zero extension use the low byte or halfword.
+
+
+### Zbs: single-bit manipulation
+
+`bclr`, `bext`, `binv`, and `bset` use `op rd, rs1, rs2`, taking the bit index from the low five bits of `rs2`. `bclri`, `bexti`, `binvi`, and `bseti` use `op rd, rs, imm`, where the index is an integer from 0 through 31. Bit extraction returns zero or one.
+
+
+### Zbkb: bit manipulation for cryptography
+
+| Operand form      | Instructions              |
+|-------------------|---------------------------|
+| `op rd, rs1, rs2` | `pack`, `packh`            |
+| `op rd, rs`        | `brev8`, `zip`, `unzip`    |
+
+`pack` joins the low halfwords of its sources, with `rs1` in the low half. `packh` joins their low bytes and clears the upper halfword. `brev8` reverses bits within each byte. `zip` interleaves bits from the low and high halfwords; `unzip` reverses that permutation. Zbkb also includes the shared `andn`, `orn`, `xnor`, `rol`, `ror`, `rori`, and `rev8` operations listed under Zbb.
+
+
 Pseudo-instructions
 -------------------
 
@@ -256,6 +289,7 @@ from the value being stored. These forms work with local as well as global label
 |-----------------|--------------------------|
 | `mv rd, rs`     | `addi rd, rs, 0`         |
 | `not rd, rs`    | `xori rd, rs, -1`        |
+| `zext.b rd, rs` | `andi rd, rs, 255`      |
 | `neg rd, rs`    | `sub rd, zero, rs`       |
 | `seqz rd, rs`   | `sltiu rd, rs, 1`        |
 | `snez rd, rs`   | `sltu rd, zero, rs`      |
@@ -294,8 +328,7 @@ offset. These forms use `zero` as the destination of `jalr`.
 
 ### Omitted pseudo-instructions
 
-Notable omissions include `lla`, `lga`, `sext.b`, `sext.h`, `zext.b`, `zext.h`,
-`sext.w`, `zext.w`, and `negw`. CSR and counter aliases such as `csrr`, `csrw`,
+Notable omissions include `lla`, `lga`, `sext.w`, `zext.w`, and `negw`. CSR and counter aliases such as `csrr`, `csrw`,
 `rdcycle`, `rdtime`, and `rdinstret` are absent, as are floating-point aliases.
 `call` accepts only a target, not an explicit destination register.
 
@@ -342,6 +375,20 @@ This is less strict than the ordinary instruction forms.
 Writing `c.*` explicitly always requests a compressed instruction. Automatic
 compression of ordinary instructions is off by default and can be enabled with
 `--relax-compressed`.
+
+
+### Zcb: additional compressed instructions
+
+| Operand form            | Instructions                                             |
+|-------------------------|----------------------------------------------------------|
+| `op rd, offset(base)`    | `c.lbu`, `c.lh`, `c.lhu`                                 |
+| `op rs, offset(base)`    | `c.sb`, `c.sh`                                           |
+| `op rd`                 | `c.zext.b`, `c.sext.b`, `c.zext.h`, `c.sext.h`, `c.not`   |
+| `c.mul rd, rs`          | `c.mul`                                                  |
+
+All register operands must be in `x8–x15`. Byte memory offsets are 0–3; halfword offsets are 0 or 2. Memory forms permit an omitted zero offset. Unary operations read and write the same register; `c.mul` multiplies its two operands into the first register. These are two-byte encodings of the corresponding ordinary operations.
+
+With `--relax-compressed`, ordinary instructions use these encodings when operands fit. Unary operations require equal source and destination registers. Multiplication can use either source as its destination. `andi rd, rd, 255` and `xori rd, rd, -1`, including their `zext.b` and `not` aliases, can become `c.zext.b` and `c.not`. Other operand combinations retain their ordinary encoding.
 
 
 ### A extension: word atomics

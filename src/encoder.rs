@@ -13,7 +13,7 @@ use crate::ast::{
     AtomicOp, BTypeOp, CompressedOp, CompressedOperands, Directive, Expression,
     ITypeOp, Instruction, Line, LineContent, LinePointer, LoadStoreOp,
     Location, MemoryOrdering, PseudoOp, RTypeOp, Register, Segment, Source,
-    SpecialOp, UTypeOp,
+    SpecialOp, UTypeOp, UnaryOp,
 };
 use crate::config::Config;
 use crate::error::{Result, RiscletError};
@@ -26,11 +26,115 @@ use std::ops::RangeInclusive;
 // Public API
 // ============================================================================
 
+/// Optional instruction families represented in emitted machine code.
+#[derive(Clone, Copy)]
+pub enum Extension {
+    M,
+    A,
+    C,
+    Zba,
+    Zbb,
+    Zbs,
+    Zbkb,
+    Zcb,
+    Zifencei,
+}
+
+/// Each encoding pass starts with an empty set; RV32I is always the base ISA.
+#[derive(Clone, Copy, Default)]
+pub struct ExtensionsUsed(u16);
+
+impl ExtensionsUsed {
+    pub fn contains(self, extension: Extension) -> bool {
+        self.0 & (1 << extension as u8) != 0
+    }
+
+    fn insert(&mut self, extension: Extension) {
+        self.0 |= 1 << extension as u8;
+    }
+
+    // Instruction-line payloads contain complete encodings, including every
+    // instruction in a pseudo expansion. Directive bytes never enter this path.
+    fn record_instructions(&mut self, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            if bytes[0] & 3 != 3 {
+                self.insert(Extension::C);
+                let inst = u16::from_le_bytes(bytes[..2].try_into().unwrap());
+                // Zcb's compressed ALU forms retain the dependencies of their
+                // full-width equivalents; memory and byte masking need only I.
+                if inst & 0xe003 == 0x8000
+                    || inst & 0xfc63 == 0x9c41
+                    || inst & 0xfc63 == 0x9c61
+                {
+                    self.insert(Extension::Zcb);
+                    if inst & 0xfc63 == 0x9c41 {
+                        self.insert(Extension::M);
+                    } else if inst & 0xfc63 == 0x9c61
+                        && matches!((inst >> 2) & 7, 1..=3)
+                    {
+                        self.insert(Extension::Zbb);
+                    }
+                }
+                bytes = &bytes[2..];
+                continue;
+            }
+
+            let inst = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+            let funct7 = inst >> 25;
+            let funct3 = (inst >> 12) & 7;
+            let immediate = inst >> 20;
+            match inst & 0x7f {
+                0x33 if inst >> 25 == 1 => self.insert(Extension::M),
+                0x33 if funct7 == 0x10 => self.insert(Extension::Zba),
+                0x33 if matches!(funct7, 0x14 | 0x24 | 0x34) => {
+                    self.insert(Extension::Zbs)
+                }
+                // Shared Zbb/Zbkb encodings use Zbb as their canonical family.
+                0x33 if funct7 == 0x04
+                    && !(funct3 == 4 && (inst >> 20) & 31 == 0) =>
+                {
+                    self.insert(Extension::Zbkb)
+                }
+                0x33 if matches!(funct7, 0x04 | 0x05 | 0x30)
+                    || (funct7 == 0x20 && matches!(funct3, 4 | 6 | 7)) =>
+                {
+                    self.insert(Extension::Zbb)
+                }
+                0x13 if (matches!(funct7, 0x14 | 0x34) && funct3 == 1)
+                    || (funct7 == 0x24 && matches!(funct3, 1 | 5)) =>
+                {
+                    self.insert(Extension::Zbs)
+                }
+                0x13 if matches!(
+                    (funct3, immediate),
+                    (1 | 5, 0x08f) | (5, 0x687)
+                ) =>
+                {
+                    self.insert(Extension::Zbkb)
+                }
+                0x13 if (funct3 == 1
+                    && matches!(immediate, 0x600..=0x602 | 0x604 | 0x605))
+                    || (funct3 == 5
+                        && (funct7 == 0x30
+                            || matches!(immediate, 0x287 | 0x698))) =>
+                {
+                    self.insert(Extension::Zbb)
+                }
+                0x2f => self.insert(Extension::A),
+                0x0f if inst == 0x0000_100f => self.insert(Extension::Zifencei),
+                _ => {}
+            }
+            bytes = &bytes[4..];
+        }
+    }
+}
+
 /// The code and line sizes produced by one encoding pass.
 pub struct EncodedPass {
     pub line_sizes: LineSizes,
     pub text_bytes: Vec<u8>,
     pub data_bytes: Vec<u8>,
+    pub extensions_used: ExtensionsUsed,
     pub deferred_error: Option<RiscletError>,
 }
 
@@ -46,6 +150,7 @@ pub fn encode(
     let mut text_bytes = Vec::new();
     let mut data_bytes = Vec::new();
     let mut deferred_error = None;
+    let mut extensions_used = ExtensionsUsed::default();
 
     for file_index in 0..source.files.len() {
         for line_index in 0..source.files[file_index].lines.len() {
@@ -69,6 +174,9 @@ pub fn encode(
                         data_start,
                         &mut deferred_error,
                     )?;
+                    if matches!(line.content, LineContent::Instruction(_)) {
+                        extensions_used.record_instructions(&bytes);
+                    }
                     let size = bytes.len() as u32;
                     (Some(bytes), size)
                 }
@@ -98,7 +206,13 @@ pub fn encode(
         }
     }
 
-    Ok(EncodedPass { line_sizes, text_bytes, data_bytes, deferred_error })
+    Ok(EncodedPass {
+        line_sizes,
+        text_bytes,
+        data_bytes,
+        extensions_used,
+        deferred_error,
+    })
 }
 
 /// Encode a single line
@@ -335,6 +449,7 @@ fn encode_instruction(
             encode_atomic(op, *rd, *rs1, *rs2, ordering)
         }
         Instruction::Special(op) => encode_special(op),
+        Instruction::Unary(op, rd, rs) => encode_unary(config, *op, *rd, *rs),
         Instruction::Compressed(op, operands) => encode_compressed_explicit(
             op,
             operands,
@@ -361,6 +476,19 @@ fn encode_r_type_family(
 ) -> Result<Vec<u8>> {
     // Try compressed encoding if enabled
     if config.relax.compressed {
+        // Multiplication is commutative, so either source can be the destination.
+        if matches!(op, RTypeOp::Mul) && is_compressed_reg(rd) {
+            let other = if rd == rs1 {
+                Some(rs2)
+            } else if rd == rs2 {
+                Some(rs1)
+            } else {
+                None
+            };
+            if let Some(other) = other.filter(|reg| is_compressed_reg(*reg)) {
+                return Ok(encode_c_mul(rd, other).to_le_bytes().to_vec());
+            }
+        }
         // c.add rd, rs2 (rd is also rs1, rs2 != x0, rd != x0)
         if matches!(op, RTypeOp::Add)
             && rd == rs1
@@ -415,6 +543,24 @@ fn encode_r_type_family(
         RTypeOp::Divu => (0b0110011, 0b101, 0b0000001),
         RTypeOp::Rem => (0b0110011, 0b110, 0b0000001),
         RTypeOp::Remu => (0b0110011, 0b111, 0b0000001),
+        RTypeOp::Sh1add => (0x33, 2, 0x10),
+        RTypeOp::Sh2add => (0x33, 4, 0x10),
+        RTypeOp::Sh3add => (0x33, 6, 0x10),
+        RTypeOp::Andn => (0x33, 7, 0x20),
+        RTypeOp::Orn => (0x33, 6, 0x20),
+        RTypeOp::Xnor => (0x33, 4, 0x20),
+        RTypeOp::Min => (0x33, 4, 0x05),
+        RTypeOp::Minu => (0x33, 5, 0x05),
+        RTypeOp::Max => (0x33, 6, 0x05),
+        RTypeOp::Maxu => (0x33, 7, 0x05),
+        RTypeOp::Rol => (0x33, 1, 0x30),
+        RTypeOp::Ror => (0x33, 5, 0x30),
+        RTypeOp::Bclr => (0x33, 1, 0x24),
+        RTypeOp::Bext => (0x33, 5, 0x24),
+        RTypeOp::Binv => (0x33, 1, 0x34),
+        RTypeOp::Bset => (0x33, 1, 0x14),
+        RTypeOp::Pack => (0x33, 4, 0x04),
+        RTypeOp::Packh => (0x33, 7, 0x04),
     };
 
     let inst = encode_r_type(opcode, rd, funct3, rs1, rs2, funct7);
@@ -433,6 +579,33 @@ fn encode_i_type_family(
     rs1: Register,
     imm: i64,
 ) -> Result<Vec<u8>> {
+    // Bit indices and rotation counts are unsigned five-bit immediates.
+    let bit_encoding = match op {
+        ITypeOp::Rori => Some((0x30_u32, 5_u32)),
+        ITypeOp::Bclri => Some((0x24, 1)),
+        ITypeOp::Bexti => Some((0x24, 5)),
+        ITypeOp::Binvi => Some((0x34, 1)),
+        ITypeOp::Bseti => Some((0x14, 1)),
+        _ => None,
+    };
+    if let Some((funct7, funct3)) = bit_encoding {
+        if !(0..32).contains(&imm) {
+            return Err(RiscletError::from_context(
+                format!(
+                    "Bit index or rotation amount {imm} out of range (must be 0-31 for RV32)"
+                ),
+                location.clone(),
+            ));
+        }
+        let inst = (funct7 << 25)
+            | ((imm as u32) << 20)
+            | (reg_to_u32(rs1) << 15)
+            | (funct3 << 12)
+            | (reg_to_u32(rd) << 7)
+            | 0x13;
+        return Ok(inst.to_le_bytes().to_vec());
+    }
+
     // Special handling for JALR (it can become c.jr or c.jalr)
     if matches!(op, ITypeOp::Jalr) {
         return encode_jalr_family(config, location, rd, rs1, imm);
@@ -496,6 +669,12 @@ fn encode_i_type_family(
         // c.srli, c.srai, c.andi (compressed register set only)
         if is_compressed_reg(rd) && rd == rs1 {
             let c_inst = match op {
+                ITypeOp::Andi if imm == 255 => {
+                    Some(encode_c_unary(CompressedOp::CZextB, rd))
+                }
+                ITypeOp::Xori if imm == -1 => {
+                    Some(encode_c_unary(CompressedOp::CNot, rd))
+                }
                 ITypeOp::Srli if imm > 0 && imm < 32 => {
                     Some(encode_c_srli(rd, imm as u32))
                 }
@@ -525,6 +704,11 @@ fn encode_i_type_family(
         ITypeOp::Srli => (0b0010011, 0b101),
         ITypeOp::Srai => (0b0010011, 0b101),
         ITypeOp::Jalr => (0b1100111, 0b000),
+        ITypeOp::Rori
+        | ITypeOp::Bclri
+        | ITypeOp::Bexti
+        | ITypeOp::Binvi
+        | ITypeOp::Bseti => unreachable!(),
     };
 
     // Validate and adjust shift immediates
@@ -551,6 +735,45 @@ fn encode_i_type_family(
 // ============================================================================
 // JALR Instruction Family
 // ============================================================================
+
+// Unary operations use fixed immediate fields or a fixed zero second source.
+fn encode_unary(
+    config: &Config,
+    op: UnaryOp,
+    rd: Register,
+    rs: Register,
+) -> Result<Vec<u8>> {
+    if config.relax.compressed && rd == rs && is_compressed_reg(rd) {
+        let compressed = match op {
+            UnaryOp::SextB => Some(CompressedOp::CSextB),
+            UnaryOp::SextH => Some(CompressedOp::CSextH),
+            UnaryOp::ZextH => Some(CompressedOp::CZextH),
+            _ => None,
+        };
+        if let Some(op) = compressed {
+            return Ok(encode_c_unary(op, rd).to_le_bytes().to_vec());
+        }
+    }
+    let (opcode, immediate, funct3): (u32, u32, u32) = match op {
+        UnaryOp::Clz => (0x13, 0x600, 1),
+        UnaryOp::Ctz => (0x13, 0x601, 1),
+        UnaryOp::Cpop => (0x13, 0x602, 1),
+        UnaryOp::SextB => (0x13, 0x604, 1),
+        UnaryOp::SextH => (0x13, 0x605, 1),
+        UnaryOp::ZextH => (0x33, 0x080, 4),
+        UnaryOp::OrcB => (0x13, 0x287, 5),
+        UnaryOp::Rev8 => (0x13, 0x698, 5),
+        UnaryOp::Brev8 => (0x13, 0x687, 5),
+        UnaryOp::Zip => (0x13, 0x08f, 1),
+        UnaryOp::Unzip => (0x13, 0x08f, 5),
+    };
+    let inst = (immediate << 20)
+        | (reg_to_u32(rs) << 15)
+        | (funct3 << 12)
+        | (reg_to_u32(rd) << 7)
+        | opcode;
+    Ok(inst.to_le_bytes().to_vec())
+}
 
 fn encode_jalr_family(
     config: &Config,
@@ -589,6 +812,35 @@ fn encode_load_store_family(
     location: &Location,
     config: &Config,
 ) -> Result<Vec<u8>> {
+    // Zcb memory forms have compact registers and short unsigned byte offsets.
+    if config.relax.compressed
+        && is_compressed_reg(rd_or_rs)
+        && is_compressed_reg(rs1)
+    {
+        let compressed = match op {
+            LoadStoreOp::Lbu => Some(CompressedOp::CLbu),
+            LoadStoreOp::Lh => Some(CompressedOp::CLh),
+            LoadStoreOp::Lhu => Some(CompressedOp::CLhu),
+            LoadStoreOp::Sb => Some(CompressedOp::CSb),
+            LoadStoreOp::Sh => Some(CompressedOp::CSh),
+            _ => None,
+        };
+        if let Some(op) = compressed {
+            let byte = matches!(op, CompressedOp::CLbu | CompressedOp::CSb);
+            if (0..=if byte { 3 } else { 2 }).contains(&offset)
+                && (byte || offset % 2 == 0)
+            {
+                return Ok(encode_c_small_memory(
+                    op,
+                    rd_or_rs,
+                    rs1,
+                    offset as u32,
+                )
+                .to_le_bytes()
+                .to_vec());
+            }
+        }
+    }
     let _is_load = matches!(
         op,
         LoadStoreOp::Lw
@@ -1992,12 +2244,95 @@ fn encode_c_jalr(rs1: Register) -> u16 {
 // Compressed Instruction Full Encoder (for explicit c.* instructions)
 // ============================================================================
 
+// Zcb shares compact register fields with the original C arithmetic formats.
+fn encode_c_unary(op: CompressedOp, rd: Register) -> u16 {
+    let funct = match op {
+        CompressedOp::CZextB => 0,
+        CompressedOp::CSextB => 1,
+        CompressedOp::CZextH => 2,
+        CompressedOp::CSextH => 3,
+        CompressedOp::CNot => 5,
+        _ => unreachable!(),
+    };
+    0x9c61 | ((compress_reg_index(rd) as u16) << 7) | (funct << 2)
+}
+
+fn encode_c_mul(rd: Register, rs2: Register) -> u16 {
+    0x9c41
+        | ((compress_reg_index(rd) as u16) << 7)
+        | ((compress_reg_index(rs2) as u16) << 2)
+}
+
+// Byte offsets split their two low bits; halfword forms reserve bit six.
+fn encode_c_small_memory(
+    op: CompressedOp,
+    reg: Register,
+    base: Register,
+    offset: u32,
+) -> u16 {
+    let funct = match op {
+        CompressedOp::CLbu => 0x8000,
+        CompressedOp::CLhu => 0x8400,
+        CompressedOp::CLh => 0x8440,
+        CompressedOp::CSb => 0x8800,
+        CompressedOp::CSh => 0x8c00,
+        _ => unreachable!(),
+    };
+    funct
+        | ((compress_reg_index(base) as u16) << 7)
+        | ((compress_reg_index(reg) as u16) << 2)
+        | (((offset & 1) as u16) << 6)
+        | (((offset & 2) as u16) << 4)
+}
+
 fn encode_compressed_inst(
     op: &CompressedOp,
     operands: &EvaluatedCompressedOperands,
     location: &Location,
 ) -> Result<u16> {
     match (op, operands) {
+        (
+            CompressedOp::CZextB
+            | CompressedOp::CSextB
+            | CompressedOp::CZextH
+            | CompressedOp::CSextH
+            | CompressedOp::CNot,
+            EvaluatedCompressedOperands::CRSingle { rs1 },
+        ) => Ok(encode_c_unary(*op, *rs1)),
+        (
+            CompressedOp::CMul,
+            EvaluatedCompressedOperands::CA { rd_prime, rs2_prime },
+        ) => Ok(encode_c_mul(*rd_prime, *rs2_prime)),
+        (
+            CompressedOp::CLbu | CompressedOp::CLh | CompressedOp::CLhu,
+            EvaluatedCompressedOperands::CL {
+                rd_prime: reg,
+                rs1_prime: base,
+                offset,
+            },
+        )
+        | (
+            CompressedOp::CSb | CompressedOp::CSh,
+            EvaluatedCompressedOperands::CS {
+                rs2_prime: reg,
+                rs1_prime: base,
+                offset,
+            },
+        ) => {
+            let byte = matches!(op, CompressedOp::CLbu | CompressedOp::CSb);
+            if !(0..=if byte { 3 } else { 2 }).contains(offset)
+                || (!byte && offset % 2 != 0)
+            {
+                return Err(RiscletError::from_context(
+                    format!(
+                        "Zcb memory offset must be {}",
+                        if byte { "in range 0-3" } else { "0 or 2" }
+                    ),
+                    location.clone(),
+                ));
+            }
+            Ok(encode_c_small_memory(*op, *reg, *base, *offset as u32))
+        }
         (CompressedOp::CNop, EvaluatedCompressedOperands::None) => {
             Ok(0b000_0_00000_00000_01)
         }

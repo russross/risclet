@@ -19,6 +19,7 @@ use crate::elf::{
     SHT_RISCV_ATTRIBUTES, SHT_STRTAB, SHT_SYMTAB, STB_GLOBAL, STB_LOCAL,
     STT_NOTYPE, make_st_info,
 };
+use crate::encoder::{Extension, ExtensionsUsed};
 use crate::error::{Result, RiscletError};
 use crate::expressions::{EvaluatedValue, SymbolValues};
 use crate::layout::{Layout, LineLayout};
@@ -81,6 +82,7 @@ impl<'a> ElfBuilder<'a> {
         layout: &'a Layout,
         text_data: Vec<u8>,
         data_data: Vec<u8>,
+        extensions_used: ExtensionsUsed,
     ) -> Self {
         Self {
             header: executable_header(),
@@ -91,7 +93,7 @@ impl<'a> ElfBuilder<'a> {
             symbol_names: StringTable::new(),
             text_data,
             data_data,
-            riscv_attributes: generate_riscv_attributes(),
+            riscv_attributes: generate_riscv_attributes(extensions_used),
             executable_layout: ExecutableLayout::new(
                 layout.data_size > 0,
                 layout.bss_size > 0,
@@ -705,11 +707,25 @@ impl StringTable {
 /// This section describes the RISC-V ISA features used by the binary.
 /// Format follows the ELF attributes specification with RISC-V extensions.
 ///
-/// For RV32IMACZifencei (I, M, A, C extensions + Zifencei), we generate:
-/// "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0"
-fn generate_riscv_attributes() -> Vec<u8> {
-    // Generate attributes for RV32IMAC with compressed instructions and Zifencei
-    let arch_string = "rv32i2p1_m2p0_a2p1_c2p0_zifencei2p0";
+fn generate_riscv_attributes(extensions_used: ExtensionsUsed) -> Vec<u8> {
+    // Emit versioned extension names in canonical ISA order. Only the stable
+    // encoding pass contributes requirements, including compressed relaxation.
+    let mut arch_string = String::from("rv32i2p1");
+    for (extension, suffix) in [
+        (Extension::M, "_m2p0"),
+        (Extension::A, "_a2p1"),
+        (Extension::C, "_c2p0"),
+        (Extension::Zba, "_zba1p0"),
+        (Extension::Zbb, "_zbb1p0"),
+        (Extension::Zbkb, "_zbkb1p0"),
+        (Extension::Zbs, "_zbs1p0"),
+        (Extension::Zcb, "_zcb1p0"),
+        (Extension::Zifencei, "_zifencei2p0"),
+    ] {
+        if extensions_used.contains(extension) {
+            arch_string.push_str(suffix);
+        }
+    }
 
     let mut attrs = Vec::new();
 

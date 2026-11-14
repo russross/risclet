@@ -2274,5 +2274,485 @@
         "constant.numeric"
       ]
     ]
+  },
+  {
+    "line": "sh1add a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sh2add a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sh3add a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "andn a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "orn a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "xnor a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "min a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "minu a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "max a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "maxu a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "rol a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ror a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bclr a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bext a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "binv a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bset a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "pack a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "packh a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "rori a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bclri a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bexti a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "binvi a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "bseti a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "clz a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "ctz a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "cpop a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sext.b a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "sext.h a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "zext.h a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "orc.b a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "rev8 a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "brev8 a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "zip a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "unzip a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "zext.b a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.lbu a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.lh a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.lhu a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.sb a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.sh a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.zext.b a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.sext.b a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.zext.h a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.sext.h a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.not a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.mul a0",
+    "checks": [
+      [
+        0,
+        "Instruction",
+        "keyword.control.instruction"
+      ]
+    ]
+  },
+  {
+    "line": "c.zext.w a0",
+    "checks": [
+      [
+        0,
+        "StatementError",
+        "invalid.illegal.statement"
+      ]
+    ]
+  },
+  {
+    "line": "j sh1add",
+    "checks": [
+      [
+        2,
+        "Symbol",
+        "variable.other.symbol"
+      ]
+    ]
   }
 ]
